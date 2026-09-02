@@ -1,0 +1,28 @@
+# Binaries and build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dist/
+
+# Test and coverage artifacts
+*.out
+*.test
+coverage.html
+
+# Local azlens config (sensitive: subscription/tenant IDs)
+.azlens.yaml
+.azlens.yml
+azlens.yaml
+azlens.yml
+*.local.yaml
+.env
+
+# OS and IDE files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
