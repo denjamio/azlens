@@ -1,0 +1,39 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - ineffassign
+    - misspell
+    - unused
+    - bodyclose
+    - copyloopvar
+    - errcheck
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # Quickfix style suggestions (tagged switch / Fprintf) are noise for this codebase
+        - -QF*
+    errcheck:
+      exclude-functions:
+        # Reporting writes: an output write failure on stdout is not actionable mid-report
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # fatih/color terminal helpers
+        - (*github.com/fatih/color.Color).Fprint
+        - (*github.com/fatih/color.Color).Fprintf
+        - (*github.com/fatih/color.Color).Fprintln
+        # Deferred resource cleanup: a failed Close is harmless for a short-lived CLI
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (*compress/gzip.Reader).Close
+
+formatters:
+  enable:
+    - gofmt
