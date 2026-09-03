@@ -154,19 +154,21 @@ AzLens uses sensible defaults out of the box:
 
 ---
 
-## ⚙️ Configuration & Project Scoping (`.azlens.yaml`)
+## ⚙️ Configuration & Project Scoping (`azlens.yaml`)
 
-Following **Convention over Configuration**, the config file is the **single source of truth**: Azure targets, subscriptions, scopes, thresholds, and operational defaults all live in `.azlens.yaml`. The CLI surface stays minimal (`-p` to switch profiles, `-o` to change output format, positional durations, and `-c` to point at an explicit config file — which must exist, there is no silent fallback).
+Following **Convention over Configuration**, the config file is the **single source of truth**: Azure targets, subscriptions, scopes, thresholds, and operational defaults all live in `azlens.yaml`. The CLI surface stays minimal (`-p` to switch profiles, `-o` to change output format, positional durations, and `-c` to point at an explicit config file — which must exist, there is no silent fallback).
 
 Following the same principle, AzLens works out of the box even without any configuration file (using built-in defaults).
 
-To configure project-specific scopes, Azure IDs, and operational defaults, initialize a local **`.azlens.yaml`** (a hidden file kept outside of git via `.gitignore`):
+To configure project-specific scopes, Azure IDs, and operational defaults, create **`azlens.yaml`** in your project root (clear naming, no leading dot — meant to be **committed** and shared by the team):
 
 ```bash
 azlens config init
 ```
 
-### Configuration Structure (`version`, `defaults`, `profiles`)
+### Configuration Structure (`version`, `defaults`, `shared`, `profiles`)
+
+Declare **once** in `shared` everything that does **not** vary across environments; each profile only declares what differs (typically `insights.name` and `logs.workspace_id`). Any shared field can be overridden per profile when needed.
 
 ```yaml
 version: "1.0"
@@ -179,25 +181,28 @@ defaults:
   limit: 15              # Default number of rows returned in tables (override with --limit / -n)
   output: "table"        # Output format: table | markdown | json (override with --output / -o)
 
-# Azure environment targets: one concept, one name, one place
+# Shared target: set once, inherited by every profile
+shared:
+  insights:
+    subscription: "11111111-aaaa-bbbb-cccc-111111111111" # App Insights subscription (same for all environments)
+  logs:
+    subscription: "22222222-dddd-eeee-ffff-222222222222" # Log Analytics subscription (same for all environments)
+    namespace: "ecommerce"         # Kubernetes namespace
+    database: "backend_ror"        # Database name for slow query logs (MySqlSlowLogs)
+  roles: ""                      # cloud_RoleName(s): EXACT microservice names — scalar or list (empty = all services)
+  pods: ""                       # Pod names WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
+  exclude_synthetic: true
+  exclude_probes: true
+
+# Environment targets: only what differs per environment
 profiles:
   prod:
     name: "Production Microservices"
     target:
       insights:
-        name: "app-shared-prod"       # Resource name from the portal URL (or App ID GUID)
-        subscription: "11111111-aaaa-bbbb-cccc-111111111111" # Optional subscription ID (if multi-subscription)
-        tenant: ""                    # Optional directory/tenant ID
+        name: "app-shared-prod"  # Resource name from the portal URL (or App ID GUID)
       logs:
         workspace_id: "33333333-hhhh-iiii-jjjj-333333333333" # Log Analytics workspace Customer ID GUID
-        subscription: "22222222-dddd-eeee-ffff-222222222222" # Optional subscription ID (if multi-subscription)
-        tenant: ""                    # Optional directory/tenant ID
-      role: "order-service"           # cloud_RoleName (microservice isolation)
-      pod: "order-service"            # Pod / instance name token match
-      namespace: "ecommerce"          # Kubernetes namespace
-      database: "backend_ror"         # Database name for slow query logs
-      exclude_synthetic: true
-      exclude_probes: true
 
     # Quality gate thresholds (optional, defaults: 15% warn / 30% crit, 5 min samples)
     thresholds:
@@ -205,7 +210,7 @@ profiles:
       p95_latency_crit_pct: 30.0
       error_rate_warn_delta: 1.0
       error_rate_crit_delta: 3.0
-      min_sample_calls: 5             # Ignore noise on endpoints with fewer calls than this
+      min_sample_calls: 5        # Ignore noise on endpoints with fewer calls than this
 
   staging:
     name: "Staging Environment"
@@ -214,12 +219,8 @@ profiles:
         name: "app-shared-staging"
       logs:
         workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
-      role: "order-service"
-      pod: "order-service"
-      namespace: "ecommerce-staging"
-      database: "backend_ror"
-      exclude_synthetic: true
-      exclude_probes: true
+      # Optional per-environment overrides of any shared field:
+      # roles: billing-service
     defaults:
       window: "30m"
       since: "15m"
@@ -237,15 +238,51 @@ profiles:
         name: "app-shared-dev"
       logs:
         workspace_id: "55555555-eeee-ffff-dddd-555555555555"
-      role: "order-service"
-      pod: "order-service"
-      namespace: "ecommerce-dev"
-      database: "backend_ror"
-      exclude_synthetic: true
-      exclude_probes: true
 ```
 
 > **Note:** `target.insights.name` accepts the App Insights resource name (as seen in the portal URL) or its App ID GUID, but `target.logs.workspace_id` requires the Log Analytics workspace **Customer ID (GUID)** — the "Workspace ID" shown in Portal → Log Analytics workspace → Overview. Retrieve it with `az monitor log-analytics workspace show -g <rg> -n <name> --query customerId -o tsv`.
+
+### Target Filters — What Each Option Actually Filters
+
+| Option | KQL column filtered | Applies to |
+| :--- | :--- | :--- |
+| `roles` | `cloud_RoleName` — **exact** microservice names, scalar or list (single: `=~`, multiple: `in~`) | App Insights: requests, dependencies, exceptions, traces |
+| `pods` | `cloud_RoleInstance` — token match on the pod name **without** the deployment hash, scalar or list (single: `has`, multiple: `has_any`) | App Insights + container logs |
+| `logs.namespace` | `customDimensions['Kubernetes.Namespace']` / `PodNamespace` | Log Analytics (+ App Insights customDimensions) |
+| `logs.database` | `Db` / `DatabaseName_s` | `MySqlSlowLogs` (Log Analytics) |
+| `resource_id` | `_ResourceId` | Log Analytics multi-resource workspaces |
+| `exclude_synthetic` | `operation_SyntheticSource` / `syntheticSource` | App Insights (availability tests) |
+| `exclude_probes` | `kube-probe` User-Agent + `/healthz`-style routes | App Insights |
+| `custom_dimensions` | `customDimensions['<key>'] =~ '<value>'` | App Insights |
+
+Without `roles`, queries scan telemetry from **all** microservices reporting to the App Insights resource — azlens warns about this at startup.
+
+Both YAML forms are equivalent — scalar or list:
+
+```yaml
+shared:
+  roles: order-service                     # single microservice (exact name)
+  # or
+  roles: [order-service, billing-service]  # several microservices
+  pods: order-service                      # matches order-service-7c9d, order-service-8f2e, ... (no hash needed)
+```
+
+Filter by one of the configured roles/pods — or any other — for a single run without editing the config: `--role` / `--pod` **replace** the configured list for that run (repeatable or comma-separated):
+
+```bash
+# Only ONE of the several configured roles
+azlens top endpoints 1h --role billing-service
+
+# Only ONE pod (or a specific one)
+azlens top endpoints 1h --pod order-service
+
+# Several at once
+azlens top endpoints 1h --role order-service,billing-service
+azlens top errors 24h --role order-service --role billing-service
+
+# Compare deploy health for a single microservice
+azlens deploy-check 4h --role order-service
+```
 
 ### Profile Management Commands
 ```bash
@@ -262,7 +299,8 @@ azlens deploy-check -p staging
 
 ### Environment & Authentication Diagnostics (`azlens doctor`)
 ```bash
-# Verify Azure CLI installation, login session, and validate profile configuration
+# Verify Azure CLI installation, extensions (application-insights, log-analytics),
+# login session, and validate the active profile configuration
 azlens doctor
 ```
 
@@ -294,7 +332,25 @@ AzLens runs read-only telemetry queries through the authenticated Azure CLI (`az
 | Application Insights | **Monitoring Reader** | The App Insights resource (or its resource group) |
 | Log Analytics workspace | **Log Analytics Reader** | The workspace resource (or its resource group) |
 
-For multi-directory setups (App Insights and Log Analytics in different Entra ID tenants), authenticate to both and configure `target.insights.tenant` / `target.logs.tenant` plus `target.insights.subscription` / `target.logs.subscription` in `.azlens.yaml` — each query travels with its own subscription/tenant context.
+### Subscription Sessions & Multi-Directory Logins
+
+There is no `tenant` config: the **subscription determines the directory (tenant)** of each query — `az` resolves it among the sessions you have authenticated. azlens never stores or refreshes tokens; session management stays entirely inside the az CLI.
+
+What azlens does manage for you:
+
+- **Pre-flight on every `top` / `deploy-check`**: verifies that each subscription configured in the profile (`insights.subscription`, `logs.subscription`) is available in the current az session.
+- **Interactive login on demand**: on a terminal, if a subscription is missing from the session, azlens launches `az login` for you (pick the account/directory that owns it) and re-verifies before querying.
+- **CI / non-interactive runs**: never hangs on a login prompt — it fails fast with `subscription(s) not in the active az session: <id>` and a hint to run `az login --tenant <tenant-id>`.
+- **`azlens doctor`**: reports per-subscription session coverage (✓ / ✗) for the active profile.
+
+For cross-directory setups (App Insights in directory A, Log Analytics in directory B), the one-time setup is just:
+
+```bash
+az login --tenant <directory-A>   # hosts App Insights
+az login --tenant <directory-B>   # hosts Log Analytics
+```
+
+After that, each query is routed statelessly with its own `--subscription`; no account switching ever happens.
 
 Grant access with:
 
@@ -311,13 +367,15 @@ az role assignment create --assignee <user-or-sp> --role "Log Analytics Reader" 
 
 | Symptom | Likely Cause | Fix |
 | :--- | :--- | :--- |
+| `'log-analytics' is mispelled or not recognized by the system` (same for `app-insights`) | The az CLI **extension** providing the query command is not installed | `az extension add --name log-analytics` and/or `az extension add --name application-insights` (azlens pre-flight and `doctor` detect this and print the same hint) |
 | `azure authentication failed: session expired or not logged in` | `az` session expired or wrong tenant | `az login` (add `--tenant <tenant-id>` for cross-directory setups) |
-| `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription` / `target.logs.subscription` in `.azlens.yaml`; `az login --tenant` for the other directory |
+| `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory you have not authenticated | On a terminal azlens launches `az login` automatically; otherwise run `az login --tenant <tenant-id>` for the directory hosting that subscription |
+| `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription` / `target.logs.subscription` in `azlens.yaml`; `az login --tenant` for the other directory |
 | `azure resource not found` | Wrong `target.insights.name` or `target.logs.workspace_id` | `target.logs.workspace_id` must be the **Customer ID (GUID)**, not the workspace name; `target.insights.name` is the resource name (or App ID) |
 | 403 / authorization errors on first run | Missing RBAC roles | See [Required Azure Permissions](#-required-azure-permissions-rbac) above |
 | Empty tables for `top queries` | `--type` value not matching your dependency `type` | Use `SQL`, `HTTP`, `Redis`, `Cosmos`, or `all` (case-insensitive) |
 | `MySqlSlowLogs` returns nothing | MySQL Flexible Server diagnostic settings not enabled | Enable the `MySqlSlowLogs` diagnostic category on the MySQL server; also set `target.database` to filter |
-| Queries return telemetry from all microservices | `target.role` not set | Set `cloud_RoleName` isolation via `target.role` (AzLens warns about this at startup) |
+| Queries return telemetry from all microservices | `target.roles` not set | Set `cloud_RoleName` isolation via `target.roles` (AzLens warns about this at startup) |
 
 ---
 

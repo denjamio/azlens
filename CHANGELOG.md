@@ -5,6 +5,53 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Config schema v2 — a coordinated breaking overhaul of the configuration file,
+target routing, and session management. Migrate with `azlens config init` and
+compare against `azlens.example.yaml`.
+
+### Breaking Changes
+
+- **Config file renamed to `azlens.yaml`** (no leading dot, meant to be committed
+  and shared by the team). `.azlens.yaml` is no longer read; the search path is
+  now `azlens.yaml` → `~/.config/azlens/azlens.yaml`, plus `-c <path>` for an
+  explicit file. `azlens config init` creates `azlens.yaml`.
+- **`tenant` removed** from `target.insights` / `target.logs`: the subscription
+  determines the directory (tenant) of each query; azlens never sets
+  `AZURE_TENANT_ID` or touches tokens.
+- **`target.role` / `target.pod` → plural `target.roles` / `target.pods`**:
+  scalar or list (e.g. `roles: [order-service, billing-service]`). KQL: single
+  value uses `=`~`/`has`, multiple use `in~`/`has_any`.
+- **`target.namespace` / `target.database` → `target.logs.namespace` /
+  `target.logs.database`**: Log Analytics-scoped filters now live under `logs`.
+
+### Added
+
+- **Shared target (`shared:`)**: declare once every target value that does not
+  vary across environments (subscriptions, filters, exclusion flags); profiles
+  inherit field-by-field and override only what differs. Boolean filters are
+  tri-state (`nil` inherits) so a profile can explicitly override shared flags.
+- **Subscription session management**: pre-flight on `top` / `deploy-check`
+  verifies each configured subscription is in the active az session; on a TTY,
+  azlens launches interactive `az login` and re-verifies. Non-interactive runs
+  fail fast with an actionable hint instead of hanging. `azlens doctor` reports
+  per-subscription session coverage. azlens never stores or refreshes tokens.
+- **Per-run filter overrides**: `--role` / `--pod` (repeatable or
+  comma-separated) replace the configured lists for a single run.
+- **Shell completion for `--role` / `--pod`** sourced from the config file
+  (nothing declared → nothing completed).
+- **Missing az extension detection**: `az monitor log-analytics query` and
+  `az monitor app-insights query` are extension commands; azlens now surfaces
+  `az extension add --name <ext>` hints instead of the cryptic az "mispelled"
+  error, both at query time and in `azlens doctor` / pre-flight.
+
+### Changed
+
+- `azlens doctor` verifies the `application-insights` and `log-analytics`
+  extensions in addition to CLI installation, login session, and profile
+  validation.
+
 ## [0.1.0] - 2026-09-03
 
 First public release of **AzLens** — actionable observability and deploy-regression
