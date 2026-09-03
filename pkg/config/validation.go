@@ -37,12 +37,12 @@ func (p *Profile) Validate() []ValidationIssue {
 	}
 
 	// 2. RoleName check (microservice isolation)
-	if strings.TrimSpace(p.Target.Role) == "" {
+	if len(p.Target.Roles) == 0 {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.role",
+			Field:    "target.roles",
 			Severity: SeverityWarning,
-			Message:  "cloud_RoleName ('target.role') is not configured. Queries will scan telemetry from ALL services in this App Insights resource.",
-			Hint:     "Set 'target.role: <service-name>' to isolate your microservice telemetry.",
+			Message:  "cloud_RoleName (`target.roles`) is not configured. Queries will scan telemetry from ALL services in this App Insights resource.",
+			Hint:     "Set 'target.roles: <service-name>' to isolate your microservice telemetry.",
 		})
 	}
 
@@ -57,17 +57,17 @@ func (p *Profile) Validate() []ValidationIssue {
 	}
 
 	// 4. Database check (optional)
-	if strings.TrimSpace(p.Target.Database) == "" {
+	if strings.TrimSpace(p.Target.Logs.Database) == "" {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.database",
+			Field:    "target.logs.database",
 			Severity: SeverityInfo,
-			Message:  "Database filter ('target.database') is not configured.",
-			Hint:     "Set 'target.database' (e.g. 'ecommerce_db') to filter MySqlSlowLogs by default.",
+			Message:  "Database filter ('target.logs.database') is not configured.",
+			Hint:     "Set 'target.logs.database' (e.g. 'ecommerce_db') to filter MySqlSlowLogs by default.",
 		})
 	}
 
 	// 5. Probes exclusion check
-	if !p.Target.ExcludeProbes {
+	if !p.Target.ExcludesProbes() {
 		issues = append(issues, ValidationIssue{
 			Field:    "target.exclude_probes",
 			Severity: SeverityWarning,

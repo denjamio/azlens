@@ -134,7 +134,7 @@ var topSlowLogsCmd = &cobra.Command{
 		limit := resolveTopLimit(cmd)
 		return runTopQuery(cmd, args, "slow query logs",
 			func(ctx context.Context, start, end time.Time) (model.GenericQueryResult, error) {
-				return runtimeFrom(cmd).Client.QueryMySQLSlowLogs(ctx, start, end, runtimeFrom(cmd).Profile.Target.Database, topSlowest, limit)
+				return runtimeFrom(cmd).Client.QueryMySQLSlowLogs(ctx, start, end, runtimeFrom(cmd).Profile.Target.Logs.Database, topSlowest, limit)
 			},
 			reporter.PrintGenericTable, reporter.PrintGenericMarkdown)
 	},

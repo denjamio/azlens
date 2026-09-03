@@ -14,14 +14,13 @@ import (
 const fakeAzOutput = `{"tables":[{"name":"PrimaryResult","columns":[{"name":"ok","type":"string"}],"rows":[["1"]]}]}`
 
 // fakeAzScript builds a shell script that emulates the `az` CLI: it appends its
-// arguments and the AZURE_TENANT_ID env var to a capture file, then prints a
-// valid query result so the client can parse it.
+// arguments to a capture file, then prints a valid query result so the client
+// can parse it.
 func fakeAzScript(t *testing.T, capturePath string) (binDir string) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> " + capturePath + "\n" +
-		"echo \"tenant=$AZURE_TENANT_ID\" >> " + capturePath + "\n" +
 		"echo '" + fakeAzOutput + "'\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -30,7 +29,7 @@ func fakeAzScript(t *testing.T, capturePath string) (binDir string) {
 	return dir
 }
 
-// readCapture returns the captured az invocations (args + tenant) as a single string
+// readCapture returns the captured az invocations (args) as a single string
 func readCapture(t *testing.T, capturePath string) string {
 	t.Helper()
 	data, err := os.ReadFile(capturePath)
@@ -41,7 +40,7 @@ func readCapture(t *testing.T, capturePath string) string {
 }
 
 // TestExecuteKQLRoutingMultiSubscription verifies that each query is routed to
-// the right backend (App Insights vs Log Analytics) with its own subscription/tenant
+// the right backend (App Insights vs Log Analytics) with its own subscription
 func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	prof := config.Profile{
 		Name: "Routing Test",
@@ -49,12 +48,10 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 			Insights: config.InsightsConfig{
 				Name:         "app-shared-pro",
 				Subscription: "sub-insights",
-				Tenant:       "tenant-insights",
 			},
 			Logs: config.LogsConfig{
 				WorkspaceID:  "33333333-hhhh-iiii-jjjj-333333333333",
 				Subscription: "sub-logs",
-				Tenant:       "tenant-logs",
 			},
 		},
 	}
@@ -69,7 +66,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	start := now.Add(-1 * time.Hour)
 	end := now
 
-	// 1. Log Analytics table query routes to the workspace with logs subscription/tenant
+	// 1. Log Analytics table query routes to the workspace with the logs subscription
 	if _, err := client.QueryMySQLSlowLogs(ctx, start, end, "testdb", false, 5); err != nil {
 		t.Fatalf("failed querying log analytics: %v", err)
 	}
@@ -78,14 +75,13 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		"monitor log-analytics query",
 		"--workspace 33333333-hhhh-iiii-jjjj-333333333333",
 		"--subscription sub-logs",
-		"tenant=tenant-logs",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("log analytics query missing %q in captured args:\n%s", want, cap)
 		}
 	}
 
-	// 2. App Insights query routes to the component with insights subscription/tenant
+	// 2. App Insights query routes to the component with the insights subscription
 	_ = os.Remove(capture)
 	if _, err := client.QueryRequestsSummary(ctx, start, end); err != nil {
 		t.Fatalf("failed querying app insights: %v", err)
@@ -95,7 +91,6 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",
-		"tenant=tenant-insights",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("app insights query missing %q in captured args:\n%s", want, cap)

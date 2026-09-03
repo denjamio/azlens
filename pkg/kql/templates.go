@@ -114,15 +114,15 @@ func BuildLatencyBreakdownQuery(start, end time.Time, target config.TargetConfig
 // BuildDeprecationsQuery builds high-performance, noise-filtered KQL query to find deprecation warnings
 func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
 	roleFilter := ""
-	if target.Role != "" {
-		roleFilter = fmt.Sprintf("\n    | where cloud_RoleName =~ '%s'", sanitize(target.Role))
+	if len(target.Roles) > 0 {
+		roleFilter = fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.Roles))
 	}
 	syntheticFilter := ""
-	if target.ExcludeSynthetic {
+	if target.ExcludesSynthetic() {
 		syntheticFilter = "\n    | where isempty(operation_SyntheticSource) and isempty(syntheticSource)"
 	}
 	probeFilter := ""
-	if target.ExcludeProbes {
+	if target.ExcludesProbes() {
 		probeFilter = "\n    | where tostring(customDimensions['User-Agent']) !has 'kube-probe' and not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))"
 	}
 	if topN <= 0 {

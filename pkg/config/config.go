@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,30 +35,142 @@ type Defaults struct {
 // InsightsConfig holds configuration for Application Insights (mapping only, no scalar)
 type InsightsConfig struct {
 	Name         string `yaml:"name,omitempty" json:"name,omitempty"`                 // Resource name or App ID
-	Subscription string `yaml:"subscription,omitempty" json:"subscription,omitempty"` // Subscription ID for Application Insights
-	Tenant       string `yaml:"tenant,omitempty" json:"tenant,omitempty"`             // Optional Entra ID Tenant / Directory ID
+	Subscription string `yaml:"subscription,omitempty" json:"subscription,omitempty"` // Subscription ID hosting Application Insights (routes the query; az resolves the directory from it)
 }
 
 // LogsConfig holds configuration for Log Analytics (mapping only, no scalar)
 type LogsConfig struct {
 	WorkspaceID  string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"` // Log Analytics workspace Customer ID (GUID), not the resource name
-	Subscription string `yaml:"subscription,omitempty" json:"subscription,omitempty"` // Subscription ID for Log Analytics
-	Tenant       string `yaml:"tenant,omitempty" json:"tenant,omitempty"`             // Optional Entra ID Tenant / Directory ID
+	Subscription string `yaml:"subscription,omitempty" json:"subscription,omitempty"` // Subscription ID hosting Log Analytics (routes the query; az resolves the directory from it)
+	Namespace    string `yaml:"namespace,omitempty" json:"namespace,omitempty"`       // Kubernetes namespace (PodNamespace / Kubernetes.Namespace dimensions)
+	Database     string `yaml:"database,omitempty" json:"database,omitempty"`         // Database name for MySqlSlowLogs filtering
 }
 
-// TargetConfig encapsulates telemetry destination and filter criteria for a profile.
+// BoolPtr returns a pointer to b. Target boolean filters use pointers so that
+// nil means "not set here" (inherit from shared) while an explicit value can
+// override the shared configuration.
+func BoolPtr(b bool) *bool { return &b }
+
+// StringList accepts either a scalar string or a YAML sequence of strings, so
+// both `roles: order-service` and `roles: [order-service, billing-service]` are
+// valid. An empty scalar or an empty list means "not set" (inherit from shared).
+type StringList []string
+
+func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var str string
+		if err := value.Decode(&str); err != nil {
+			return err
+		}
+		if strings.TrimSpace(str) == "" {
+			*s = nil
+			return nil
+		}
+		*s = StringList{str}
+		return nil
+	case yaml.SequenceNode:
+		var items []string
+		if err := value.Decode(&items); err != nil {
+			return err
+		}
+		list := make(StringList, 0, len(items))
+		for _, item := range items {
+			if trimmed := strings.TrimSpace(item); trimmed != "" {
+				list = append(list, trimmed)
+			}
+		}
+		if len(list) == 0 {
+			*s = nil
+			return nil
+		}
+		*s = list
+		return nil
+	default:
+		return fmt.Errorf("expected a string or a list of strings")
+	}
+}
+
+// TargetConfig encapsulates telemetry destination and filter criteria.
 // DHH: Un concepto, un nombre, un lugar.
+//
+// Filter reference (what each option filters in KQL):
+//   - roles             -> cloud_RoleName          (EXACT microservice names, one per service; single =~ / multiple in~)
+//   - pods              -> cloud_RoleInstance      (pod names WITHOUT the deployment hash; token match: single has / multiple has_any)
+//   - logs.namespace    -> customDimensions['Kubernetes.Namespace'] / PodNamespace
+//   - logs.database     -> Db / DatabaseName_s     (MySqlSlowLogs in Log Analytics)
+//   - resource_id       -> _ResourceId             (Log Analytics multi-resource workspaces)
+//   - exclude_synthetic -> operation_SyntheticSource / syntheticSource
+//   - exclude_probes    -> kube-probe User-Agent + /healthz-style routes
+//   - custom_dimensions -> customDimensions['<key>'] =~ '<value>'
 type TargetConfig struct {
 	Insights         InsightsConfig    `yaml:"insights,omitempty" json:"insights,omitempty"`
 	Logs             LogsConfig        `yaml:"logs,omitempty" json:"logs,omitempty"`
-	Role             string            `yaml:"role,omitempty" json:"role,omitempty"`                           // App Insights cloud_RoleName (microservice isolation)
-	Pod              string            `yaml:"pod,omitempty" json:"pod,omitempty"`                             // Pod name match (ContainerLogV2 / cloud_RoleInstance)
-	Namespace        string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`                 // Kubernetes namespace
-	Database         string            `yaml:"database,omitempty" json:"database,omitempty"`                   // Target database name for slow query logs
+	Roles            StringList        `yaml:"roles,omitempty" json:"roles,omitempty"`                         // App Insights cloud_RoleName(s): EXACT microservice names (scalar or list)
+	Pods             StringList        `yaml:"pods,omitempty" json:"pods,omitempty"`                           // App Insights cloud_RoleInstance token(s): pod names WITHOUT the deployment hash (scalar or list)
 	ResourceID       string            `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`             // Azure Resource ID (_ResourceId)
-	ExcludeSynthetic bool              `yaml:"exclude_synthetic,omitempty" json:"exclude_synthetic,omitempty"` // Filter out synthetic traffic / availability tests
-	ExcludeProbes    bool              `yaml:"exclude_probes,omitempty" json:"exclude_probes,omitempty"`       // Exclude /healthz, /ready, kube-probe requests
+	ExcludeSynthetic *bool             `yaml:"exclude_synthetic,omitempty" json:"exclude_synthetic,omitempty"` // Filter out synthetic traffic / availability tests (nil = inherit)
+	ExcludeProbes    *bool             `yaml:"exclude_probes,omitempty" json:"exclude_probes,omitempty"`       // Exclude /healthz, /ready, kube-probe requests (nil = inherit)
 	CustomDimensions map[string]string `yaml:"custom_dimensions,omitempty" json:"custom_dimensions,omitempty"` // Custom key-value pairs
+}
+
+// ExcludesSynthetic reports whether synthetic traffic / availability tests must be filtered
+func (t TargetConfig) ExcludesSynthetic() bool {
+	return t.ExcludeSynthetic != nil && *t.ExcludeSynthetic
+}
+
+// ExcludesProbes reports whether health probes (/healthz, kube-probe) must be filtered
+func (t TargetConfig) ExcludesProbes() bool { return t.ExcludeProbes != nil && *t.ExcludeProbes }
+
+// MergeTarget combines shared and profile-specific target configs: the profile
+// wins on every field it sets; shared fills everything else. Inheritance over
+// duplication — profiles should only declare what differs per environment.
+func MergeTarget(shared, override TargetConfig) TargetConfig {
+	merged := shared
+	if override.Insights.Name != "" {
+		merged.Insights.Name = override.Insights.Name
+	}
+	if override.Insights.Subscription != "" {
+		merged.Insights.Subscription = override.Insights.Subscription
+	}
+	if override.Logs.WorkspaceID != "" {
+		merged.Logs.WorkspaceID = override.Logs.WorkspaceID
+	}
+	if override.Logs.Subscription != "" {
+		merged.Logs.Subscription = override.Logs.Subscription
+	}
+	if len(override.Roles) > 0 {
+		merged.Roles = override.Roles
+	}
+	if len(override.Pods) > 0 {
+		merged.Pods = override.Pods
+	}
+	if override.Logs.Namespace != "" {
+		merged.Logs.Namespace = override.Logs.Namespace
+	}
+	if override.Logs.Database != "" {
+		merged.Logs.Database = override.Logs.Database
+	}
+	if override.ResourceID != "" {
+		merged.ResourceID = override.ResourceID
+	}
+	if override.ExcludeSynthetic != nil {
+		merged.ExcludeSynthetic = override.ExcludeSynthetic
+	}
+	if override.ExcludeProbes != nil {
+		merged.ExcludeProbes = override.ExcludeProbes
+	}
+	if len(override.CustomDimensions) > 0 {
+		dims := make(map[string]string, len(shared.CustomDimensions)+len(override.CustomDimensions))
+		for k, v := range shared.CustomDimensions {
+			dims[k] = v
+		}
+		for k, v := range override.CustomDimensions {
+			dims[k] = v
+		}
+		merged.CustomDimensions = dims
+	}
+	return merged
 }
 
 // Profile represents a specific project or environment telemetry configuration
@@ -77,10 +190,11 @@ type ProfileThresholds struct {
 	MinSampleCalls     int64   `yaml:"min_sample_calls,omitempty" json:"min_sample_calls,omitempty"` // Ignore noise on endpoints with fewer calls than this (default: 5)
 }
 
-// Config represents the top-level azlens configuration file (.azlens.yaml)
+// Config represents the top-level azlens configuration file (azlens.yaml)
 type Config struct {
 	Version    string             `yaml:"version" json:"version"`
 	Defaults   Defaults           `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+	Shared     TargetConfig       `yaml:"shared,omitempty" json:"shared,omitempty"` // Target values inherited by every profile: declare once what does not vary across environments
 	Profiles   map[string]Profile `yaml:"profiles" json:"profiles"`
 	LoadedPath string             `yaml:"-" json:"-"` // Where the config was resolved from
 }
@@ -140,7 +254,8 @@ func (c *Config) EffectiveDefaults(profileName string) Defaults {
 	return res
 }
 
-// DefaultConfig returns an initialized configuration with the 3 environment structures (prod by default)
+// DefaultConfig returns an initialized configuration with the 3 environment structures (prod by default).
+// Target values that do not vary across environments live in Shared; profiles declare only what differs.
 func DefaultConfig() *Config {
 	return &Config{
 		Version: "1.0",
@@ -151,13 +266,13 @@ func DefaultConfig() *Config {
 			Limit:   15,
 			Output:  "table",
 		},
+		Shared: TargetConfig{
+			ExcludeSynthetic: BoolPtr(true),
+			ExcludeProbes:    BoolPtr(true),
+		},
 		Profiles: map[string]Profile{
 			"prod": {
 				Name: "Production",
-				Target: TargetConfig{
-					ExcludeSynthetic: true,
-					ExcludeProbes:    true,
-				},
 				Thresholds: ProfileThresholds{
 					LatencyWarnPct:     15.0,
 					LatencyCritPct:     30.0,
@@ -168,10 +283,6 @@ func DefaultConfig() *Config {
 			},
 			"staging": {
 				Name: "Staging",
-				Target: TargetConfig{
-					ExcludeSynthetic: true,
-					ExcludeProbes:    true,
-				},
 				Defaults: Defaults{
 					Window: "30m",
 					Since:  "15m",
@@ -186,10 +297,6 @@ func DefaultConfig() *Config {
 			},
 			"dev": {
 				Name: "Development",
-				Target: TargetConfig{
-					ExcludeSynthetic: true,
-					ExcludeProbes:    true,
-				},
 			},
 		},
 	}
@@ -198,6 +305,8 @@ func DefaultConfig() *Config {
 // StarterConfigTemplate provides a commented, empty-value template for 'azlens config init'
 const StarterConfigTemplate = `# AzLens Configuration
 # Docs: https://github.com/denjamio/azlens
+#
+# This file (azlens.yaml) is meant to be COMMITTED and shared by the team.
 version: "1.0"
 
 # Operational defaults (inherited by all profiles)
@@ -208,25 +317,39 @@ defaults:
   limit: 15
   output: "table"
 
-# Environment targets: one concept, one name, one place
+# ─── Shared target ────────────────────────────────────────────────────────
+# Declare ONCE everything that does NOT vary across environments.
+# Profiles below inherit every field here and only declare what differs
+# (typically insights.name and logs.workspace_id). Any shared field can be
+# overridden per profile when needed.
+#
+# Sessions: azlens verifies that every configured subscription is available in
+# the current az session and launches 'az login' for you when it is not
+# (tokens stay entirely inside the az CLI — nothing is stored by azlens).
+shared:
+  insights:
+    subscription: "" # App Insights subscription ID (routes the query; az resolves the directory from it)
+  logs:
+    subscription: "" # Log Analytics subscription ID (routes the query; az resolves the directory from it)
+    namespace: ""    # Kubernetes namespace (e.g. ecommerce)
+    database: ""     # Database name for slow query logs (MySqlSlowLogs)
+  roles: []         # cloud_RoleName(s): EXACT microservice names — scalar or list (empty = all services)
+  pods: []          # Pod names WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
+  exclude_synthetic: true
+  exclude_probes: true
+
+# Environment targets: only what differs per environment
 profiles:
   prod:
     name: "Production"
     target:
       insights:
-        name: ""         # App Insights resource name or App ID (e.g. app-prod)
-        subscription: "" # Optional subscription ID (if different from default az account)
-        tenant: ""       # Optional directory/tenant ID
+        name: ""         # App Insights resource name (e.g. app-prod)
       logs:
-        workspace_id: "" # Log Analytics workspace Customer ID GUID (for slow logs & container logs)
-        subscription: "" # Optional subscription ID
-        tenant: ""       # Optional directory/tenant ID
-      role: ""           # cloud_RoleName (microservice isolation, e.g. order-service)
-      pod: ""            # Pod / instance name token (e.g. order-service)
-      namespace: ""      # Kubernetes namespace (e.g. ecommerce)
-      database: ""       # Database name for slow query logs
-      exclude_synthetic: true
-      exclude_probes: true
+        workspace_id: "" # Log Analytics workspace Customer ID GUID
+    # Optional per-environment overrides of any shared field:
+    #   roles: [billing-service, returns-service]  # isolate specific microservices
+    #   pods: order-service
     thresholds:
       p95_latency_warn_pct: 15.0
       p95_latency_crit_pct: 30.0
@@ -239,18 +362,8 @@ profiles:
     target:
       insights:
         name: ""
-        subscription: ""
-        tenant: ""
       logs:
         workspace_id: ""
-        subscription: ""
-        tenant: ""
-      role: ""
-      pod: ""
-      namespace: ""
-      database: ""
-      exclude_synthetic: true
-      exclude_probes: true
     thresholds:
       p95_latency_warn_pct: 25.0
       p95_latency_crit_pct: 50.0
@@ -263,18 +376,8 @@ profiles:
     target:
       insights:
         name: ""
-        subscription: ""
-        tenant: ""
       logs:
         workspace_id: ""
-        subscription: ""
-        tenant: ""
-      role: ""
-      pod: ""
-      namespace: ""
-      database: ""
-      exclude_synthetic: true
-      exclude_probes: true
 `
 
 // LoadConfig resolves and loads configuration from explicit path or default search paths
@@ -286,8 +389,10 @@ func LoadConfig(explicitPath string) (*Config, error) {
 		return loadConfigFile(explicitPath)
 	}
 
-	// Search paths (convention over configuration): 2 paths only
-	paths := []string{".azlens.yaml"}
+	// Search paths (convention over configuration): the team-shared, committed
+	// azlens.yaml in the project root; a per-user global file comes last.
+	// First match wins.
+	paths := []string{"azlens.yaml"}
 	home, err := os.UserHomeDir()
 	if err == nil && home != "" {
 		paths = append(paths, filepath.Join(home, ".config", "azlens", "azlens.yaml"))
@@ -299,7 +404,7 @@ func LoadConfig(explicitPath string) (*Config, error) {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "⚠️  Warning: no configuration file found (.azlens.yaml or ~/.config/azlens/azlens.yaml); using default placeholder config. Run 'azlens config init' to create one.")
+	fmt.Fprintln(os.Stderr, "⚠️  Warning: no configuration file found (azlens.yaml or ~/.config/azlens/azlens.yaml); using default placeholder config. Run 'azlens config init' to create one.")
 	return DefaultConfig(), nil
 }
 
@@ -318,7 +423,8 @@ func loadConfigFile(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// GetProfile retrieves the requested profile (or default)
+// GetProfile retrieves the requested profile (or default) with the shared target
+// applied: every field the profile sets wins, shared fills the rest
 func (c *Config) GetProfile(profileName string) (Profile, error) {
 	if profileName == "" {
 		profileName = c.GetDefaultProfile()
@@ -331,6 +437,7 @@ func (c *Config) GetProfile(profileName string) (Profile, error) {
 	if p.Name == "" {
 		p.Name = profileName
 	}
+	p.Target = MergeTarget(c.Shared, p.Target)
 	return p, nil
 }
 

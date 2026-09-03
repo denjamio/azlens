@@ -12,11 +12,7 @@ dist/
 *.test
 coverage.html
 
-# Local azlens config (sensitive: subscription/tenant IDs)
-.azlens.yaml
-.azlens.yml
-azlens.yaml
-azlens.yml
+# Local secrets / env files
 *.local.yaml
 .env
 

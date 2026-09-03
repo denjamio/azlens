@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
@@ -15,7 +16,7 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage azlens configuration and project profiles",
-	Long:  `View and initialize project/environment profiles in .azlens.yaml.`,
+	Long:  `View and initialize project/environment profiles in azlens.yaml.`,
 }
 
 var configListCmd = &cobra.Command{
@@ -46,7 +47,7 @@ var configListCmd = &cobra.Command{
 			if wsID == "" {
 				wsID = "-"
 			}
-			roleScope := prof.Target.Role
+			roleScope := strings.Join(prof.Target.Roles, ", ")
 			if roleScope == "" {
 				roleScope = "-"
 			}
@@ -86,9 +87,11 @@ var configShowCmd = &cobra.Command{
 
 var configInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Create a starter .azlens.yaml config file in current directory",
+	Short: "Create a starter azlens.yaml config file in current directory",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target := ".azlens.yaml"
+		// azlens.yaml: clear naming, no leading dot — meant to be COMMITTED by
+		// the host project and shared by the team. One file, one name, one place.
+		target := "azlens.yaml"
 		if _, err := os.Stat(target); err == nil {
 			return fmt.Errorf("%s already exists in current directory", target)
 		}
@@ -98,7 +101,8 @@ var configInitCmd = &cobra.Command{
 		}
 
 		color.Green("✓ Created %s (commented template with prod, staging, dev environments).", target)
-		fmt.Println("  Next step: run 'azlens doctor' to review missing parameters.")
+		fmt.Println("  Next step: commit this file — it is the team-shared configuration.")
+		fmt.Println("  Then run 'azlens doctor' to review missing parameters.")
 		return nil
 	},
 }

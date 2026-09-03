@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -20,10 +21,25 @@ var (
 	outputFlag     string
 	mockFlag       bool
 	printQueryFlag bool
+	roleFlag       []string
+	podFlag        []string
 )
 
 // defaultQueryTimeout is the default per-query budget; override with --query-timeout
 const defaultQueryTimeout = 45 * time.Second
+
+// splitCSVValues expands repeatable, comma-separated flag values into a clean list
+func splitCSVValues(values []string) []string {
+	var out []string
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
 
 // queryTimeout is the per-query budget for Azure telemetry queries, bound to
 // the hidden --query-timeout flag (useful for large windows on slow workspaces)
@@ -99,7 +115,7 @@ Application Insights, and Log Analytics to deliver actionable telemetry insights
 			return nil
 		}
 
-		// 1. Load config file (.azlens.yaml, ~/.config/azlens/azlens.yaml) — single source of truth
+		// 1. Load config file (azlens.yaml or ~/.config/azlens/azlens.yaml) — single source of truth
 		cfg, err := config.LoadConfig(configPathFlag)
 		if err != nil {
 			return fmt.Errorf("failed loading configuration: %w", err)
@@ -116,19 +132,27 @@ Application Insights, and Log Analytics to deliver actionable telemetry insights
 			return profErr
 		}
 
-		// 3. Apply config defaults (output) when not explicitly set by flags
+		// 3. Apply per-run target overrides (--role / --pod win over shared and profile config)
+		if len(roleFlag) > 0 {
+			prof.Target.Roles = splitCSVValues(roleFlag)
+		}
+		if len(podFlag) > 0 {
+			prof.Target.Pods = splitCSVValues(podFlag)
+		}
+
+		// 4. Apply config defaults (output) when not explicitly set by flags
 		effDefaults := cfg.EffectiveDefaults(activeProfileName)
 		resolver := NewDefaultResolver(effDefaults)
 		resolvedOutput := resolver.ResolveOutput(cmd, outputFlag)
 
-		// 4. Pre-flight diagnostics on telemetry commands (top, deploy-check) when not running in offline mock mode
+		// 5. Pre-flight diagnostics on telemetry commands (top, deploy-check) when not running in offline mock mode
 		if isTelemetryCommand(cmd) && !mockFlag {
 			if err := runPreflightDiagnostics(prof); err != nil {
 				return err
 			}
 		}
 
-		// 5. Inject the runtime for the executing command
+		// 6. Inject the runtime for the executing command
 		cmd.SetContext(context.WithValue(cmd.Context(), runtimeContextKey{}, &appRuntime{
 			Config:      cfg,
 			ProfileName: activeProfileName,
@@ -168,10 +192,12 @@ func init() {
 	RootCmd.SetVersionTemplate(fmt.Sprintf("azlens version %s (commit: %s, built: %s)\n", Version, Commit, Date))
 
 	RootCmd.PersistentFlags().StringVarP(&configPathFlag, "config", "c", "", "Path to azlens configuration file")
-	RootCmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Profile to use (defined in .azlens.yaml)")
+	RootCmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Profile to use (defined in azlens.yaml)")
 	RootCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", config.DefaultOutput, "Output format (table, markdown, json)")
 	RootCmd.PersistentFlags().BoolVar(&mockFlag, "mock", false, "Use mock/simulated telemetry data (no Azure connection needed)")
 	RootCmd.PersistentFlags().BoolVarP(&printQueryFlag, "print-query", "q", false, "Print generated KQL query statements before executing")
+	RootCmd.PersistentFlags().StringArrayVar(&roleFlag, "role", nil, "Override target.roles (App Insights cloud_RoleName) for this run; repeatable or comma-separated")
+	RootCmd.PersistentFlags().StringArrayVar(&podFlag, "pod", nil, "Override target.pods (cloud_RoleInstance token) for this run; repeatable or comma-separated")
 	RootCmd.PersistentFlags().DurationVar(&queryTimeout, "query-timeout", defaultQueryTimeout, "Per-query timeout budget (e.g. 30s, 2m)")
 	_ = RootCmd.PersistentFlags().MarkHidden("query-timeout")
 
@@ -186,4 +212,9 @@ func init() {
 	_ = RootCmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "markdown", "json"}, cobra.ShellCompDirectiveNoFileComp
 	})
+
+	// --role / --pod complete from the config file first (instant), falling
+	// back to live telemetry discovery: filters are picked, never typed
+	_ = RootCmd.RegisterFlagCompletionFunc("role", completeTelemetryValue("role"))
+	_ = RootCmd.RegisterFlagCompletionFunc("pod", completeTelemetryValue("pod"))
 }

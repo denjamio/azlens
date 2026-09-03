@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -23,6 +24,77 @@ func checkAzureCLIAvailable() (string, error) {
 	return azPath, nil
 }
 
+// azRequiredExtensions maps the az command groups azlens invokes to the Azure
+// CLI extension that provides them. Both query commands are extension commands:
+// without them installed, az fails with "'X' is mispelled or not recognized by
+// the system."
+var azRequiredExtensions = []struct {
+	Extension string
+	Provides  string
+}{
+	{"application-insights", "az monitor app-insights query (App Insights telemetry)"},
+	{"log-analytics", "az monitor log-analytics query (Log Analytics telemetry)"},
+}
+
+// missingAzExtensions returns the azlens-required extensions not installed in the az CLI.
+// 'az extension list' is a local, unauthenticated operation.
+func missingAzExtensions() ([]string, error) {
+	out, err := exec.Command("az", "--only-show-errors", "extension", "list", "-o", "json").Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed listing az extensions: %w", err)
+	}
+	var exts []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(out, &exts); err != nil {
+		return nil, fmt.Errorf("failed parsing az extension list: %w", err)
+	}
+	installed := make(map[string]bool, len(exts))
+	for _, e := range exts {
+		installed[strings.ToLower(e.Name)] = true
+	}
+	var missing []string
+	for _, req := range azRequiredExtensions {
+		if !installed[req.Extension] {
+			missing = append(missing, req.Extension)
+		}
+	}
+	return missing, nil
+}
+
+// checkRequiredAzExtensions fails fast with actionable guidance when the
+// extension providing the az command groups for this profile's configured
+// backends is missing. log-analytics is also the App Insights fallback backend
+// (queries route to the workspace when insights.name is empty).
+func checkRequiredAzExtensions(prof config.Profile) error {
+	missing, err := missingAzExtensions()
+	if err != nil {
+		// Cannot verify locally: let the query itself surface any real problem
+		return nil
+	}
+	needed := make(map[string]bool)
+	if strings.TrimSpace(prof.Target.Insights.Name) != "" {
+		needed["application-insights"] = true
+	}
+	if strings.TrimSpace(prof.Target.Logs.WorkspaceID) != "" || strings.TrimSpace(prof.Target.Insights.Name) == "" {
+		needed["log-analytics"] = true
+	}
+	var blocking []string
+	for _, m := range missing {
+		if needed[m] {
+			blocking = append(blocking, m)
+		}
+	}
+	if len(blocking) == 0 {
+		return nil
+	}
+	hints := make([]string, 0, len(blocking))
+	for _, m := range blocking {
+		hints = append(hints, fmt.Sprintf("'az extension add --name %s'", m))
+	}
+	return fmt.Errorf("azure cli extension(s) not installed: %s — the query commands for this profile's targets will not work.\n💡 Hint: Run %s (verify with 'az extension list')", strings.Join(blocking, ", "), strings.Join(hints, " and "))
+}
+
 // validateProfileIssues runs profile validation rules and returns any error
 func validateProfileIssues(prof config.Profile) ([]config.ValidationIssue, error) {
 	issues := prof.Validate()
@@ -37,6 +109,18 @@ func validateProfileIssues(prof config.Profile) ([]config.ValidationIssue, error
 // runPreflightDiagnostics runs the shared pre-flight checks used by PersistentPreRunE
 func runPreflightDiagnostics(prof config.Profile) error {
 	if _, err := checkAzureCLIAvailable(); err != nil {
+		return err
+	}
+
+	// Fail fast with guidance when the az extension providing this profile's
+	// backend commands is missing (avoids the cryptic "mispelled" az error)
+	if err := checkRequiredAzExtensions(prof); err != nil {
+		return err
+	}
+
+	// Verify the profile's subscriptions are authenticated in the current az
+	// session; on a TTY, launch the interactive 'az login' flow to fix it
+	if err := ensureSubscriptionSessions(prof); err != nil {
 		return err
 	}
 
@@ -93,11 +177,44 @@ var doctorCmd = &cobra.Command{
 			}
 		}
 
+		// 2b. Azure CLI extension check (the query commands are extension commands)
+		if azPath != "" {
+			missing, extErr := missingAzExtensions()
+			switch {
+			case extErr != nil:
+				color.Yellow("⚠️  Azure CLI extensions: could not verify (%v)", extErr)
+			case len(missing) > 0:
+				color.Red("✗ Azure CLI extensions: missing %s", strings.Join(missing, ", "))
+				for _, m := range missing {
+					for _, req := range azRequiredExtensions {
+						if req.Extension == m {
+							fmt.Printf("    %s\n", req.Provides)
+						}
+					}
+					fmt.Printf("  💡 Hint: Run 'az extension add --name %s'\n", m)
+				}
+				hasErrors = true
+			default:
+				color.Green("✓ Azure CLI extensions: application-insights, log-analytics installed")
+			}
+		}
+
+		// 2c. Session coverage: each subscription targeted by the active profile
+		for _, s := range configuredSubscriptions(rt.Profile) {
+			if ok, err := subscriptionAccessible(cmd.Context(), s); err == nil && ok {
+				color.Green("✓ Subscription session: %s available in the current az session", s)
+			} else {
+				color.Red("✗ Subscription session: %s not available in the current az session", s)
+				fmt.Println("  💡 Hint: Run 'az login --tenant <tenant-id>' for the directory hosting this subscription")
+				hasErrors = true
+			}
+		}
+
 		// 3. Config file check
 		if rt.Config != nil && rt.Config.LoadedPath != "" {
 			color.Green("✓ Configuration: loaded from %s", rt.Config.LoadedPath)
 		} else {
-			color.Yellow("⚠️  Configuration: running with in-memory defaults (no .azlens.yaml found)")
+			color.Yellow("⚠️  Configuration: running with in-memory defaults (no azlens.yaml found)")
 			fmt.Println("  💡 Hint: Run 'azlens config init' to create a starter configuration file")
 		}
 

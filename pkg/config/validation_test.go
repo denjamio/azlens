@@ -10,8 +10,8 @@ func TestProfileValidation(t *testing.T) {
 		Name: "Test",
 		Target: TargetConfig{
 			Insights:      InsightsConfig{Name: ""}, // Missing -> Error
-			Role:          "",                       // Missing -> Warning
-			ExcludeProbes: false,                    // False -> Warning
+			Roles:         nil,                      // Missing -> Warning
+			ExcludeProbes: BoolPtr(false),           // Explicit false -> Warning
 		},
 		Thresholds: ProfileThresholds{
 			LatencyWarnPct: 30.0,
@@ -33,7 +33,7 @@ func TestProfileValidation(t *testing.T) {
 		if iss.Field == "target.insights.name" && iss.Severity == SeverityError {
 			hasAppErr = true
 		}
-		if iss.Field == "target.role" && iss.Severity == SeverityWarning {
+		if iss.Field == "target.roles" && iss.Severity == SeverityWarning {
 			hasRoleWarn = true
 		}
 		if iss.Field == "target.exclude_probes" && iss.Severity == SeverityWarning {

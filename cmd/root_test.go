@@ -20,6 +20,8 @@ func resetRootFlags() {
 	outputFlag = config.DefaultOutput
 	mockFlag = false
 	printQueryFlag = false
+	roleFlag = nil
+	podFlag = nil
 	topLimit = config.DefaultLimit
 	topDepType = "all"
 	topSlowest = false
@@ -61,10 +63,11 @@ func TestConfigInitCreatesTemplate(t *testing.T) {
 		t.Fatalf("config init failed: %v", err)
 	}
 
-	cfgPath := filepath.Join(dir, ".azlens.yaml")
+	// The team-shared, committed file is azlens.yaml (no leading dot)
+	cfgPath := filepath.Join(dir, "azlens.yaml")
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
-		t.Fatalf("failed reading created .azlens.yaml: %v", err)
+		t.Fatalf("failed reading created azlens.yaml: %v", err)
 	}
 
 	content := string(data)
@@ -139,7 +142,7 @@ func TestBrokenConfigDoesNotBlockIndependentCommands(t *testing.T) {
 	defer resetRootFlags()
 
 	dir := t.TempDir()
-	brokenCfg := filepath.Join(dir, ".azlens.yaml")
+	brokenCfg := filepath.Join(dir, "azlens.yaml")
 	// Malformed YAML
 	if err := os.WriteFile(brokenCfg, []byte("invalid_yaml: [unclosed"), 0644); err != nil {
 		t.Fatalf("failed creating broken config: %v", err)

@@ -88,42 +88,57 @@ func (c *AzCliClient) GetProfile() config.Profile {
 }
 
 // routeForTargetQuery selects the target backend (App Insights or Log Analytics) and returns
-// the az CLI arguments — each query travels with its own subscription/tenant context,
-// so no global az account switching is ever needed
-func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string, error) {
+// the az CLI arguments — each query travels with its own subscription context,
+// so no global az account switching is ever needed. az resolves the directory
+// (tenant) from the subscription among the authenticated az sessions.
+func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, error) {
 	var args []string
 	var targetSub string
-	var targetTenant string
 
 	switch tq.Backend {
 	case kql.BackendLogAnalytics:
 		if p.Target.Logs.WorkspaceID == "" {
-			return nil, "", fmt.Errorf("target.logs.workspace_id must be configured in the active profile for Log Analytics queries")
+			return nil, fmt.Errorf("target.logs.workspace_id must be configured in the active profile for Log Analytics queries")
 		}
 		args = []string{"monitor", "log-analytics", "query", "--workspace", p.Target.Logs.WorkspaceID, "--analytics-query", tq.Query, "-o", "json"}
 		targetSub = p.Target.Logs.Subscription
-		targetTenant = p.Target.Logs.Tenant
 	case kql.BackendAppInsights:
 		if p.Target.Insights.Name != "" {
 			args = []string{"monitor", "app-insights", "query", "--app", p.Target.Insights.Name, "--analytics-query", tq.Query, "-o", "json"}
 			targetSub = p.Target.Insights.Subscription
-			targetTenant = p.Target.Insights.Tenant
 		} else if p.Target.Logs.WorkspaceID != "" {
 			args = []string{"monitor", "log-analytics", "query", "--workspace", p.Target.Logs.WorkspaceID, "--analytics-query", tq.Query, "-o", "json"}
 			targetSub = p.Target.Logs.Subscription
-			targetTenant = p.Target.Logs.Tenant
 		} else {
-			return nil, "", fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
+			return nil, fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
 		}
 	default:
-		return nil, "", fmt.Errorf("unknown query backend: %s", tq.Backend)
+		return nil, fmt.Errorf("unknown query backend: %s", tq.Backend)
 	}
 
 	if targetSub != "" {
 		args = append(args, "--subscription", targetSub)
 	}
 
-	return args, targetTenant, nil
+	return args, nil
+}
+
+// azExtensionForArgs maps the az command groups azlens invokes to the Azure CLI
+// extension that provides them: 'az monitor log-analytics query' and
+// 'az monitor app-insights query' are extension commands, not core CLI commands.
+// Without the extension installed, az reports the group as "mispelled or not
+// recognized by the system" (the interactive install prompt is unavailable in
+// non-interactive subprocesses).
+func azExtensionForArgs(args []string) string {
+	if len(args) >= 2 && args[0] == "monitor" {
+		switch args[1] {
+		case "log-analytics":
+			return "log-analytics"
+		case "app-insights":
+			return "application-insights"
+		}
+	}
+	return ""
 }
 
 // Query retry policy: transient failures from the Log Analytics / App Insights
@@ -141,6 +156,9 @@ var permanentQueryErrorMarkers = []string{
 	"azure authentication failed",
 	"azure subscription not found",
 	"azure resource not found",
+	"azure cli command not recognized",
+	"mispelled",
+	"misspelled",
 }
 
 // isPermanentQueryError reports whether the error is deterministic and must not be retried
@@ -162,14 +180,14 @@ func isPermanentQueryError(err error) bool {
 
 // runAzQuery executes the az CLI with retry and exponential backoff, and parses
 // the JSON output. Both windows and individual queries share this budget.
-func (c *AzCliClient) runAzQuery(ctx context.Context, args []string, tenant string) (*AzQueryResult, error) {
+func (c *AzCliClient) runAzQuery(ctx context.Context, args []string) (*AzQueryResult, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		res, err := c.runAzQueryOnce(ctx, args, tenant)
+		res, err := c.runAzQueryOnce(ctx, args)
 		if err == nil {
 			return res, nil
 		}
@@ -191,33 +209,32 @@ func (c *AzCliClient) runAzQuery(ctx context.Context, args []string, tenant stri
 }
 
 // runAzQueryOnce performs a single az CLI invocation and parses the JSON output
-func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string, tenant string) (*AzQueryResult, error) {
+func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQueryResult, error) {
 	// Suppress az warnings/telemetry notices on stderr so they cannot pollute
 	// the JSON output (stderr and stdout are captured together)
 	cmdArgs := append([]string{"--only-show-errors"}, args...)
 
 	cmd := exec.CommandContext(ctx, "az", cmdArgs...)
-	if tenant != "" {
-		env := os.Environ()
-		env = append(env, "AZURE_TENANT_ID="+tenant)
-		cmd.Env = env
-	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outStr := strings.TrimSpace(string(out))
-		if strings.Contains(outStr, "az login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "expired") {
-			targetHint := "your Azure tenant"
-			if tenant != "" {
-				targetHint = fmt.Sprintf("tenant '%s' (az login --tenant %s)", tenant, tenant)
+		// Missing az CLI extension: az reports the command group as unknown when
+		// the extension providing it is not installed. Guide with the exact fix.
+		if strings.Contains(outStr, "mispelled") || strings.Contains(outStr, "misspelled") || strings.Contains(outStr, "not recognized by the system") {
+			if ext := azExtensionForArgs(args); ext != "" {
+				return nil, fmt.Errorf("azure cli command not recognized: 'az %s %s' is provided by the '%s' extension, which is not installed.\n💡 Hint: Run 'az extension add --name %s' and retry", args[0], args[1], ext, ext)
 			}
-			return nil, fmt.Errorf("azure authentication failed: session expired or not logged in.\n💡 Hint: Run 'az login' to authenticate with %s", targetHint)
+			return nil, fmt.Errorf("azure cli command not recognized: %s\n💡 Hint: Update the Azure CLI with 'az upgrade' — this command group does not exist in the installed version", outStr)
+		}
+		if strings.Contains(outStr, "az login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "expired") {
+			return nil, fmt.Errorf("azure authentication failed: session expired or not logged in.\n💡 Hint: Run 'az login' (add '--tenant <tenant-id>' to authenticate an additional directory) — azlens does not store tokens, sessions stay in the az CLI")
 		}
 		if strings.Contains(outStr, "The subscription of") || strings.Contains(outStr, "SubscriptionNotFound") {
-			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories/tenants, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription' and 'logs.subscription' in .azlens.yaml")
+			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription' and 'logs.subscription' in azlens.yaml")
 		}
 		if strings.Contains(outStr, "ResourceNotFound") || strings.Contains(outStr, "not found") {
-			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: Verify 'insights.name', 'logs.workspace_id', or cross-directory subscriptions in .azlens.yaml", outStr)
+			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: Verify 'insights.name', 'logs.workspace_id', or cross-directory subscriptions in azlens.yaml", outStr)
 		}
 		return nil, fmt.Errorf("azure cli query failed: %w (output: %s)", err, outStr)
 	}
@@ -234,16 +251,16 @@ func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQu
 	if c.opts.PrintQuery {
 		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
 	}
-	args, tenant, err := routeForTargetQuery(c.opts.Profile, tq)
+	args, err := routeForTargetQuery(c.opts.Profile, tq)
 	if err != nil {
 		return nil, err
 	}
-	return c.runAzQuery(ctx, args, tenant)
+	return c.runAzQuery(ctx, args)
 }
 
 // executeKQLBatch runs multiple self-contained KQL statements in a single az CLI
 // invocation (semicolon-separated) and returns one result table per statement.
-// All statements must target the same backend (single subscription/tenant).
+// All statements must target the same backend (single subscription).
 func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQuery) ([]AzQueryTable, error) {
 	if len(queries) == 0 {
 		return nil, fmt.Errorf("empty query batch")
@@ -268,12 +285,12 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 		Backend: targetBackend,
 	}
 
-	args, tenant, err := routeForTargetQuery(c.opts.Profile, batchTarget)
+	args, err := routeForTargetQuery(c.opts.Profile, batchTarget)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := c.runAzQuery(ctx, args, tenant)
+	res, err := c.runAzQuery(ctx, args)
 	if err != nil {
 		return nil, err
 	}

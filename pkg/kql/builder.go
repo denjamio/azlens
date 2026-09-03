@@ -94,6 +94,32 @@ func (b *QueryBuilder) WithLimit(limit int) *QueryBuilder {
 	return b
 }
 
+// equalityExpr builds a case-insensitive equality KQL expression over a column:
+// =~ for a single value, in~ for several (both leverage the same semantics)
+func equalityExpr(column string, values config.StringList) string {
+	if len(values) == 1 {
+		return fmt.Sprintf("%s =~ '%s'", column, sanitize(values[0]))
+	}
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = fmt.Sprintf("'%s'", sanitize(v))
+	}
+	return fmt.Sprintf("%s in~ (%s)", column, strings.Join(quoted, ", "))
+}
+
+// tokenExpr builds a term-indexed KQL match over a column: has for a single
+// value, has_any for several (inverted-term-index friendly)
+func tokenExpr(column string, values config.StringList) string {
+	if len(values) == 1 {
+		return fmt.Sprintf("%s has '%s'", column, sanitize(values[0]))
+	}
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = fmt.Sprintf("'%s'", sanitize(v))
+	}
+	return fmt.Sprintf("%s has_any (%s)", column, strings.Join(quoted, ", "))
+}
+
 // buildBaseClauses produces optimized, partition-pruned KQL base filters
 func (b *QueryBuilder) buildBaseClauses() string {
 	var sb strings.Builder
@@ -113,22 +139,22 @@ func (b *QueryBuilder) buildBaseClauses() string {
 	}
 
 	// 3. Microservice / Role Scope (App Insights indexed field)
-	if b.target.Role != "" && !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString(fmt.Sprintf("| where cloud_RoleName =~ '%s'\n", sanitize(b.target.Role)))
+	if len(b.target.Roles) > 0 && !strings.EqualFold(b.table, "MySqlSlowLogs") {
+		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("cloud_RoleName", b.target.Roles)))
 	}
 
 	// 4. Pod Scope (cloud_RoleInstance in App Insights)
-	if b.target.Pod != "" {
-		sb.WriteString(fmt.Sprintf("| where cloud_RoleInstance has '%s'\n", sanitize(b.target.Pod)))
+	if len(b.target.Pods) > 0 {
+		sb.WriteString(fmt.Sprintf("| where %s\n", tokenExpr("cloud_RoleInstance", b.target.Pods)))
 	}
 
 	// 5. Exclude synthetic availability tests if configured
-	if b.target.ExcludeSynthetic && !strings.EqualFold(b.table, "MySqlSlowLogs") {
+	if b.target.ExcludesSynthetic() && !strings.EqualFold(b.table, "MySqlSlowLogs") {
 		sb.WriteString("| where isempty(operation_SyntheticSource) and isempty(syntheticSource)\n")
 	}
 
 	// 6. Exclude health probes (/healthz, /ready, kube-probe) if configured
-	if b.target.ExcludeProbes && !strings.EqualFold(b.table, "MySqlSlowLogs") {
+	if b.target.ExcludesProbes() && !strings.EqualFold(b.table, "MySqlSlowLogs") {
 		if b.table == "requests" {
 			sb.WriteString("| where tostring(customDimensions['User-Agent']) !has 'kube-probe' and not(name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))\n")
 		} else {
@@ -137,9 +163,9 @@ func (b *QueryBuilder) buildBaseClauses() string {
 	}
 
 	// 7. Kubernetes Namespace scope
-	if b.target.Namespace != "" {
+	if b.target.Logs.Namespace != "" {
 		sb.WriteString(fmt.Sprintf("| where tostring(customDimensions['Kubernetes.Namespace']) =~ '%s' or tostring(customDimensions['namespace']) =~ '%s'\n",
-			sanitize(b.target.Namespace), sanitize(b.target.Namespace)))
+			sanitize(b.target.Logs.Namespace), sanitize(b.target.Logs.Namespace)))
 	}
 
 	// 8. Custom Dimensions key-value scoping

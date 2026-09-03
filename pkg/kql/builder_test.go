@@ -18,11 +18,11 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 	}
 
 	target := config.TargetConfig{
-		Role:             "order-service",
-		Pod:              "order-service-7f8d9b",
-		Namespace:        "ecommerce-prod",
-		ExcludeSynthetic: true,
-		ExcludeProbes:    true,
+		Roles:            config.StringList{"order-service"},
+		Pods:             config.StringList{"order-service-7f8d9b"},
+		Logs:             config.LogsConfig{Namespace: "ecommerce-prod"},
+		ExcludeSynthetic: config.BoolPtr(true),
+		ExcludeProbes:    config.BoolPtr(true),
 		CustomDimensions: map[string]string{
 			"version": "v2.1.0",
 		},
@@ -85,7 +85,11 @@ func TestSanitizeNeutralizesKQLInjection(t *testing.T) {
 	tq := BuildRequestsSummaryQuery(
 		time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC),
-		config.TargetConfig{Role: malicious, Namespace: "ns' drop table --", Pod: `pod\' -x`},
+		config.TargetConfig{
+			Roles: config.StringList{malicious},
+			Pods:  config.StringList{`pod\' -x`},
+			Logs:  config.LogsConfig{Namespace: "ns' drop table --"},
+		},
 	)
 
 	q := tq.Query
@@ -127,7 +131,7 @@ func TestNewBuilderRejectsUnknownTable(t *testing.T) {
 func TestCrossCorrelationsQueries(t *testing.T) {
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
-	target := config.TargetConfig{Role: "order-service"}
+	target := config.TargetConfig{Roles: config.StringList{"order-service"}}
 
 	fanoutTQ := BuildFanoutSummaryQuery(start, end, target, 10)
 	fanoutQ := fanoutTQ.Query
@@ -142,6 +146,36 @@ func TestCrossCorrelationsQueries(t *testing.T) {
 	attrQ := attrTQ.Query
 	if !strings.Contains(attrQ, "join kind=leftouter") || !strings.Contains(attrQ, "PctDatabase") {
 		t.Errorf("expected leftouter join and PctDatabase in breakdown query, got: %s", attrQ)
+	}
+}
+
+func TestMultiRoleAndPodFilters(t *testing.T) {
+	start := time.Now().Add(-1 * time.Hour)
+	end := time.Now()
+
+	b, err := NewBuilder("requests")
+	if err != nil {
+		t.Fatalf("failed to create builder: %v", err)
+	}
+	tq := b.WithTimeRange(start, end).
+		WithTarget(config.TargetConfig{
+			Roles: config.StringList{"order-service", "billing-service", "returns-service"},
+			Pods:  config.StringList{"order-service-7c9d", "order-service-8f2e"},
+		}).BuildEndpointsSummary()
+
+	q := tq.Query
+
+	// Multi-role uses case-insensitive in~ (not a single =~ equality)
+	if !strings.Contains(q, "cloud_RoleName in~ ('order-service', 'billing-service', 'returns-service')") {
+		t.Errorf("expected multi-role in~ filter, got: %s", q)
+	}
+	if strings.Contains(q, "cloud_RoleName =~") {
+		t.Errorf("single-value =~ must not be used with multiple roles, got: %s", q)
+	}
+
+	// Multi-pod uses term-indexed has_any
+	if !strings.Contains(q, "cloud_RoleInstance has_any ('order-service-7c9d', 'order-service-8f2e')") {
+		t.Errorf("expected multi-pod has_any filter, got: %s", q)
 	}
 }
 
@@ -168,7 +202,7 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 func TestBuildDeprecationsQuery(t *testing.T) {
 	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
-	target := config.TargetConfig{Role: "order-service", ExcludeProbes: true}
+	target := config.TargetConfig{Roles: config.StringList{"order-service"}, ExcludeProbes: config.BoolPtr(true)}
 
 	tq := BuildDeprecationsQuery(start, end, target, 15)
 	if tq.Backend != BackendAppInsights {
@@ -196,7 +230,7 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	b, _ := NewBuilder("exceptions")
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
-	target := config.TargetConfig{ExcludeProbes: true, ExcludeSynthetic: true}
+	target := config.TargetConfig{ExcludeProbes: config.BoolPtr(true), ExcludeSynthetic: config.BoolPtr(true)}
 
 	tq := b.WithTimeRange(start, end).WithTarget(target).BuildExceptionsSummary()
 	q := tq.Query
