@@ -26,8 +26,9 @@ func checkAzureCLIAvailable() (string, error) {
 
 // azRequiredExtensions maps the az command groups azlens invokes to the Azure
 // CLI extension that provides them. Both query commands are extension commands:
-// without them installed, az fails with "'X' is mispelled or not recognized by
-// the system."
+// without them installed, az fails with "'X' is misspelled or not recognized by
+// the system." (az itself misspells "misspelled" — the client matches both
+// spellings of its output).
 var azRequiredExtensions = []struct {
 	Extension string
 	Provides  string
@@ -113,7 +114,7 @@ func runPreflightDiagnostics(prof config.Profile) error {
 	}
 
 	// Fail fast with guidance when the az extension providing this profile's
-	// backend commands is missing (avoids the cryptic "mispelled" az error)
+	// backend commands is missing (avoids the cryptic az "not recognized" error)
 	if err := checkRequiredAzExtensions(prof); err != nil {
 		return err
 	}

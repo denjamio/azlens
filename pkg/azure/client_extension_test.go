@@ -13,13 +13,14 @@ import (
 
 // fakeAzMissingExtension builds an az stub that reproduces the real CLI
 // behavior when the extension providing a command group is not installed:
-// az reports the group as "mispelled or not recognized by the system".
+// az reports the group as unknown with its own misspelling of "misspelled"
+// (single "s") — the exact string below matches az's real output.
 func fakeAzMissingExtension(t *testing.T, capturePath string) (binDir string) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> " + capturePath + "\n" +
-		"echo \"az monitor $2 query: '$2' is mispelled or not recognized by the system.\" >&2\n" +
+		"echo \"az monitor $2 query: '$2' is mispelled or not recognized by the system.\" >&2\n" + //nolint:misspell // verbatim az output
 		"exit 2\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {

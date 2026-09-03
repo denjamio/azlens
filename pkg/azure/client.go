@@ -126,9 +126,10 @@ func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, error)
 // azExtensionForArgs maps the az command groups azlens invokes to the Azure CLI
 // extension that provides them: 'az monitor log-analytics query' and
 // 'az monitor app-insights query' are extension commands, not core CLI commands.
-// Without the extension installed, az reports the group as "mispelled or not
-// recognized by the system" (the interactive install prompt is unavailable in
-// non-interactive subprocesses).
+// Without the extension installed, az reports the group as "misspelled or not
+// recognized by the system" (az misspells "misspelled" in that message, so the
+// client matches both spellings of its output). The interactive install prompt
+// is unavailable in non-interactive subprocesses.
 func azExtensionForArgs(args []string) string {
 	if len(args) >= 2 && args[0] == "monitor" {
 		switch args[1] {
@@ -157,8 +158,8 @@ var permanentQueryErrorMarkers = []string{
 	"azure subscription not found",
 	"azure resource not found",
 	"azure cli command not recognized",
-	"mispelled",
-	"misspelled",
+	"mispelled",  //nolint:misspell // az's genuine typo in "'X' is mispelled or not recognized by the system"
+	"misspelled", // the correctly spelled variant, in case az fixes its message
 }
 
 // isPermanentQueryError reports whether the error is deterministic and must not be retried
@@ -221,7 +222,9 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 		outStr := strings.TrimSpace(string(out))
 		// Missing az CLI extension: az reports the command group as unknown when
 		// the extension providing it is not installed. Guide with the exact fix.
-		if strings.Contains(outStr, "mispelled") || strings.Contains(outStr, "misspelled") || strings.Contains(outStr, "not recognized by the system") {
+		if strings.Contains(outStr, "mispelled") || //nolint:misspell // az's genuine typo in its output
+			strings.Contains(outStr, "misspelled") ||
+			strings.Contains(outStr, "not recognized by the system") {
 			if ext := azExtensionForArgs(args); ext != "" {
 				return nil, fmt.Errorf("azure cli command not recognized: 'az %s %s' is provided by the '%s' extension, which is not installed.\n💡 Hint: Run 'az extension add --name %s' and retry", args[0], args[1], ext, ext)
 			}
