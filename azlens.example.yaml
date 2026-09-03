@@ -1,0 +1,72 @@
+version: "1.0"
+
+# Operational defaults (inherited by all profiles)
+defaults:
+  profile: prod
+  window: "1h"
+  since: "1h"
+  limit: 15
+  output: "table"
+
+# Azure environment targets: one concept, one name, one place
+profiles:
+  prod:
+    name: "Production Microservices"
+    target:
+      insights:
+        name: "app-shared-prod"       # Resource name from the portal URL (or App ID GUID)
+        subscription: "11111111-aaaa-bbbb-cccc-111111111111" # Subscription ID (if multi-subscription)
+      logs:
+        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333" # Log Analytics workspace Customer ID GUID
+        subscription: "22222222-dddd-eeee-ffff-222222222222" # Subscription ID (if multi-subscription)
+      role: "order-service"           # cloud_RoleName (microservice isolation)
+      pod: "order-service"            # PodName token match (e.g. order-service)
+      namespace: "ecommerce"          # PodNamespace in AKS ContainerLogV2
+      database: "backend_ror"         # MySqlSlowLogs database filter
+      exclude_synthetic: true
+      exclude_probes: true
+
+    # Quality gate thresholds (optional, defaults: 15% warn / 30% crit, 5 min samples)
+    thresholds:
+      p95_latency_warn_pct: 15.0
+      p95_latency_crit_pct: 30.0
+      error_rate_warn_delta: 1.0
+      error_rate_crit_delta: 3.0
+      min_sample_calls: 5
+
+  staging:
+    name: "Staging Environment"
+    target:
+      insights:
+        name: "app-shared-staging"
+      logs:
+        workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
+      role: "order-service"
+      pod: "order-service"
+      namespace: "ecommerce-staging"
+      database: "backend_ror"
+      exclude_synthetic: true
+      exclude_probes: true
+    defaults:
+      window: "30m"
+      since: "15m"
+    thresholds:
+      p95_latency_warn_pct: 25.0
+      p95_latency_crit_pct: 50.0
+      error_rate_warn_delta: 2.0
+      error_rate_crit_delta: 5.0
+      min_sample_calls: 5
+
+  dev:
+    name: "Development Environment"
+    target:
+      insights:
+        name: "app-shared-dev"
+      logs:
+        workspace_id: "55555555-eeee-ffff-dddd-555555555555"
+      role: "order-service"
+      pod: "order-service"
+      namespace: "ecommerce-dev"
+      database: "backend_ror"
+      exclude_synthetic: true
+      exclude_probes: true
