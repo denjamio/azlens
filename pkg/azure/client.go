@@ -87,40 +87,45 @@ func (c *AzCliClient) GetProfile() config.Profile {
 	return c.opts.Profile
 }
 
-// routeForTargetQuery selects the target backend (App Insights or Log Analytics) and returns
-// the az CLI arguments — each query travels with its own subscription context,
-// so no global az account switching is ever needed. az resolves the directory
-// (tenant) from the subscription among the authenticated az sessions.
-func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, error) {
+// routeForTargetQuery selects the target backend (App Insights or Log Analytics)
+// and returns the az CLI arguments plus the directory ID the query must run
+// against. Nothing global is ever mutated: the directory travels with the query
+// as AZURE_TENANT_ID (per-process token routing) and the subscription as
+// --subscription, so the user's active az account and defaults stay untouched.
+func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string, error) {
 	var args []string
 	var targetSub string
+	var targetDirectory string
 
 	switch tq.Backend {
 	case kql.BackendLogAnalytics:
 		if p.Target.Logs.WorkspaceID == "" {
-			return nil, fmt.Errorf("target.logs.workspace_id must be configured in the active profile for Log Analytics queries")
+			return nil, "", fmt.Errorf("target.logs.workspace_id must be configured in the active profile for Log Analytics queries")
 		}
 		args = []string{"monitor", "log-analytics", "query", "--workspace", p.Target.Logs.WorkspaceID, "--analytics-query", tq.Query, "-o", "json"}
-		targetSub = p.Target.Logs.Subscription
+		targetSub = p.Target.Logs.SubscriptionID
+		targetDirectory = p.Target.Logs.DirectoryID
 	case kql.BackendAppInsights:
 		if p.Target.Insights.Name != "" {
 			args = []string{"monitor", "app-insights", "query", "--app", p.Target.Insights.Name, "--analytics-query", tq.Query, "-o", "json"}
-			targetSub = p.Target.Insights.Subscription
+			targetSub = p.Target.Insights.SubscriptionID
+			targetDirectory = p.Target.Insights.DirectoryID
 		} else if p.Target.Logs.WorkspaceID != "" {
 			args = []string{"monitor", "log-analytics", "query", "--workspace", p.Target.Logs.WorkspaceID, "--analytics-query", tq.Query, "-o", "json"}
-			targetSub = p.Target.Logs.Subscription
+			targetSub = p.Target.Logs.SubscriptionID
+			targetDirectory = p.Target.Logs.DirectoryID
 		} else {
-			return nil, fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
+			return nil, "", fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
 		}
 	default:
-		return nil, fmt.Errorf("unknown query backend: %s", tq.Backend)
+		return nil, "", fmt.Errorf("unknown query backend: %s", tq.Backend)
 	}
 
 	if targetSub != "" {
 		args = append(args, "--subscription", targetSub)
 	}
 
-	return args, nil
+	return args, targetDirectory, nil
 }
 
 // azExtensionForArgs maps the az command groups azlens invokes to the Azure CLI
@@ -181,14 +186,14 @@ func isPermanentQueryError(err error) bool {
 
 // runAzQuery executes the az CLI with retry and exponential backoff, and parses
 // the JSON output. Both windows and individual queries share this budget.
-func (c *AzCliClient) runAzQuery(ctx context.Context, args []string) (*AzQueryResult, error) {
+func (c *AzCliClient) runAzQuery(ctx context.Context, args []string, directoryID string) (*AzQueryResult, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		res, err := c.runAzQueryOnce(ctx, args)
+		res, err := c.runAzQueryOnce(ctx, args, directoryID)
 		if err == nil {
 			return res, nil
 		}
@@ -210,12 +215,18 @@ func (c *AzCliClient) runAzQuery(ctx context.Context, args []string) (*AzQueryRe
 }
 
 // runAzQueryOnce performs a single az CLI invocation and parses the JSON output
-func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQueryResult, error) {
+func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string, directoryID string) (*AzQueryResult, error) {
 	// Suppress az warnings/telemetry notices on stderr so they cannot pollute
 	// the JSON output (stderr and stdout are captured together)
 	cmdArgs := append([]string{"--only-show-errors"}, args...)
 
 	cmd := exec.CommandContext(ctx, "az", cmdArgs...)
+	if directoryID != "" {
+		// Directory-scoped token acquisition, process-local: the az child
+		// process acquires its data-plane token against this directory without
+		// touching the user's active account or default subscription
+		cmd.Env = append(os.Environ(), "AZURE_TENANT_ID="+directoryID)
+	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -231,10 +242,10 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 			return nil, fmt.Errorf("azure cli command not recognized: %s\n💡 Hint: Update the Azure CLI with 'az upgrade' — this command group does not exist in the installed version", outStr)
 		}
 		if strings.Contains(outStr, "az login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "expired") {
-			return nil, fmt.Errorf("azure authentication failed: session expired or not logged in.\n💡 Hint: Run 'az login' (add '--tenant <tenant-id>' to authenticate an additional directory) — azlens does not store tokens, sessions stay in the az CLI")
+			return nil, fmt.Errorf("azure authentication failed: session expired or not logged in.\n💡 Hint: Run 'az login --tenant <directory-id>' to authenticate an additional directory — azlens does not store tokens, sessions stay in the az CLI")
 		}
 		if strings.Contains(outStr, "The subscription of") || strings.Contains(outStr, "SubscriptionNotFound") {
-			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription' and 'logs.subscription' in azlens.yaml")
+			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription_id' and 'logs.subscription_id' (plus 'directory_id') in azlens.yaml")
 		}
 		if strings.Contains(outStr, "ResourceNotFound") || strings.Contains(outStr, "not found") {
 			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: Verify 'insights.name', 'logs.workspace_id', or cross-directory subscriptions in azlens.yaml", outStr)
@@ -254,16 +265,16 @@ func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQu
 	if c.opts.PrintQuery {
 		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
 	}
-	args, err := routeForTargetQuery(c.opts.Profile, tq)
+	args, directoryID, err := routeForTargetQuery(c.opts.Profile, tq)
 	if err != nil {
 		return nil, err
 	}
-	return c.runAzQuery(ctx, args)
+	return c.runAzQuery(ctx, args, directoryID)
 }
 
 // executeKQLBatch runs multiple self-contained KQL statements in a single az CLI
 // invocation (semicolon-separated) and returns one result table per statement.
-// All statements must target the same backend (single subscription).
+// All statements must target the same backend (single subscription/directory).
 func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQuery) ([]AzQueryTable, error) {
 	if len(queries) == 0 {
 		return nil, fmt.Errorf("empty query batch")
@@ -288,12 +299,12 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 		Backend: targetBackend,
 	}
 
-	args, err := routeForTargetQuery(c.opts.Profile, batchTarget)
+	args, directoryID, err := routeForTargetQuery(c.opts.Profile, batchTarget)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := c.runAzQuery(ctx, args)
+	res, err := c.runAzQuery(ctx, args, directoryID)
 	if err != nil {
 		return nil, err
 	}

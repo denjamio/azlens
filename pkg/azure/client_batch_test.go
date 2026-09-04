@@ -27,6 +27,7 @@ func fakeAzBatchScript(t *testing.T, capturePath string) string {
 	script := "#!/bin/sh\n" +
 		"echo \"=== INVOCATION ===\" >> " + capturePath + "\n" +
 		"echo \"$@\" >> " + capturePath + "\n" +
+		"echo \"directory=$AZURE_TENANT_ID\" >> " + capturePath + "\n" +
 		"echo '" + payload + "'\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -42,8 +43,9 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 		Name: "Batch Test",
 		Target: config.TargetConfig{
 			Insights: config.InsightsConfig{
-				Name:         "app-shared-pro",
-				Subscription: "sub-insights",
+				Name:           "app-shared-pro",
+				DirectoryID:    "dir-insights",
+				SubscriptionID: "sub-insights",
 			},
 			Logs: config.LogsConfig{WorkspaceID: "workspace-guid"},
 		},
@@ -94,6 +96,7 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",
+		"directory=dir-insights",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("batch query missing %q in captured args:\n%s", want, cap)

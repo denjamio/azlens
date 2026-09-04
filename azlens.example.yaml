@@ -20,15 +20,25 @@ defaults:
 # az resolves the directory (tenant) of each query from its subscription.
 shared:
   insights:
-    subscription: "11111111-aaaa-bbbb-cccc-111111111111" # App Insights subscription (same for all environments)
+    directory_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" # Entra directory hosting App Insights (drives 'az login --tenant' and per-query token routing)
+    subscription_id: "11111111-aaaa-bbbb-cccc-111111111111" # Subscription hosting App Insights (routes the query)
   logs:
-    subscription: "22222222-dddd-eeee-ffff-222222222222" # Log Analytics subscription (same for all environments)
+    directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" # Entra directory hosting Log Analytics
+    subscription_id: "22222222-dddd-eeee-ffff-222222222222" # Subscription hosting Log Analytics (routes the query)
     namespace: "ecommerce"         # Kubernetes namespace
     database: "backend_ror"        # Database name for MySqlSlowLogs filtering
   roles: []                       # cloud_RoleName(s): EXACT microservice names — scalar or list (empty = all services)
-  pods: []                        # Pod name WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
+  pods: []                        # Pod names WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
   exclude_synthetic: true
   exclude_probes: true
+
+  # Quality gate policy shared by every profile (per-profile overrides allowed)
+  thresholds:
+    p95_latency_warn_pct: 15.0
+    p95_latency_crit_pct: 30.0
+    error_rate_warn_delta: 1.0
+    error_rate_crit_delta: 3.0
+    min_sample_calls: 5
 
 # Environment targets: only what differs per environment
 profiles:

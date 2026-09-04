@@ -56,8 +56,8 @@ func TestSubscriptionAccessible(t *testing.T) {
 func TestConfiguredSubscriptionsDedup(t *testing.T) {
 	prof := config.Profile{
 		Target: config.TargetConfig{
-			Insights: config.InsightsConfig{Subscription: "sub-a"},
-			Logs:     config.LogsConfig{Subscription: "sub-b"},
+			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
+			Logs:     config.LogsConfig{SubscriptionID: "sub-b"},
 		},
 	}
 	got := configuredSubscriptions(prof)
@@ -67,8 +67,8 @@ func TestConfiguredSubscriptionsDedup(t *testing.T) {
 
 	same := config.Profile{
 		Target: config.TargetConfig{
-			Insights: config.InsightsConfig{Subscription: "sub-a"},
-			Logs:     config.LogsConfig{Subscription: "sub-a"},
+			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
+			Logs:     config.LogsConfig{SubscriptionID: "sub-a"},
 		},
 	}
 	got = configuredSubscriptions(same)
@@ -88,8 +88,8 @@ func TestEnsureSubscriptionSessions(t *testing.T) {
 		t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 		prof := config.Profile{Target: config.TargetConfig{
-			Insights: config.InsightsConfig{Subscription: "sub-a"},
-			Logs:     config.LogsConfig{Subscription: "sub-b"},
+			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
+			Logs:     config.LogsConfig{SubscriptionID: "sub-b"},
 		}}
 		if err := ensureSubscriptionSessions(prof); err != nil {
 			t.Errorf("expected nil error when all subscriptions are in session, got: %v", err)
@@ -113,8 +113,8 @@ func TestEnsureSubscriptionSessions(t *testing.T) {
 		// Test stdin/stdout are pipes (not char devices), so the interactive
 		// 'az login' launch must be skipped and the run must fail fast
 		prof := config.Profile{Target: config.TargetConfig{
-			Insights: config.InsightsConfig{Subscription: "sub-a"},
-			Logs:     config.LogsConfig{Subscription: "sub-missing"},
+			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
+			Logs:     config.LogsConfig{SubscriptionID: "sub-missing", DirectoryID: "dir-logs"},
 		}}
 		err := ensureSubscriptionSessions(prof)
 		if err == nil {

@@ -21,6 +21,7 @@ func fakeAzScript(t *testing.T, capturePath string) (binDir string) {
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> " + capturePath + "\n" +
+		"echo \"directory=$AZURE_TENANT_ID\" >> " + capturePath + "\n" +
 		"echo '" + fakeAzOutput + "'\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -46,12 +47,14 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		Name: "Routing Test",
 		Target: config.TargetConfig{
 			Insights: config.InsightsConfig{
-				Name:         "app-shared-pro",
-				Subscription: "sub-insights",
+				Name:           "app-shared-pro",
+				DirectoryID:    "dir-insights",
+				SubscriptionID: "sub-insights",
 			},
 			Logs: config.LogsConfig{
-				WorkspaceID:  "33333333-hhhh-iiii-jjjj-333333333333",
-				Subscription: "sub-logs",
+				WorkspaceID:    "33333333-hhhh-iiii-jjjj-333333333333",
+				DirectoryID:    "dir-logs",
+				SubscriptionID: "sub-logs",
 			},
 		},
 	}
@@ -75,6 +78,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		"monitor log-analytics query",
 		"--workspace 33333333-hhhh-iiii-jjjj-333333333333",
 		"--subscription sub-logs",
+		"directory=dir-logs",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("log analytics query missing %q in captured args:\n%s", want, cap)
@@ -91,6 +95,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",
+		"directory=dir-insights",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("app insights query missing %q in captured args:\n%s", want, cap)

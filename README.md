@@ -184,15 +184,25 @@ defaults:
 # Shared target: set once, inherited by every profile
 shared:
   insights:
-    subscription: "11111111-aaaa-bbbb-cccc-111111111111" # App Insights subscription (same for all environments)
+    directory_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" # Entra directory hosting App Insights (login + per-query token routing)
+    subscription_id: "11111111-aaaa-bbbb-cccc-111111111111" # Subscription hosting App Insights (routes the query)
   logs:
-    subscription: "22222222-dddd-eeee-ffff-222222222222" # Log Analytics subscription (same for all environments)
+    directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" # Entra directory hosting Log Analytics
+    subscription_id: "22222222-dddd-eeee-ffff-222222222222" # Subscription hosting Log Analytics (routes the query)
     namespace: "ecommerce"         # Kubernetes namespace
     database: "backend_ror"        # Database name for slow query logs (MySqlSlowLogs)
   roles: ""                      # cloud_RoleName(s): EXACT microservice names — scalar or list (empty = all services)
   pods: ""                       # Pod names WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
   exclude_synthetic: true
   exclude_probes: true
+
+  # Quality gate policy shared by every profile (per-profile overrides allowed)
+  thresholds:
+    p95_latency_warn_pct: 15.0
+    p95_latency_crit_pct: 30.0
+    error_rate_warn_delta: 1.0
+    error_rate_crit_delta: 3.0
+    min_sample_calls: 5
 
 # Environment targets: only what differs per environment
 profiles:
@@ -332,25 +342,26 @@ AzLens runs read-only telemetry queries through the authenticated Azure CLI (`az
 | Application Insights | **Monitoring Reader** | The App Insights resource (or its resource group) |
 | Log Analytics workspace | **Log Analytics Reader** | The workspace resource (or its resource group) |
 
-### Subscription Sessions & Multi-Directory Logins
+### Multi-Directory Setups (`directory_id`) & Sessions
 
-There is no `tenant` config: the **subscription determines the directory (tenant)** of each query — `az` resolves it among the sessions you have authenticated. azlens never stores or refreshes tokens; session management stays entirely inside the az CLI.
+For cross-directory setups (App Insights in directory A, Log Analytics in directory B), configure each backend's `directory_id` (and its `subscription_id`) once in `shared`. azlens then handles the rest — without ever mutating your az CLI defaults (active account / default subscription stay untouched):
 
-What azlens does manage for you:
-
-- **Pre-flight on every `top` / `deploy-check`**: verifies that each subscription configured in the profile (`insights.subscription`, `logs.subscription`) is available in the current az session.
-- **Interactive login on demand**: on a terminal, if a subscription is missing from the session, azlens launches `az login` for you (pick the account/directory that owns it) and re-verifies before querying.
-- **CI / non-interactive runs**: never hangs on a login prompt — it fails fast with `subscription(s) not in the active az session: <id>` and a hint to run `az login --tenant <tenant-id>`.
+- **Per-query token routing**: each `az` query runs with `AZURE_TENANT_ID=<directory_id>` in its process environment, so the data-plane token is issued against the right directory even when the other directory is the active one. No `az account set` is ever needed.
+- **Pre-flight on every `top` / `deploy-check`**: verifies that each configured subscription is available in the current az session.
+- **Interactive login on demand**: on a terminal, if a subscription is missing from the session, azlens launches `az login --tenant <directory_id>` for the exact directory that owns it (with the interactive account-picker experience disabled for a direct flow) and re-verifies before querying.
+- **CI / non-interactive runs**: never hangs on a login prompt — it fails fast with `subscription(s) not in the active az session: <id>` and the exact `az login --tenant <directory_id>` commands to run.
 - **`azlens doctor`**: reports per-subscription session coverage (✓ / ✗) for the active profile.
 
-For cross-directory setups (App Insights in directory A, Log Analytics in directory B), the one-time setup is just:
+azlens never stores or refreshes tokens; session management stays entirely inside the az CLI. To make the direct login flow permanent for all your az usage: `az config set core.login_experience_v2=off`.
+
+One-time setup for a fresh machine:
 
 ```bash
 az login --tenant <directory-A>   # hosts App Insights
 az login --tenant <directory-B>   # hosts Log Analytics
 ```
 
-After that, each query is routed statelessly with its own `--subscription`; no account switching ever happens.
+After that, each query is routed statelessly with its own `--subscription` and `AZURE_TENANT_ID`; no account switching ever happens.
 
 Grant access with:
 
@@ -370,7 +381,7 @@ az role assignment create --assignee <user-or-sp> --role "Log Analytics Reader" 
 | `'log-analytics' is mispelled or not recognized by the system` (same for `app-insights`) | The az CLI **extension** providing the query command is not installed | `az extension add --name log-analytics` and/or `az extension add --name application-insights` (azlens pre-flight and `doctor` detect this and print the same hint) |
 | `azure authentication failed: session expired or not logged in` | `az` session expired or wrong tenant | `az login` (add `--tenant <tenant-id>` for cross-directory setups) |
 | `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory you have not authenticated | On a terminal azlens launches `az login` automatically; otherwise run `az login --tenant <tenant-id>` for the directory hosting that subscription |
-| `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription` / `target.logs.subscription` in `azlens.yaml`; `az login --tenant` for the other directory |
+| `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription_id` / `target.logs.subscription_id` (+ `directory_id`) in `azlens.yaml`; `az login --tenant` for the other directory |
 | `azure resource not found` | Wrong `target.insights.name` or `target.logs.workspace_id` | `target.logs.workspace_id` must be the **Customer ID (GUID)**, not the workspace name; `target.insights.name` is the resource name (or App ID) |
 | 403 / authorization errors on first run | Missing RBAC roles | See [Required Azure Permissions](#-required-azure-permissions-rbac) above |
 | Empty tables for `top queries` | `--type` value not matching your dependency `type` | Use `SQL`, `HTTP`, `Redis`, `Cosmos`, or `all` (case-insensitive) |

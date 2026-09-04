@@ -120,10 +120,10 @@ profiles:
     target:
       insights:
         name: "app-shared-prod"
-        subscription: "sub-insights-123"
+        subscription_id: "sub-insights-123"
       logs:
         workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
-        subscription: "sub-logs-456"
+        subscription_id: "sub-logs-456"
         namespace: "ecommerce"
         database: "backend_ror"
       roles: "order-service"
@@ -148,8 +148,8 @@ profiles:
 	if prof.Target.Insights.Name != "app-shared-prod" {
 		t.Errorf("expected Target.Insights.Name 'app-shared-prod', got '%s'", prof.Target.Insights.Name)
 	}
-	if prof.Target.Insights.Subscription != "sub-insights-123" {
-		t.Errorf("expected Target.Insights.Subscription 'sub-insights-123', got '%s'", prof.Target.Insights.Subscription)
+	if prof.Target.Insights.SubscriptionID != "sub-insights-123" {
+		t.Errorf("expected Target.Insights.SubscriptionID 'sub-insights-123', got '%s'", prof.Target.Insights.SubscriptionID)
 	}
 	if len(prof.Target.Roles) != 1 || prof.Target.Roles[0] != "order-service" {
 		t.Errorf("expected Target.Roles 'order-service', got %v", prof.Target.Roles)
@@ -157,8 +157,8 @@ profiles:
 	if prof.Target.Logs.WorkspaceID != "33333333-hhhh-iiii-jjjj-333333333333" {
 		t.Errorf("expected Target.Logs.WorkspaceID '33333333-hhhh-iiii-jjjj-333333333333', got '%s'", prof.Target.Logs.WorkspaceID)
 	}
-	if prof.Target.Logs.Subscription != "sub-logs-456" {
-		t.Errorf("expected Target.Logs.Subscription 'sub-logs-456', got '%s'", prof.Target.Logs.Subscription)
+	if prof.Target.Logs.SubscriptionID != "sub-logs-456" {
+		t.Errorf("expected Target.Logs.SubscriptionID 'sub-logs-456', got '%s'", prof.Target.Logs.SubscriptionID)
 	}
 	if prof.Target.Logs.Namespace != "ecommerce" {
 		t.Errorf("expected Target.Logs.Namespace 'ecommerce', got '%s'", prof.Target.Logs.Namespace)
@@ -191,9 +191,11 @@ defaults:
 
 shared:
   insights:
-    subscription: "sub-insights-shared"
+    directory_id: "dir-insights-shared"
+    subscription_id: "sub-insights-shared"
   logs:
-    subscription: "sub-logs-shared"
+    directory_id: "dir-logs-shared"
+    subscription_id: "sub-logs-shared"
     namespace: "ecommerce"
     database: "backend_ror"
   roles: "order-service"
@@ -202,6 +204,10 @@ shared:
   exclude_probes: true
   custom_dimensions:
     team: "platform"
+  thresholds:
+    p95_latency_warn_pct: 15.0
+    p95_latency_crit_pct: 30.0
+    min_sample_calls: 5
 
 profiles:
   prod:
@@ -222,6 +228,8 @@ profiles:
       exclude_probes: false            # explicit false overrides shared true
       custom_dimensions:
         team: "staging-oncall"         # map keys merge, profile wins
+    thresholds:
+      p95_latency_warn_pct: 25.0       # per-env override of shared policy
 `
 	if err := os.WriteFile(tmpFile.Name(), []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed writing temp file: %v", err)
@@ -240,11 +248,14 @@ profiles:
 	if prod.Target.Insights.Name != "app-shared-prod" || prod.Target.Logs.WorkspaceID != "ws-guid-prod" {
 		t.Errorf("expected prod resource names from profile, got: %+v", prod.Target)
 	}
-	if prod.Target.Insights.Subscription != "sub-insights-shared" {
+	if prod.Target.Insights.SubscriptionID != "sub-insights-shared" {
 		t.Errorf("expected shared insights subscription inherited, got: %+v", prod.Target.Insights)
 	}
-	if prod.Target.Logs.Subscription != "sub-logs-shared" {
+	if prod.Target.Logs.SubscriptionID != "sub-logs-shared" {
 		t.Errorf("expected shared logs subscription inherited, got: %+v", prod.Target.Logs)
+	}
+	if prod.Target.Insights.DirectoryID != "dir-insights-shared" || prod.Target.Logs.DirectoryID != "dir-logs-shared" {
+		t.Errorf("expected shared directory IDs inherited, got: %+v / %+v", prod.Target.Insights, prod.Target.Logs)
 	}
 	if len(prod.Target.Roles) != 1 || prod.Target.Roles[0] != "order-service" || len(prod.Target.Pods) != 1 || prod.Target.Pods[0] != "order-service" || prod.Target.Logs.Namespace != "ecommerce" || prod.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected shared filters inherited, got: %+v", prod.Target)
@@ -254,6 +265,9 @@ profiles:
 	}
 	if prod.Target.CustomDimensions["team"] != "platform" {
 		t.Errorf("expected shared custom_dimensions inherited, got: %v", prod.Target.CustomDimensions)
+	}
+	if prod.Thresholds.LatencyWarnPct != 15.0 || prod.Thresholds.MinSampleCalls != 5 {
+		t.Errorf("expected shared thresholds inherited by prod, got: %+v", prod.Thresholds)
 	}
 
 	// 2. staging overrides specific shared fields
@@ -266,6 +280,9 @@ profiles:
 	}
 	if staging.Target.ExcludesProbes() {
 		t.Errorf("expected explicit profile exclude_probes=false to override shared true")
+	}
+	if staging.Thresholds.LatencyWarnPct != 25.0 || staging.Thresholds.MinSampleCalls != 5 {
+		t.Errorf("expected staging threshold override to win with rest inherited, got: %+v", staging.Thresholds)
 	}
 	if !staging.Target.ExcludesSynthetic() {
 		t.Errorf("expected shared exclude_synthetic=true still inherited")

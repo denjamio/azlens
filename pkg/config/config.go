@@ -34,16 +34,18 @@ type Defaults struct {
 
 // InsightsConfig holds configuration for Application Insights (mapping only, no scalar)
 type InsightsConfig struct {
-	Name         string `yaml:"name,omitempty" json:"name,omitempty"`                 // Resource name or App ID
-	Subscription string `yaml:"subscription,omitempty" json:"subscription,omitempty"` // Subscription ID hosting Application Insights (routes the query; az resolves the directory from it)
+	Name           string `yaml:"name,omitempty" json:"name,omitempty"`                       // Resource name or App ID
+	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`       // Entra directory ID hosting App Insights — drives 'az login --tenant' and AZURE_TENANT_ID per query
+	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"` // Subscription ID hosting Application Insights (routes the query)
 }
 
 // LogsConfig holds configuration for Log Analytics (mapping only, no scalar)
 type LogsConfig struct {
-	WorkspaceID  string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"` // Log Analytics workspace Customer ID (GUID), not the resource name
-	Subscription string `yaml:"subscription,omitempty" json:"subscription,omitempty"` // Subscription ID hosting Log Analytics (routes the query; az resolves the directory from it)
-	Namespace    string `yaml:"namespace,omitempty" json:"namespace,omitempty"`       // Kubernetes namespace (PodNamespace / Kubernetes.Namespace dimensions)
-	Database     string `yaml:"database,omitempty" json:"database,omitempty"`         // Database name for MySqlSlowLogs filtering
+	WorkspaceID    string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`       // Log Analytics workspace Customer ID (GUID), not the resource name
+	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`       // Entra directory ID hosting Log Analytics — drives 'az login --tenant' and AZURE_TENANT_ID per query
+	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"` // Subscription ID hosting Log Analytics (routes the query)
+	Namespace      string `yaml:"namespace,omitempty" json:"namespace,omitempty"`             // Kubernetes namespace (PodNamespace / Kubernetes.Namespace dimensions)
+	Database       string `yaml:"database,omitempty" json:"database,omitempty"`               // Database name for MySqlSlowLogs filtering
 }
 
 // BoolPtr returns a pointer to b. Target boolean filters use pointers so that
@@ -130,14 +132,20 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 	if override.Insights.Name != "" {
 		merged.Insights.Name = override.Insights.Name
 	}
-	if override.Insights.Subscription != "" {
-		merged.Insights.Subscription = override.Insights.Subscription
+	if override.Insights.DirectoryID != "" {
+		merged.Insights.DirectoryID = override.Insights.DirectoryID
+	}
+	if override.Insights.SubscriptionID != "" {
+		merged.Insights.SubscriptionID = override.Insights.SubscriptionID
 	}
 	if override.Logs.WorkspaceID != "" {
 		merged.Logs.WorkspaceID = override.Logs.WorkspaceID
 	}
-	if override.Logs.Subscription != "" {
-		merged.Logs.Subscription = override.Logs.Subscription
+	if override.Logs.DirectoryID != "" {
+		merged.Logs.DirectoryID = override.Logs.DirectoryID
+	}
+	if override.Logs.SubscriptionID != "" {
+		merged.Logs.SubscriptionID = override.Logs.SubscriptionID
 	}
 	if len(override.Roles) > 0 {
 		merged.Roles = override.Roles
@@ -187,14 +195,45 @@ type ProfileThresholds struct {
 	LatencyCritPct     float64 `yaml:"p95_latency_crit_pct,omitempty" json:"p95_latency_crit_pct,omitempty"`
 	ErrorRateWarnDelta float64 `yaml:"error_rate_warn_delta,omitempty" json:"error_rate_warn_delta,omitempty"`
 	ErrorRateCritDelta float64 `yaml:"error_rate_crit_delta,omitempty" json:"error_rate_crit_delta,omitempty"`
-	MinSampleCalls     int64   `yaml:"min_sample_calls,omitempty" json:"min_sample_calls,omitempty"` // Ignore noise on endpoints with fewer calls than this (default: 5)
+	MinSampleCalls     int64   `yaml:"min_sample_calls,omitempty" json:"min_sample_calls,omitempty"`
+}
+
+// MergeThresholds combines shared and profile-specific quality-gate policy:
+// every field the profile sets (non-zero) wins; shared fills the rest.
+func MergeThresholds(shared, override ProfileThresholds) ProfileThresholds {
+	merged := shared
+	if override.LatencyWarnPct > 0 {
+		merged.LatencyWarnPct = override.LatencyWarnPct
+	}
+	if override.LatencyCritPct > 0 {
+		merged.LatencyCritPct = override.LatencyCritPct
+	}
+	if override.ErrorRateWarnDelta > 0 {
+		merged.ErrorRateWarnDelta = override.ErrorRateWarnDelta
+	}
+	if override.ErrorRateCritDelta > 0 {
+		merged.ErrorRateCritDelta = override.ErrorRateCritDelta
+	}
+	if override.MinSampleCalls > 0 {
+		merged.MinSampleCalls = override.MinSampleCalls
+	}
+	return merged
+}
+
+// SharedConfig holds everything inherited by every profile: the telemetry
+// target scope (inlined — insights, logs, roles, pods, filters) and the
+// shared quality-gate policy (thresholds). Declare once what does not vary
+// across environments; profiles override field-by-field.
+type SharedConfig struct {
+	TargetConfig `yaml:",inline"`
+	Thresholds   ProfileThresholds `yaml:"thresholds,omitempty" json:"thresholds,omitempty"`
 }
 
 // Config represents the top-level azlens configuration file (azlens.yaml)
 type Config struct {
 	Version    string             `yaml:"version" json:"version"`
 	Defaults   Defaults           `yaml:"defaults,omitempty" json:"defaults,omitempty"`
-	Shared     TargetConfig       `yaml:"shared,omitempty" json:"shared,omitempty"` // Target values inherited by every profile: declare once what does not vary across environments
+	Shared     SharedConfig       `yaml:"shared,omitempty" json:"shared,omitempty"`
 	Profiles   map[string]Profile `yaml:"profiles" json:"profiles"`
 	LoadedPath string             `yaml:"-" json:"-"` // Where the config was resolved from
 }
@@ -266,20 +305,22 @@ func DefaultConfig() *Config {
 			Limit:   15,
 			Output:  "table",
 		},
-		Shared: TargetConfig{
-			ExcludeSynthetic: BoolPtr(true),
-			ExcludeProbes:    BoolPtr(true),
+		Shared: SharedConfig{
+			TargetConfig: TargetConfig{
+				ExcludeSynthetic: BoolPtr(true),
+				ExcludeProbes:    BoolPtr(true),
+			},
+			Thresholds: ProfileThresholds{
+				LatencyWarnPct:     15.0,
+				LatencyCritPct:     30.0,
+				ErrorRateWarnDelta: 1.0,
+				ErrorRateCritDelta: 3.0,
+				MinSampleCalls:     5,
+			},
 		},
 		Profiles: map[string]Profile{
 			"prod": {
-				Name: "Production",
-				Thresholds: ProfileThresholds{
-					LatencyWarnPct:     15.0,
-					LatencyCritPct:     30.0,
-					ErrorRateWarnDelta: 1.0,
-					ErrorRateCritDelta: 3.0,
-					MinSampleCalls:     5,
-				},
+				Name: "Production", // inherits shared thresholds
 			},
 			"staging": {
 				Name: "Staging",
@@ -287,12 +328,11 @@ func DefaultConfig() *Config {
 					Window: "30m",
 					Since:  "15m",
 				},
-				Thresholds: ProfileThresholds{
+				Thresholds: ProfileThresholds{ // per-environment override of shared policy
 					LatencyWarnPct:     25.0,
 					LatencyCritPct:     50.0,
 					ErrorRateWarnDelta: 2.0,
 					ErrorRateCritDelta: 5.0,
-					MinSampleCalls:     5,
 				},
 			},
 			"dev": {
@@ -328,15 +368,25 @@ defaults:
 # (tokens stay entirely inside the az CLI — nothing is stored by azlens).
 shared:
   insights:
-    subscription: "" # App Insights subscription ID (routes the query; az resolves the directory from it)
+    directory_id: ""    # Entra directory ID hosting App Insights (drives 'az login --tenant' and per-query token routing)
+    subscription_id: "" # Subscription ID hosting App Insights (routes the query)
   logs:
-    subscription: "" # Log Analytics subscription ID (routes the query; az resolves the directory from it)
-    namespace: ""    # Kubernetes namespace (e.g. ecommerce)
-    database: ""     # Database name for slow query logs (MySqlSlowLogs)
+    directory_id: ""    # Entra directory ID hosting Log Analytics
+    subscription_id: "" # Subscription ID hosting Log Analytics (routes the query)
+    namespace: ""       # Kubernetes namespace (e.g. ecommerce)
+    database: ""        # Database name for slow query logs (MySqlSlowLogs)
   roles: []         # cloud_RoleName(s): EXACT microservice names — scalar or list (empty = all services)
   pods: []          # Pod names WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
   exclude_synthetic: true
   exclude_probes: true
+
+  # Quality gate policy shared by every profile (per-profile overrides allowed)
+  thresholds:
+    p95_latency_warn_pct: 15.0
+    p95_latency_crit_pct: 30.0
+    error_rate_warn_delta: 1.0
+    error_rate_crit_delta: 3.0
+    min_sample_calls: 5
 
 # Environment targets: only what differs per environment
 profiles:
@@ -350,12 +400,7 @@ profiles:
     # Optional per-environment overrides of any shared field:
     #   roles: [billing-service, returns-service]  # isolate specific microservices
     #   pods: order-service
-    thresholds:
-      p95_latency_warn_pct: 15.0
-      p95_latency_crit_pct: 30.0
-      error_rate_warn_delta: 1.0
-      error_rate_crit_delta: 3.0
-      min_sample_calls: 5
+    #   thresholds: {p95_latency_warn_pct: 25.0, p95_latency_crit_pct: 50.0}
 
   staging:
     name: "Staging"
@@ -364,12 +409,6 @@ profiles:
         name: ""
       logs:
         workspace_id: ""
-    thresholds:
-      p95_latency_warn_pct: 25.0
-      p95_latency_crit_pct: 50.0
-      error_rate_warn_delta: 2.0
-      error_rate_crit_delta: 5.0
-      min_sample_calls: 5
 
   dev:
     name: "Development"
@@ -437,7 +476,8 @@ func (c *Config) GetProfile(profileName string) (Profile, error) {
 	if p.Name == "" {
 		p.Name = profileName
 	}
-	p.Target = MergeTarget(c.Shared, p.Target)
+	p.Target = MergeTarget(c.Shared.TargetConfig, p.Target)
+	p.Thresholds = MergeThresholds(c.Shared.Thresholds, p.Thresholds)
 	return p, nil
 }
 

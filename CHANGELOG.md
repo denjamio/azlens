@@ -5,6 +5,31 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Shared quality-gate policy (`shared.thresholds`)**: thresholds move into the
+  shared section with the same field-by-field inheritance as the rest of the
+  shared target — profiles override only what differs (e.g. staging looser than
+  production).
+- **Directory-aware sessions and query routing (`directory_id`)**: each backend
+  can declare the Entra directory ID hosting it. azlens uses it two ways, both
+  side-effect free:
+  - **Session automation**: when a configured subscription is not in the active
+    az session, azlens launches `az login --tenant <directory_id>` for the exact
+    directory that owns it (interactive, with the v2 account-picker experience
+    disabled for a direct flow) and re-verifies. CI runs fail fast with the
+    exact per-subscription login commands.
+  - **Per-query token routing**: every `az` query runs with
+    `AZURE_TENANT_ID=<directory_id>` in its process environment, so data-plane
+    tokens are issued against the right directory even in multi-directory
+    setups — without `az account set` and without touching the user's active
+    account or default subscription.
+- **Config key renames for precision**: `subscription` → `subscription_id`
+  (it is an ID), `tenant` → `directory_id`; `directory_id` sits above
+  `subscription_id` in `insights` / `logs`.
+
 ## [0.2.0] - 2026-09-04
 
 Config schema v2 — a coordinated breaking overhaul of the configuration file,
