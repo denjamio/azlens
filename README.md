@@ -164,13 +164,30 @@ AzLens uses sensible defaults out of the box:
 
 ### 🎨 Terminal Output & Colors
 
-Tables are rendered with a width-aware engine: they adapt to your terminal (shrinking flexible text columns instead of overflowing on narrow screens), right-align numeric columns, humanize generic headers (`TotalCalls` → `Total Calls`, `QueryDurationMs` → `Query Duration (ms)`), and colorize results by severity (error rates, latency deltas, slow-query durations). When output is piped or redirected, colors turn off automatically and no truncation is applied.
+Tables are rendered with a width-aware engine: they adapt to your terminal (shrinking flexible text columns instead of overflowing on narrow screens), right-align numeric columns, humanize generic headers (`TotalCalls` → `Total Calls`, `QueryDurationMs` → `Query Duration (ms)`), and colorize results by severity. When output is piped or redirected, colors turn off automatically and no truncation is applied.
 
 ```bash
 azlens top endpoints 1h --color auto    # default: color only on a TTY (honors NO_COLOR)
 azlens top slow-logs 2h --color always  # force ANSI colors (e.g. when piping through less -R)
 azlens deploy-check 2h --color never    # plain output for logs/CI
 ```
+
+### 🚦 Severity & Color Reference
+
+Every colored value maps to one standardized band (single source of truth in `pkg/reporter/thresholds.go`), anchored on industry standards so a color means the same thing in every table:
+
+| Indicator | 🟢 Healthy | 🟡 Review | 🔴 Critical | Basis |
+| :--- | :--- | :--- | :--- | :--- |
+| Error rate (5xx / exceptions) | < 1% | 1 – 5% | ≥ 5% | SRE error budget (99% SLO tier) + APM alert defaults |
+| API / gRPC latency | < 300ms | 300ms – 1s | ≥ 1s | API latency tiers, universal 1-second rule |
+| DB statement duration | < 100ms | 100ms – 1s | ≥ 1s | MySQL `long_query_time` analysis standard |
+| Cache ops (Redis/Memcached) | < 5ms | 5 – 25ms | ≥ 25ms | Sub-millisecond round-trip budget |
+| Scan ratio (rows examined / returned) | < 100× | 100 – 1000× | ≥ 1000× | EXPLAIN / Percona missing-index heuristic |
+| SQL calls per request (N+1) | < 5 | 5 – 15 | ≥ 15 | azlens analyzer fan-out defaults |
+| Latency regression Δ% | ≤ −15% (improved) | +15% | +30% | azlens analyzer regression thresholds |
+| N+1 spike Δ% | — | +40% | +100% | azlens analyzer fan-out regression thresholds |
+
+Status columns additionally carry the verdict colors: `OK`/`IMPROVED` green, `WARNING` yellow, `CRITICAL` red. Latency bands are applied per dependency class (`top queries`): SQL → DB band, Redis → cache band, HTTP/gRPC → API band. Colors are indicators, not gates — always pair them with counts and the `json` output for alerting.
 
 ---
 

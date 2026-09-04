@@ -179,7 +179,7 @@ func TestSlowLogsGroupReporters(t *testing.T) {
 	ts, _ := time.Parse(time.RFC3339, "2026-09-04T10:15:30Z")
 	groups := []model.SlowLogGroup{
 		{
-			Fingerprint:     "SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = '?' FOR UPDATE",
+			Fingerprint:     "select * from orders o join order_items i on o.id = i.order_id where o.status = '?' for update",
 			Executions:      47,
 			AvgMs:           3210.4,
 			MaxMs:           9840.2,
@@ -192,7 +192,7 @@ func TestSlowLogsGroupReporters(t *testing.T) {
 	var tableBuf bytes.Buffer
 	PrintSlowLogsGroupTable(&tableBuf, groups)
 	outTable := tableBuf.String()
-	for _, want := range []string{"SQL Fingerprint", "Executions", "Rows Examined (avg)", "47", "3.21s", "9.84s", "2m30s", "1,184,210", "SELECT * FROM orders", "o.status ="} {
+	for _, want := range []string{"SQL Fingerprint", "Executions", "Rows Examined (avg)", "47", "3.21s", "9.84s", "2m30s", "1,184,210", "select * from orders", "o.status ="} {
 		if !strings.Contains(outTable, want) {
 			t.Errorf("expected %q in grouped table output, got:\n%s", want, outTable)
 		}
@@ -201,7 +201,7 @@ func TestSlowLogsGroupReporters(t *testing.T) {
 	var mdBuf bytes.Buffer
 	PrintSlowLogsGroupMarkdown(&mdBuf, groups)
 	outMd := mdBuf.String()
-	for _, want := range []string{"Grouped by SQL Fingerprint", "**47**", "3.21s", "2m30s", "FOR UPDATE"} {
+	for _, want := range []string{"Grouped by SQL Fingerprint", "**47**", "3.21s", "2m30s", "for update"} {
 		if !strings.Contains(outMd, want) {
 			t.Errorf("expected %q in grouped markdown output, got:\n%s", want, outMd)
 		}

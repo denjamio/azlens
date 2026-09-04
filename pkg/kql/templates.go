@@ -78,10 +78,12 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 }
 
 // BuildMySQLSlowLogsGroupedQuery builds KQL query aggregating MySQL Flexible
-// Server slow query logs by a normalized SQL fingerprint (quoted literals and
-// numbers masked, whitespace collapsed), reporting execution count, duration
-// statistics, and rows examined per query shape, ordered by total accumulated
-// duration descending (highest overall impact first).
+// Server slow query logs by a normalized SQL fingerprint produced by the shared
+// sqlFingerprintSteps pipeline (comments stripped, literals and numbers masked,
+// IN-list lengths collapsed, whitespace and casing normalized), reporting
+// execution count, duration statistics, and rows examined per query shape,
+// ordered by total accumulated duration descending (highest overall impact
+// first).
 func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN int) TargetQuery {
 	dbFilter := ""
 	if dbName != "" {
@@ -91,12 +93,11 @@ func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN in
 		topN = 15
 	}
 
+	lastStep := len(sqlFingerprintSteps)
 	query := fmt.Sprintf(`MySqlSlowLogs
 | where TimeGenerated between (datetime('%s') .. datetime('%s'))%s
 | extend F0 = tostring(SqlText)
-| extend F1 = replace_regex(F0, @"'[^']*'", @"'?'")
-| extend F2 = replace_regex(F1, @'"[^"]*"', @'"?"')
-| extend SqlFingerprint = replace_regex(replace_regex(F2, @"-?\b\d+(\.\d+)?\b", @"?"), @"\s+", " ")
+%s| extend SqlFingerprint = tolower(F%d)
 | summarize
     Executions = count(),
     AvgMs = round(avg(QueryDurationMs), 1),
@@ -107,7 +108,7 @@ func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN in
   by SqlFingerprint
 | project SqlFingerprint, Executions, AvgMs, MaxMs, TotalMs, AvgRowsExamined, LastSeen
 | order by TotalMs desc
-| take %d`, FormatTime(start), FormatTime(end), dbFilter, topN)
+| take %d`, FormatTime(start), FormatTime(end), dbFilter, buildFingerprintExtends(), lastStep, topN)
 
 	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
 }

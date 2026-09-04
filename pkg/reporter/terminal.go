@@ -82,8 +82,16 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 			}
 			ep := report.EndpointDeltas[row]
 			switch col {
+			case 1:
+				return apiLatencyColor(ep.Baseline.Latency.P95)
+			case 2:
+				return apiLatencyColor(ep.Current.Latency.P95)
 			case 3:
 				return deltaPctColor(ep.P95DeltaPct)
+			case 4:
+				return errorRateColor(ep.Baseline.ErrorRate)
+			case 5:
+				return errorRateColor(ep.Current.ErrorRate)
 			case 6:
 				return severityColor(ep.Severity)
 			}
@@ -144,7 +152,7 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 				return nil
 			}
 			if col == 3 {
-				return bandColor(report.FanoutDeltas[row].DeltaPct, 40, 100)
+				return bandColor(report.FanoutDeltas[row].DeltaPct, FanoutSpikeWarnPct, FanoutSpikeCritPct)
 			}
 			return nil
 		})
@@ -233,8 +241,23 @@ func PrintRequestsTable(w io.Writer, requests []model.RequestMetric) {
 	table := NewTable(w, []string{"Endpoint", "Calls", "Err%", "Avg", "P50", "P90", "P95", "P99"},
 		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
 	table.SetCellColor(func(row, col int, cell string) *color.Color {
-		if col == 2 && row < len(requests) {
-			return bandColor(requests[row].ErrorRate, 1.0, 5.0)
+		if row >= len(requests) {
+			return nil
+		}
+		r := requests[row]
+		switch col {
+		case 2:
+			return errorRateColor(r.ErrorRate)
+		case 3:
+			return apiLatencyColor(r.Latency.Avg)
+		case 4:
+			return apiLatencyColor(r.Latency.P50)
+		case 5:
+			return apiLatencyColor(r.Latency.P90)
+		case 6:
+			return apiLatencyColor(r.Latency.P95)
+		case 7:
+			return apiLatencyColor(r.Latency.P99)
 		}
 		return nil
 	})
@@ -266,8 +289,19 @@ func PrintDependenciesTable(w io.Writer, deps []model.DependencyMetric) {
 	table := NewTable(w, []string{"Type", "Target", "Query / Command", "Calls", "Err%", "Avg", "P95", "P99"},
 		[]int{AlignLeft, AlignLeft, AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
 	table.SetCellColor(func(row, col int, cell string) *color.Color {
-		if col == 4 && row < len(deps) {
-			return bandColor(deps[row].ErrorRate, 1.0, 5.0)
+		if row >= len(deps) {
+			return nil
+		}
+		d := deps[row]
+		switch col {
+		case 4:
+			return errorRateColor(d.ErrorRate)
+		case 5:
+			return latencyColorForDepType(d.Type, d.Latency.Avg)
+		case 6:
+			return latencyColorForDepType(d.Type, d.Latency.P95)
+		case 7:
+			return latencyColorForDepType(d.Type, d.Latency.P99)
 		}
 		return nil
 	})
@@ -356,8 +390,15 @@ func PrintFanoutTable(w io.Writer, fanout []model.FanoutMetric) {
 	table := NewTable(w, []string{"Endpoint", "Requests", "Avg SQL Calls", "Max SQL Calls", "Avg SQL", "Avg Total"},
 		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
 	table.SetCellColor(func(row, col int, cell string) *color.Color {
-		if col == 3 && row < len(fanout) {
-			return bandColor(float64(fanout[row].MaxSQLCalls), 5, 15)
+		if row >= len(fanout) {
+			return nil
+		}
+		f := fanout[row]
+		switch col {
+		case 2:
+			return nPlusOneColor(f.AvgSQLCalls)
+		case 3:
+			return nPlusOneColor(float64(f.MaxSQLCalls))
 		}
 		return nil
 	})
@@ -443,15 +484,23 @@ func PrintSlowLogsTable(w io.Writer, logs []model.SlowLogEntry) {
 	table := NewTable(w, []string{"Timestamp", "Duration", "Rows Examined", "Rows Returned", "SQL Query"},
 		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignLeft}).SetCellCap(80)
 	table.SetCellColor(func(row, col int, cell string) *color.Color {
-		if col != 1 || row >= len(logs) {
+		if row >= len(logs) {
 			return nil
 		}
 		l := logs[row]
-		ms := l.DurationMs
-		if ms <= 0 {
-			ms = l.DurationSec * 1000.0
+		switch col {
+		case 1:
+			ms := l.DurationMs
+			if ms <= 0 {
+				ms = l.DurationSec * 1000.0
+			}
+			return dbLatencyColor(ms)
+		case 2:
+			// Missing-index signal: rows scanned per row returned
+			// (EXPLAIN / Percona heuristic), not the absolute count
+			return scanRatioColor(l.RowsExamined, l.RowsSent)
 		}
-		return bandColor(ms, 1000, 5000)
+		return nil
 	})
 
 	for _, l := range logs {
@@ -494,18 +543,19 @@ func PrintSlowLogsGroupTable(w io.Writer, groups []model.SlowLogGroup) {
 	}
 	table := NewTable(w, []string{"SQL Fingerprint", "Executions", "Avg", "Max", "Total Time", "Rows Examined (avg)", "Last Seen"},
 		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignLeft}).SetCellCap(80)
+	// Only industry-anchored bands are colored here (DB statement latency).
+	// Execution counts and totals are workload-dependent: coloring them would
+	// signal severity without a standard behind it.
 	table.SetCellColor(func(row, col int, cell string) *color.Color {
 		if row >= len(groups) {
 			return nil
 		}
 		g := groups[row]
 		switch col {
-		case 1:
-			return bandColor(float64(g.Executions), 10, 50)
 		case 2:
-			return bandColor(g.AvgMs, 1000, 5000)
+			return dbLatencyColor(g.AvgMs)
 		case 3:
-			return bandColor(g.TotalMs, 10000, 60000)
+			return dbLatencyColor(g.MaxMs)
 		}
 		return nil
 	})

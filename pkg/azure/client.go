@@ -895,19 +895,29 @@ func parseDepsTable(t *AzQueryTable) []model.DependencyMetric {
 	return results
 }
 
-// parseExceptionsTable parses grouped exception rows
+// parseExceptionsTable parses grouped exception rows: type, normalized message,
+// count, first/last seen, and the affected operation paths returned by the query
 func parseExceptionsTable(t *AzQueryTable) []model.ErrorSummary {
 	var results []model.ErrorSummary
 	for _, row := range t.Rows {
 		if len(row) < 5 {
 			continue
 		}
+		var affectedPaths []string
+		if len(row) >= 6 {
+			if paths, ok := row[5].([]interface{}); ok {
+				for _, p := range paths {
+					affectedPaths = append(affectedPaths, fmt.Sprintf("%v", p))
+				}
+			}
+		}
 		results = append(results, model.ErrorSummary{
-			Type:      fmt.Sprintf("%v", row[0]),
-			Message:   fmt.Sprintf("%v", row[1]),
-			Count:     toInt64(row[2]),
-			FirstSeen: parseTime(row[3]),
-			LastSeen:  parseTime(row[4]),
+			Type:          fmt.Sprintf("%v", row[0]),
+			Message:       fmt.Sprintf("%v", row[1]),
+			Count:         toInt64(row[2]),
+			FirstSeen:     parseTime(row[3]),
+			LastSeen:      parseTime(row[4]),
+			AffectedPaths: affectedPaths,
 		})
 	}
 	return results

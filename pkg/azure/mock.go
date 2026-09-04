@@ -460,12 +460,13 @@ func (m *MockClient) QueryMySQLSlowLogsGrouped(ctx context.Context, start, end t
 	t2, _ := time.Parse(time.RFC3339, "2026-09-02T20:12:05Z")
 
 	// Deterministic aggregation of the entry-level mock data, as the grouped
-	// KQL would produce: query shapes with literals masked, ordered by total
-	// accumulated duration (highest overall impact first)
+	// KQL would produce: query shapes normalized by the shared fingerprint
+	// pipeline (comments stripped, literals masked, lowercased), ordered by
+	// total accumulated duration (highest overall impact first)
 	return []model.SlowLogGroup{
-		{Fingerprint: "SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = '?' FOR UPDATE", Executions: 47, AvgMs: 3210.4, MaxMs: 9840.2, TotalMs: 150889.0, AvgRowsExamined: 1184210, LastSeen: t1},
-		{Fingerprint: "SELECT * FROM users u LEFT JOIN payment_methods p ON u.id = p.user_id WHERE u.email = '?'", Executions: 23, AvgMs: 940.8, MaxMs: 3120.0, TotalMs: 21638.0, AvgRowsExamined: 24500, LastSeen: t2},
-		{Fingerprint: "SELECT count(*) FROM audit_logs WHERE created_at < NOW() - INTERVAL ? DAY", Executions: 12, AvgMs: 620.5, MaxMs: 2150.0, TotalMs: 7446.0, AvgRowsExamined: 810000, LastSeen: t2},
-		{Fingerprint: "UPDATE inventory SET reserved_qty = reserved_qty + ? WHERE sku = '?'", Executions: 6, AvgMs: 410.2, MaxMs: 1890.2, TotalMs: 2461.0, AvgRowsExamined: 42000, LastSeen: t2},
+		{Fingerprint: "select * from orders o join order_items i on o.id = i.order_id where o.status = '?' for update", Executions: 47, AvgMs: 3210.4, MaxMs: 9840.2, TotalMs: 150889.0, AvgRowsExamined: 1184210, LastSeen: t1},
+		{Fingerprint: "select * from users u left join payment_methods p on u.id = p.user_id where u.email = '?'", Executions: 23, AvgMs: 940.8, MaxMs: 3120.0, TotalMs: 21638.0, AvgRowsExamined: 24500, LastSeen: t2},
+		{Fingerprint: "select count(*) from audit_logs where created_at < now() - interval ? day", Executions: 12, AvgMs: 620.5, MaxMs: 2150.0, TotalMs: 7446.0, AvgRowsExamined: 810000, LastSeen: t2},
+		{Fingerprint: "update inventory set reserved_qty = reserved_qty + ? where sku = '?'", Executions: 6, AvgMs: 410.2, MaxMs: 1890.2, TotalMs: 2461.0, AvgRowsExamined: 42000, LastSeen: t2},
 	}, nil
 }

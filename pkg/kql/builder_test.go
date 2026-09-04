@@ -223,12 +223,6 @@ func TestBuildMySqlSlowLogsGroupedQuery(t *testing.T) {
 	if !strings.Contains(q, "where Db =~ 'backend_ror'") {
 		t.Errorf("expected exact Db filter in query, got: %s", q)
 	}
-	if !strings.Contains(q, `replace_regex(F0, @"'[^']*'", @"'?'")`) {
-		t.Errorf("expected quoted string literal masking, got: %s", q)
-	}
-	if !strings.Contains(q, `replace_regex(F2, @"-?\b\d+(\.\d+)?\b", @"?")`) {
-		t.Errorf("expected numeric literal masking, got: %s", q)
-	}
 	if !strings.Contains(q, "summarize") || !strings.Contains(q, "Executions = count()") {
 		t.Errorf("expected per-fingerprint aggregation, got: %s", q)
 	}

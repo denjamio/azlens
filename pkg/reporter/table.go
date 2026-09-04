@@ -359,14 +359,14 @@ func bandColor(v, warnAt, critAt float64) *color.Color {
 }
 
 // deltaPctColor colors a percentage change: red for large regressions, yellow
-// for moderate ones, green for meaningful improvements
+// for moderate ones, green for meaningful improvements (analyzer thresholds)
 func deltaPctColor(pct float64) *color.Color {
 	switch {
-	case pct >= 30:
+	case pct >= RegressionCritPct:
 		return colorRed
-	case pct >= 15:
+	case pct >= RegressionWarnPct:
 		return colorYellow
-	case pct <= -15:
+	case pct <= RegressionImprovePct:
 		return colorGreen
 	default:
 		return nil

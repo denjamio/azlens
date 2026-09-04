@@ -114,10 +114,9 @@ func parseTimestamp(s string) (time.Time, bool) {
 }
 
 var (
-	msHeaderRe    = regexp.MustCompile(`(?i)(duration|latency|elapsed|_ms$|ms_|^ms)`)
-	secHeaderRe   = regexp.MustCompile(`(?i)(duration_s$|_s$|seconds?)`)
-	pctHeaderRe   = regexp.MustCompile(`(?i)(pct|percent|rate|^%|_%$)`)
-	countHeaderRe = regexp.MustCompile(`(?i)(count|calls|rows|requests|total|bytes|size)`)
+	msHeaderRe  = regexp.MustCompile(`(?i)(duration|latency|elapsed|_ms$|ms_|^ms)`)
+	secHeaderRe = regexp.MustCompile(`(?i)(duration_s$|_s$|seconds?)`)
+	pctHeaderRe = regexp.MustCompile(`(?i)(pct|percent|rate|^%|_%$)`)
 )
 
 // normalizeCell renders a raw query cell in a compact, human-friendly form:
