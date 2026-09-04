@@ -16,11 +16,23 @@ import (
 func fakeAzAccountShow(t *testing.T, allowedSubs []string) string {
 	t.Helper()
 	dir := t.TempDir()
+	listEcho := ""
 	cases := ""
 	for _, s := range allowedSubs {
+		listEcho += "  echo " + s + "\n"
 		cases += "    " + s + ") echo " + s + "; exit 0 ;;\n"
 	}
 	script := "#!/bin/sh\n" +
+		"if [ \"$2\" = \"account\" ] && [ \"$3\" = \"list\" ]; then\n" +
+		listEcho +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$2\" = \"account\" ] && [ \"$3\" = \"set\" ]; then\n" +
+		"  case \"$5\" in\n" +
+		cases +
+		"    *) echo SubscriptionNotFound >&2; exit 1 ;;\n" +
+		"  esac\n" +
+		"fi\n" +
 		"if [ \"$2\" = \"account\" ] && [ \"$3\" = \"show\" ] && [ \"$4\" = \"--subscription\" ]; then\n" +
 		"  case \"$5\" in\n" +
 		cases +
@@ -39,12 +51,12 @@ func TestSubscriptionAccessible(t *testing.T) {
 	stub := fakeAzAccountShow(t, []string{"sub-ok"})
 	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	ok, err := subscriptionAccessible(context.Background(), "sub-ok", nil)
+	ok, err := subscriptionAccessible(context.Background(), "sub-ok", "tenant-ok")
 	if err != nil || !ok {
 		t.Errorf("expected subscription 'sub-ok' accessible, got ok=%v err=%v", ok, err)
 	}
 
-	ok, err = subscriptionAccessible(context.Background(), "sub-missing", nil)
+	ok, err = subscriptionAccessible(context.Background(), "sub-missing", "tenant-missing")
 	if err != nil {
 		t.Errorf("expected nil error for missing subscription (needs login), got: %v", err)
 	}
@@ -132,14 +144,13 @@ func TestEnsureSubscriptionSessions(t *testing.T) {
 	})
 }
 
-func TestLoginHintUsesIsolatedProfile(t *testing.T) {
+func TestLoginHint(t *testing.T) {
 	resetRootFlags()
 	defer resetRootFlags()
 
-	// With a directory_id the hint includes the isolated AZURE_CONFIG_DIR and
-	// the exact tenant to authenticate
-	b := backendSession{subscription: "sub-b", tenant: "dir-b", azConfigDir: "/home/u/.config/azlens/azure/dir-b"}
-	want := "AZURE_CONFIG_DIR=/home/u/.config/azlens/azure/dir-b az login --tenant dir-b"
+	// With a directory_id the hint includes az login --tenant <tenant>
+	b := backendSession{subscription: "sub-b", tenant: "dir-b"}
+	want := "az login --tenant dir-b"
 	if got := loginHint(b); got != want {
 		t.Errorf("loginHint mismatch:\n got: %s\nwant: %s", got, want)
 	}

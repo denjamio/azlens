@@ -328,26 +328,22 @@ azlens version
 
 ---
 
-## 🔐 Multi-Directory Setups (`directory_id`) & Sessions
+## 🔐 Multi-Tenant & Multi-Subscription Setups (`directory_id`)
 
-For cross-directory setups (App Insights in directory A, Log Analytics in directory B), configure each backend's `directory_id` (and its `subscription_id`) once in `shared`. azlens then handles the rest using the fully documented `AZURE_CONFIG_DIR` isolation mechanism — your main az profile (`~/.azure`) is never touched:
+For cross-tenant setups (App Insights in tenant A, Log Analytics in tenant B), configure each backend's `directory_id` (and its `subscription_id`) once in `shared`. azlens handles multi-tenant workflows seamlessly following official Azure CLI practices:
 
-- **Isolated az profile per directory**: every query runs with `AZURE_CONFIG_DIR=<managed profile for that directory_id>`, so accounts, token caches and defaults are fully separate per directory. The data-plane token is always issued by the right directory — no `az account set`, no active-account ambiguity.
-- **`subscription_id` still required**: the directory routes the *identity* (who issues the token); the subscription routes the *query* to the resource (`--subscription`). A workspace GUID does not encode its subscription, so it is declared once in `shared`.
-- **Pre-flight on every `top` / `deploy-check`**: verifies that each configured subscription is available in its own az profile.
-- **Interactive login on demand**: on a terminal, if a subscription is missing from its profile, azlens launches `az login --tenant <directory_id>` inside that profile (with the interactive account-picker experience disabled for a direct flow) and re-verifies before querying.
-- **CI / non-interactive runs**: never hangs on a login prompt — it fails fast with `subscription(s) not in the active az session: <id>` and the exact, copy-pasteable login commands (`AZURE_CONFIG_DIR=... az login --tenant ...`).
-- **`azlens doctor`**: reports per-subscription session coverage (✓ / ✗) for the active profile.
+- **Single shared az session (`~/.azure`)**: your normal terminal logins and installed extensions (`log-analytics`, `application-insights`) are directly shared without duplicating credentials or profiles.
+- **Seamless context switching (`az account set`)**: before querying each backend, azlens ensures the active subscription context in the Azure CLI is aligned (`az account set --subscription <id>`), guaranteeing that extension data-plane queries acquire the right token for the right tenant.
+- **Session coverage pre-flight**: checks that all configured subscriptions are available in your Azure session (`az account list --all`).
+- **Interactive login on demand**: on a terminal, if a subscription is missing from your session, azlens launches `az login --tenant <directory_id>` and continues seamlessly.
+- **CI / non-interactive runs**: fails fast with `subscription(s) not in the active az session: <id>` and clean, actionable `az login --tenant ...` commands.
+- **`azlens doctor`**: reports Azure CLI status, extension availability, and per-subscription session coverage (✓ / ✗).
 
-azlens never stores or refreshes tokens; session management stays entirely inside the az CLI. To make the direct login flow permanent for all your az usage: `az config set core.login_experience_v2=off`.
-
-On a fresh machine, the first run of `azlens top` / `deploy-check` walks you through one login per directory — it launches and prints the exact command, e.g.:
+To authenticate additional tenants in your normal terminal at any time:
 
 ```bash
-AZURE_CONFIG_DIR=~/.config/azlens/azure/<directory-id> az login --tenant <directory-id>
+az login --tenant <directory-id>
 ```
-
-After that, every query is routed statelessly: its own isolated profile for the identity, its own `--subscription` for the resource.
 
 > **Note on query cost:** AzLens queries scan the Log Analytics / App Insights tables you point them at. Large time windows (e.g. `deploy-check 24h`) and workspaces on pay-as-you-go plans incur real query costs; prefer the smallest window that answers your question.
 
@@ -359,7 +355,7 @@ After that, every query is routed statelessly: its own isolated profile for the 
 | :--- | :--- | :--- |
 | `'log-analytics' is mispelled or not recognized by the system` (same for `app-insights`) | The az CLI **extension** providing the query command is not installed | `az extension add --name log-analytics` and/or `az extension add --name application-insights` (azlens pre-flight and `doctor` detect this and print the same hint) |
 | `azure authentication failed: session expired or not logged in` | `az` session expired or directory never authenticated | Re-run the command — azlens launches `az login --tenant <directory_id>` for you; or run `azlens doctor` for per-subscription coverage |
-| `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory not yet authenticated in its az profile | On a terminal azlens launches the login automatically; otherwise run the exact `AZURE_CONFIG_DIR=... az login --tenant ...` command printed in the hint |
+| `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory not yet authenticated in your az session | On a terminal azlens launches the login automatically; otherwise run `az login --tenant <directory_id>` printed in the hint |
 | `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription_id` / `target.logs.subscription_id` (+ `directory_id`) in `azlens.yaml`; `az login --tenant` for the other directory |
 | `azure resource not found` | Wrong `target.insights.name` or `target.logs.workspace_id` | `target.logs.workspace_id` must be the **Customer ID (GUID)**, not the workspace name; `target.insights.name` is the resource name (or App ID) |
 | 403 / authorization errors on queries | Your identity lacks Reader roles on the resource | One-time, admin-only: ask the directory admin to grant **Monitoring Reader** (App Insights) / **Log Analytics Reader** (workspace) to the identity shown by `azlens doctor` |

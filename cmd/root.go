@@ -161,6 +161,12 @@ Application Insights, and Log Analytics to deliver actionable telemetry insights
 				Profile:    prof,
 				IsMock:     mockFlag,
 				PrintQuery: printQueryFlag,
+				OnAuthRequired: func(tenant string) error {
+					if isInteractiveTerminal() {
+						return launchAzLogin(tenant)
+					}
+					return nil
+				},
 			}),
 			Output:            resolvedOutput,
 			EffectiveDefaults: effDefaults,

@@ -69,21 +69,13 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	start := now.Add(-1 * time.Hour)
 	end := now
 
-	dirLogs, err := AzureConfigDir("dir-logs")
-	if err != nil {
-		t.Fatalf("failed resolving config dir: %v", err)
-	}
-	dirInsights, err := AzureConfigDir("dir-insights")
-	if err != nil {
-		t.Fatalf("failed resolving config dir: %v", err)
-	}
-
-	// 1. Log Analytics table query routes to the workspace with the logs subscription
+	// 1. Log Analytics table query sets context and routes to workspace with logs subscription
 	if _, err := client.QueryMySQLSlowLogs(ctx, start, end, "testdb", false, 5); err != nil {
 		t.Fatalf("failed querying log analytics: %v", err)
 	}
 	cap := readCapture(t, capture)
 	for _, want := range []string{
+		"account set --subscription sub-logs --tenant dir-logs",
 		"monitor log-analytics query",
 		"--workspace 33333333-hhhh-iiii-jjjj-333333333333",
 		"--subscription sub-logs",
@@ -92,17 +84,15 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 			t.Errorf("log analytics query missing %q in captured args:\n%s", want, cap)
 		}
 	}
-	if !strings.Contains(cap, "azprofile="+dirLogs) {
-		t.Errorf("expected isolated az profile env for logs directory in captured args:\n%s", cap)
-	}
 
-	// 2. App Insights query routes to the component with the insights subscription
+	// 2. App Insights query sets context and routes to component with insights subscription
 	_ = os.Remove(capture)
 	if _, err := client.QueryRequestsSummary(ctx, start, end); err != nil {
 		t.Fatalf("failed querying app insights: %v", err)
 	}
 	cap = readCapture(t, capture)
 	for _, want := range []string{
+		"account set --subscription sub-insights --tenant dir-insights",
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",
@@ -110,9 +100,6 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		if !strings.Contains(cap, want) {
 			t.Errorf("app insights query missing %q in captured args:\n%s", want, cap)
 		}
-	}
-	if !strings.Contains(cap, "azprofile="+dirInsights) {
-		t.Errorf("expected isolated az profile env for insights directory in captured args:\n%s", cap)
 	}
 }
 

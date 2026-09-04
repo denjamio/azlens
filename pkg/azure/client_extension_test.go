@@ -141,3 +141,10 @@ func TestAzureConfigDir(t *testing.T) {
 		t.Errorf("expected managed profile path suffix azlens/azure/dir-abc-123, got %q", dir)
 	}
 }
+
+func TestAzureExtensionDir(t *testing.T) {
+	t.Setenv("AZURE_EXTENSION_DIR", "/custom/ext/dir")
+	if got := AzureExtensionDir(); got != "/custom/ext/dir" {
+		t.Errorf("expected explicit AZURE_EXTENSION_DIR override, got %q", got)
+	}
+}

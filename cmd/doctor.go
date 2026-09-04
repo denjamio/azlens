@@ -119,12 +119,6 @@ func runPreflightDiagnostics(prof config.Profile) error {
 		return err
 	}
 
-	// Verify the profile's subscriptions are authenticated in the current az
-	// session; on a TTY, launch the interactive 'az login' flow to fix it
-	if err := ensureSubscriptionSessions(prof); err != nil {
-		return err
-	}
-
 	issues, err := validateProfileIssues(prof)
 	for _, iss := range issues {
 		if iss.Severity == config.SeverityWarning {
@@ -202,7 +196,7 @@ var doctorCmd = &cobra.Command{
 
 		// 2c. Session coverage: each subscription targeted by the active profile
 		for _, b := range configuredBackends(rt.Profile) {
-			if ok, err := subscriptionAccessible(cmd.Context(), b.subscription, b.env()); err == nil && ok {
+			if ok, err := subscriptionAccessible(cmd.Context(), b.subscription, b.tenant); err == nil && ok {
 				color.Green("✓ Subscription session: %s available in the current az session", b.subscription)
 			} else {
 				color.Red("✗ Subscription session: %s not available in the current az session", b.subscription)

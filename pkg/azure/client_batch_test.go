@@ -25,10 +25,17 @@ func fakeAzBatchScript(t *testing.T, capturePath string) string {
 		`{"name":"PrimaryResult","columns":[{"name":"c0","type":"real"}],"rows":[["GET /x",1000,42.5,128,185.0,320.0]]}` +
 		`]}`
 	script := "#!/bin/sh\n" +
-		"echo \"=== INVOCATION ===\" >> " + capturePath + "\n" +
-		"echo \"$@\" >> " + capturePath + "\n" +
-		"echo \"azprofile=$AZURE_CONFIG_DIR\" >> " + capturePath + "\n" +
-		"echo '" + payload + "'\n"
+		"case \"$*\" in\n" +
+		"  *\"account set\"*)\n" +
+		"    echo \"=== ACCOUNT SET ===\" >> " + capturePath + "\n" +
+		"    echo \"$@\" >> " + capturePath + "\n" +
+		"    exit 0;;\n" +
+		"  *)\n" +
+		"    echo \"=== INVOCATION ===\" >> " + capturePath + "\n" +
+		"    echo \"$@\" >> " + capturePath + "\n" +
+		"    echo '" + payload + "'\n" +
+		"    exit 0;;\n" +
+		"esac\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
 		t.Fatalf("failed writing fake az script: %v", err)
@@ -84,15 +91,13 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 		t.Errorf("fanout mismatch: %+v", wm.Fanout)
 	}
 
-	dirInsights, err := AzureConfigDir("dir-insights")
-	if err != nil {
-		t.Fatalf("failed resolving config dir: %v", err)
-	}
-
-	// 6. Single az invocation with semicolon-separated statements and correct routing
+	// 6. Single az batch query invocation with semicolon-separated statements and correct routing
 	cap := readCapture(t, capture)
 	if invocations := strings.Count(cap, "=== INVOCATION ==="); invocations != 1 {
-		t.Errorf("expected exactly one az invocation, got %d:\n%s", invocations, cap)
+		t.Errorf("expected exactly one az query invocation, got %d:\n%s", invocations, cap)
+	}
+	if !strings.Contains(cap, "account set --subscription sub-insights --tenant dir-insights") {
+		t.Errorf("expected account set context switch in captured args:\n%s", cap)
 	}
 	if !strings.Contains(cap, ";") {
 		t.Errorf("expected semicolon-separated batch query, got:\n%s", cap)
@@ -105,9 +110,6 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 		if !strings.Contains(cap, want) {
 			t.Errorf("batch query missing %q in captured args:\n%s", want, cap)
 		}
-	}
-	if !strings.Contains(cap, "azprofile="+dirInsights) {
-		t.Errorf("expected isolated az profile env in captured args:\n%s", cap)
 	}
 }
 

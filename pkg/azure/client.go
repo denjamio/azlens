@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/denjamio/azlens/pkg/config"
@@ -51,9 +52,10 @@ type AzureClient interface {
 
 // ClientOptions holds runtime flags and profile configuration
 type ClientOptions struct {
-	Profile    config.Profile
-	IsMock     bool
-	PrintQuery bool
+	Profile        config.Profile
+	IsMock         bool
+	PrintQuery     bool
+	OnAuthRequired func(tenant string) error
 }
 
 // AzQueryTable is a single result table returned by the query API
@@ -73,7 +75,9 @@ type AzQueryResult struct {
 
 // AzCliClient implements AzureClient by executing the `az` CLI
 type AzCliClient struct {
-	opts ClientOptions
+	opts               ClientOptions
+	mu                 sync.Mutex
+	activeSubscription string
 }
 
 // NewClient returns a new AzureClient instance (real or mock)
@@ -97,20 +101,41 @@ func AzureConfigDir(directoryID string) (string, error) {
 	if directoryID == "" {
 		return "", nil
 	}
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("failed resolving the user config dir: %w", err)
+	// Prefer XDG_CONFIG_HOME or ~/.config to avoid spaces in paths on macOS
+	// (~/Library/Application Support), which breaks shell hints and subshell tools.
+	var base string
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		base = xdg
+	} else if home, err := os.UserHomeDir(); err == nil && home != "" {
+		base = filepath.Join(home, ".config")
+	} else {
+		var err error
+		base, err = os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("failed resolving the user config dir: %w", err)
+		}
 	}
 	return filepath.Join(base, "azlens", "azure", strings.ToLower(directoryID)), nil
 }
 
+// AzureExtensionDir returns the directory where the user's primary az CLI extensions
+// are installed (defaults to ~/.azure/cliextensions). When AZURE_CONFIG_DIR is isolated,
+// pointing AZURE_EXTENSION_DIR to this shared directory ensures extensions like
+// log-analytics and application-insights remain accessible without reinstallation.
+func AzureExtensionDir() string {
+	if dir := os.Getenv("AZURE_EXTENSION_DIR"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".azure", "cliextensions")
+}
+
 // routeForTargetQuery selects the target backend (App Insights or Log Analytics)
-// and returns the az CLI arguments plus the directory ID the query must run
-// against. Nothing global is ever mutated: the directory travels with the query
-// as an isolated AZURE_CONFIG_DIR profile (per-process token routing) and the
-// subscription as --subscription, so the user's active az account and defaults
-// stay untouched.
-func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string, error) {
+// and returns the az CLI arguments, target subscription, and directory ID.
+func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string, string, error) {
 	var args []string
 	var targetSub string
 	var targetDirectory string
@@ -118,7 +143,7 @@ func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string
 	switch tq.Backend {
 	case kql.BackendLogAnalytics:
 		if p.Target.Logs.WorkspaceID == "" {
-			return nil, "", fmt.Errorf("target.logs.workspace_id must be configured in the active profile for Log Analytics queries")
+			return nil, "", "", fmt.Errorf("target.logs.workspace_id must be configured in the active profile for Log Analytics queries")
 		}
 		args = []string{"monitor", "log-analytics", "query", "--workspace", p.Target.Logs.WorkspaceID, "--analytics-query", tq.Query, "-o", "json"}
 		targetSub = p.Target.Logs.SubscriptionID
@@ -133,17 +158,17 @@ func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string
 			targetSub = p.Target.Logs.SubscriptionID
 			targetDirectory = p.Target.Logs.DirectoryID
 		} else {
-			return nil, "", fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
+			return nil, "", "", fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
 		}
 	default:
-		return nil, "", fmt.Errorf("unknown query backend: %s", tq.Backend)
+		return nil, "", "", fmt.Errorf("unknown query backend: %s", tq.Backend)
 	}
 
 	if targetSub != "" {
 		args = append(args, "--subscription", targetSub)
 	}
 
-	return args, targetDirectory, nil
+	return args, targetSub, targetDirectory, nil
 }
 
 // azExtensionForArgs maps the az command groups azlens invokes to the Azure CLI
@@ -202,16 +227,63 @@ func isPermanentQueryError(err error) bool {
 	return false
 }
 
+// ensureActiveSubscription switches the active subscription and tenant context in
+// the Azure CLI using 'az account set --subscription <id>' when necessary.
+// Switching the active subscription updates the local az profile context in milliseconds
+// without network overhead, ensuring extensions like log-analytics and app-insights
+// acquire access tokens for the correct directory.
+func (c *AzCliClient) ensureActiveSubscription(ctx context.Context, subID, tenantID string) error {
+	subID = strings.TrimSpace(subID)
+	if subID == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if strings.EqualFold(c.activeSubscription, subID) {
+		return nil
+	}
+
+	args := []string{"--only-show-errors", "account", "set", "--subscription", subID}
+	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+		args = append(args, "--tenant", tenantID)
+	}
+
+	cmd := exec.CommandContext(ctx, "az", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		outStr := strings.TrimSpace(string(out))
+		if c.opts.OnAuthRequired != nil && (strings.Contains(outStr, "login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "not found") || strings.Contains(outStr, "SubscriptionNotFound")) {
+			if loginErr := c.opts.OnAuthRequired(tenantID); loginErr == nil {
+				cmdRetry := exec.CommandContext(ctx, "az", args...)
+				if retryOut, retryErr := cmdRetry.CombinedOutput(); retryErr == nil {
+					c.activeSubscription = subID
+					return nil
+				} else {
+					outStr = strings.TrimSpace(string(retryOut))
+				}
+			}
+		}
+		if tenantID != "" {
+			return fmt.Errorf("failed to set active subscription to '%s' (tenant '%s'): %w (output: %s)\n💡 Hint: Run 'az login --tenant %s'", subID, tenantID, err, outStr, tenantID)
+		}
+		return fmt.Errorf("failed to set active subscription to '%s': %w (output: %s)\n💡 Hint: Run 'az login' to authenticate with Azure", subID, err, outStr)
+	}
+
+	c.activeSubscription = subID
+	return nil
+}
+
 // runAzQuery executes the az CLI with retry and exponential backoff, and parses
 // the JSON output. Both windows and individual queries share this budget.
-func (c *AzCliClient) runAzQuery(ctx context.Context, args []string, directoryID string) (*AzQueryResult, error) {
+func (c *AzCliClient) runAzQuery(ctx context.Context, args []string) (*AzQueryResult, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		res, err := c.runAzQueryOnce(ctx, args, directoryID)
+		res, err := c.runAzQueryOnce(ctx, args)
 		if err == nil {
 			return res, nil
 		}
@@ -233,23 +305,12 @@ func (c *AzCliClient) runAzQuery(ctx context.Context, args []string, directoryID
 }
 
 // runAzQueryOnce performs a single az CLI invocation and parses the JSON output
-func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string, directoryID string) (*AzQueryResult, error) {
+func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQueryResult, error) {
 	// Suppress az warnings/telemetry notices on stderr so they cannot pollute
 	// the JSON output (stderr and stdout are captured together)
 	cmdArgs := append([]string{"--only-show-errors"}, args...)
 
 	cmd := exec.CommandContext(ctx, "az", cmdArgs...)
-	if directoryID != "" {
-		configDir, err := AzureConfigDir(directoryID)
-		if err != nil {
-			return nil, fmt.Errorf("failed resolving the isolated az profile for directory '%s': %w", directoryID, err)
-		}
-		// Documented isolation mechanism: a dedicated az profile per directory
-		// holds its own accounts, token caches and defaults — the data-plane
-		// token is issued by the right directory with zero global side effects
-		cmd.Env = append(os.Environ(), "AZURE_CONFIG_DIR="+configDir)
-	}
-
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outStr := strings.TrimSpace(string(out))
@@ -287,11 +348,14 @@ func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQu
 	if c.opts.PrintQuery {
 		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
 	}
-	args, directoryID, err := routeForTargetQuery(c.opts.Profile, tq)
+	args, targetSub, directoryID, err := routeForTargetQuery(c.opts.Profile, tq)
 	if err != nil {
 		return nil, err
 	}
-	return c.runAzQuery(ctx, args, directoryID)
+	if err := c.ensureActiveSubscription(ctx, targetSub, directoryID); err != nil {
+		return nil, err
+	}
+	return c.runAzQuery(ctx, args)
 }
 
 // executeKQLBatch runs multiple self-contained KQL statements in a single az CLI
@@ -321,12 +385,16 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 		Backend: targetBackend,
 	}
 
-	args, directoryID, err := routeForTargetQuery(c.opts.Profile, batchTarget)
+	args, targetSub, directoryID, err := routeForTargetQuery(c.opts.Profile, batchTarget)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := c.runAzQuery(ctx, args, directoryID)
+	if err := c.ensureActiveSubscription(ctx, targetSub, directoryID); err != nil {
+		return nil, err
+	}
+
+	res, err := c.runAzQuery(ctx, args)
 	if err != nil {
 		return nil, err
 	}

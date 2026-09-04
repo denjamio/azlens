@@ -5,6 +5,16 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-04
+
+### Changed
+
+- **Seamless Azure CLI multi-tenant and multi-subscription architecture**:
+  - Removed artificial `AZURE_CONFIG_DIR` profile isolation; azlens now operates directly in the user's standard `~/.azure` session, naturally sharing authenticated accounts and installed extensions (`log-analytics`, `application-insights`).
+  - Added automatic subscription context switching via `az account set --subscription <id> [--tenant <tenant>]` before query executions, ensuring data-plane queries acquire the right token for the right directory.
+  - Replaced restrictive `az account show` pre-flight checks with non-blocking `az account list --all --query "[].id" -o tsv` verification.
+  - Simplified login flow and hints to standard `az login --tenant <tenant>` commands.
+
 ## [0.3.0] - 2026-09-04
 
 ### Added
