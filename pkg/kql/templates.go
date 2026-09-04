@@ -115,11 +115,11 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 	}
 	syntheticFilter := ""
 	if target.ExcludesSynthetic() {
-		syntheticFilter = "\n    | where isempty(operation_SyntheticSource) and isempty(syntheticSource)"
+		syntheticFilter = "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
 	}
 	probeFilter := ""
 	if target.ExcludesProbes() {
-		probeFilter = "\n    | where tostring(customDimensions['User-Agent']) !has 'kube-probe' and not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))"
+		probeFilter = "\n    | where tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) !has 'kube-probe' and not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))"
 	}
 	if topN <= 0 {
 		topN = 15
@@ -136,8 +136,8 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 (
     exceptions
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
-    | where type has "deprecat" or message has "deprecat" or innermodel_message has "deprecat"
-    | project timestamp, message = coalesce(innermodel_message, message), operation_Name
+    | where type has "deprecat" or column_ifexists('outerMessage', '') has "deprecat" or column_ifexists('message', '') has "deprecat"
+    | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name
 )
 | where isnotempty(message)
 | extend NormalizedMsg = replace_regex(message, @":\d+", @":<line>")

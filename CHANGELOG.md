@@ -5,6 +5,14 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] - 2026-09-04
+
+### Fixed
+
+- **Resolved "invalid properties" (`BadArgumentError`) in `top endpoints`, `triage`, and `deploy-check`**: Replaced illegal property dereferencing on `percentiles` (`P = percentiles(...)` + `P.percentile_duration_50`) with direct scalar percentile aggregations (`P50 = percentile(duration, 50)`, `P95 = percentile(duration, 95)`, etc.) in `BuildRequestsSummary`, `BuildEndpointsSummary`, and `BuildDependenciesSummary`.
+- **Dynamic message resolution in `top errors`**: Fixed query failures on non-existent `innermostMessage` and `message` columns in the `exceptions` table by introducing a safe `column_ifexists` cascade (`outerMessage` -> `message` -> `innermostMessage`).
+- **Resilient synthetic and probe filtering in base clauses**: Scoped synthetic traffic filters (`operation_SyntheticSource`) strictly to `requests` and `dependencies` wrapped in `column_ifexists`, and guarded `customDimensions` lookups with `column_ifexists('customDimensions', dynamic(null))` to prevent scalar expression resolution failures on tables without these columns.
+
 ## [0.4.6] - 2026-09-04
 
 ### Fixed

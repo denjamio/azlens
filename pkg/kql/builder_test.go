@@ -59,9 +59,12 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 		t.Errorf("expected robust probe exclusion filter with kube-probe and has_any, got: %s", query)
 	}
 
-	// Verify efficient multi-percentile calculation
-	if !strings.Contains(query, "percentiles(duration, 50, 75, 90, 95, 99)") {
-		t.Errorf("expected native multi-percentile aggregate, got: %s", query)
+	// Verify direct percentile calculation
+	if !strings.Contains(query, "P95 = percentile(duration, 95)") {
+		t.Errorf("expected direct percentile aggregate, got: %s", query)
+	}
+	if strings.Contains(query, "P.percentile_duration") {
+		t.Errorf("query contains invalid property access P.percentile_duration, got: %s", query)
 	}
 }
 

@@ -149,16 +149,16 @@ func (b *QueryBuilder) buildBaseClauses() string {
 	}
 
 	// 5. Exclude synthetic availability tests if configured
-	if b.target.ExcludesSynthetic() && !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString("| where isempty(operation_SyntheticSource) and isempty(syntheticSource)\n")
+	if b.target.ExcludesSynthetic() && (strings.EqualFold(b.table, "requests") || strings.EqualFold(b.table, "dependencies")) {
+		sb.WriteString("| where isempty(column_ifexists('operation_SyntheticSource', ''))\n")
 	}
 
 	// 6. Exclude health probes (/healthz, /ready, kube-probe) if configured
-	if b.target.ExcludesProbes() && !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		if b.table == "requests" {
-			sb.WriteString("| where tostring(customDimensions['User-Agent']) !has 'kube-probe' and not(name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))\n")
-		} else {
-			sb.WriteString("| where tostring(customDimensions['User-Agent']) !has 'kube-probe' and not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))\n")
+	if b.target.ExcludesProbes() {
+		if strings.EqualFold(b.table, "requests") {
+			sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health')) and tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) !has 'kube-probe'\n")
+		} else if !strings.EqualFold(b.table, "MySqlSlowLogs") {
+			sb.WriteString("| where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health')) and tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) !has 'kube-probe'\n")
 		}
 	}
 
@@ -187,17 +187,15 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P = percentiles(duration, 50, 75, 90, 95, 99),
+    P50 = percentile(duration, 50),
+    P75 = percentile(duration, 75),
+    P90 = percentile(duration, 90),
+    P95 = percentile(duration, 95),
+    P99 = percentile(duration, 99),
     Count2xx = countif(toint(resultCode) >= 200 and toint(resultCode) < 300),
     Count4xx = countif(toint(resultCode) >= 400 and toint(resultCode) < 500),
     Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false))
-| extend 
-    P50 = todouble(P.percentile_duration_50),
-    P75 = todouble(P.percentile_duration_75),
-    P90 = todouble(P.percentile_duration_90),
-    P95 = todouble(P.percentile_duration_95),
-    P99 = todouble(P.percentile_duration_99),
-    ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx`
 	return TargetQuery{Query: q, Backend: b.backend}
 }
@@ -211,15 +209,13 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P = percentiles(duration, 50, 75, 90, 95, 99)
+    P50 = percentile(duration, 50),
+    P75 = percentile(duration, 75),
+    P90 = percentile(duration, 90),
+    P95 = percentile(duration, 95),
+    P99 = percentile(duration, 99)
   by name
-| extend 
-    P50 = todouble(P.percentile_duration_50),
-    P75 = todouble(P.percentile_duration_75),
-    P90 = todouble(P.percentile_duration_90),
-    P95 = todouble(P.percentile_duration_95),
-    P99 = todouble(P.percentile_duration_99),
-    ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project name, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate
 | order by P95 desc
 | take %d`, b.limit)
@@ -253,14 +249,12 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P = percentiles(duration, 50, 90, 95, 99)
+    P50 = percentile(duration, 50),
+    P90 = percentile(duration, 90),
+    P95 = percentile(duration, 95),
+    P99 = percentile(duration, 99)
   by type, target, name
-| extend 
-    P50 = todouble(P.percentile_duration_50),
-    P90 = todouble(P.percentile_duration_90),
-    P95 = todouble(P.percentile_duration_95),
-    P99 = todouble(P.percentile_duration_99),
-    ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project type, target, name, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate
 | order by P95 desc
 | take %d`, b.limit))
@@ -272,8 +266,11 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 	base := b.buildBaseClauses()
 	q := base + fmt.Sprintf(`| where not(type in ('ActionController::RoutingError', 'NotFoundHttpException', 'Sinatra::NotFound', 'System.OperationCanceledException', 'System.Threading.Tasks.TaskCanceledException', 'Microsoft.AspNetCore.Connections.ConnectionResetException'))
-| where not(coalesce(innermostMessage, outerMessage, message, "") has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
-| extend RawMsg = coalesce(innermostMessage, outerMessage, message, "<empty>")
+| extend RawMsg = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''),
+                  iff(isnotempty(column_ifexists('message', '')), column_ifexists('message', ''),
+                  iff(isnotempty(column_ifexists('innermostMessage', '')), column_ifexists('innermostMessage', ''),
+                  '<empty>')))
+| where not(RawMsg has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
 | extend CleanMessage = replace_regex(replace_regex(RawMsg, @"[0-9a-fA-F-]{36}", @"<UUID>"), @"\b\d{2,}\b", @"<ID>")
 | summarize 
     Count = count(),
