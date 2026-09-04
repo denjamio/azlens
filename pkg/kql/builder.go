@@ -120,11 +120,18 @@ func tokenExpr(column string, values config.StringList) string {
 	return fmt.Sprintf("%s has_any (%s)", column, strings.Join(quoted, ", "))
 }
 
-// buildBaseClauses produces optimized, partition-pruned KQL base filters
+// buildBaseClauses produces the table reference followed by the optimized,
+// partition-pruned KQL base filters
 func (b *QueryBuilder) buildBaseClauses() string {
+	return b.table + "\n" + b.buildBaseFilters()
+}
+
+// buildBaseFilters produces the optimized, partition-pruned filter chain for
+// the builder's table (time, resource, role, pod, synthetic, probe, custom
+// dimensions) without the leading table reference, so table-union queries can
+// reuse the same scoping per branch
+func (b *QueryBuilder) buildBaseFilters() string {
 	var sb strings.Builder
-	sb.WriteString(b.table)
-	sb.WriteString("\n")
 
 	// 1. Time filter MUST be first for partition pruning
 	if !b.startTime.IsZero() && !b.endTime.IsZero() {
@@ -172,7 +179,10 @@ func (b *QueryBuilder) buildBaseClauses() string {
 	return sb.String()
 }
 
-// BuildRequestsSummary calculates throughput, failure rate, duration percentiles, and HTTP status breakdown
+// BuildRequestsSummary calculates throughput, failure rate, duration percentiles, and HTTP status breakdown.
+// Percentiles are computed in a single percentiles() pass (one histogram scan
+// instead of one pass per percentile); the values are identical to individual
+// percentile() calls.
 func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
 	base := b.buildBaseClauses()
 	q := base + `| summarize 
@@ -181,20 +191,17 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P50 = percentile(duration, 50),
-    P75 = percentile(duration, 75),
-    P90 = percentile(duration, 90),
-    P95 = percentile(duration, 95),
-    P99 = percentile(duration, 99),
+    P = percentiles(duration, 50, 75, 90, 95, 99),
     Count2xx = countif(toint(resultCode) >= 200 and toint(resultCode) < 300),
     Count4xx = countif(toint(resultCode) >= 400 and toint(resultCode) < 500),
     Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false))
-| extend ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx`
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
-// BuildEndpointsSummary generates per-endpoint latency percentiles and error rates
+// BuildEndpointsSummary generates per-endpoint latency percentiles and error rates,
+// returning the top N by P95 (top-N heap instead of a full sort)
 func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
 	base := b.buildBaseClauses()
 	q := base + fmt.Sprintf(`| summarize 
@@ -203,16 +210,11 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P50 = percentile(duration, 50),
-    P75 = percentile(duration, 75),
-    P90 = percentile(duration, 90),
-    P95 = percentile(duration, 95),
-    P99 = percentile(duration, 99)
+    P = percentiles(duration, 50, 75, 90, 95, 99)
   by name
-| extend ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project name, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate
-| order by P95 desc
-| take %d`, b.limit)
+| top %d by P95 desc`, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
@@ -243,27 +245,44 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P50 = percentile(duration, 50),
-    P90 = percentile(duration, 90),
-    P95 = percentile(duration, 95),
-    P99 = percentile(duration, 99)
+    P = percentiles(duration, 50, 90, 95, 99)
   by type, target, name
-| extend ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend P50 = todouble(P[0]), P90 = todouble(P[1]), P95 = todouble(P[2]), P99 = todouble(P[3]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project type, target, name, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate
-| order by P95 desc
-| take %d`, b.limit))
+| top %d by P95 desc`, b.limit))
 
 	return TargetQuery{Query: sb.String(), Backend: b.backend}
 }
 
-// BuildExceptionsSummary groups exceptions by type, normalized message, and affected routes, filtering client/bot noise
+// BuildExceptionsSummary groups exceptions and HTTP 5xx requests by type,
+// normalized message, and affected routes, filtering client/bot noise. HTTP 5xx
+// responses that never produced exception telemetry are synthesized from the
+// requests table as "HTTP <code>" signatures, so services that fail without
+// throwing tracked exceptions still surface in 'top errors'.
 func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
-	base := b.buildBaseClauses()
-	q := base + fmt.Sprintf(`| where not(type in ('ActionController::RoutingError', 'NotFoundHttpException', 'Sinatra::NotFound', 'System.OperationCanceledException', 'System.Threading.Tasks.TaskCanceledException', 'Microsoft.AspNetCore.Connections.ConnectionResetException'))
-| extend RawMsg = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''),
-                  iff(isnotempty(column_ifexists('message', '')), column_ifexists('message', ''),
-                  iff(isnotempty(column_ifexists('innermostMessage', '')), column_ifexists('innermostMessage', ''),
-                  '<empty>')))
+	exceptionsBase := b.buildBaseFilters()
+	reqBuilder := mustBuilder("requests").WithTimeRange(b.startTime, b.endTime).WithTarget(b.target)
+	requestsBase := reqBuilder.buildBaseFilters()
+
+	q := fmt.Sprintf(`union isfuzzy=true
+(
+    exceptions
+%s
+    | where not(type in ('ActionController::RoutingError', 'NotFoundHttpException', 'Sinatra::NotFound', 'System.OperationCanceledException', 'System.Threading.Tasks.TaskCanceledException', 'Microsoft.AspNetCore.Connections.ConnectionResetException'))
+    | extend RawMsg = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''),
+                      iff(isnotempty(column_ifexists('message', '')), column_ifexists('message', ''),
+                      iff(isnotempty(column_ifexists('innermostMessage', '')), column_ifexists('innermostMessage', ''),
+                      '<empty>')))
+    | project timestamp, type, RawMsg, operation_Name
+),
+(
+    requests
+%s
+    | where success == false and (toint(resultCode) >= 500 or isempty(resultCode))
+    | extend type = iff(isempty(resultCode), 'HTTP 5xx', strcat('HTTP ', resultCode))
+    | extend RawMsg = name
+    | project timestamp, type, RawMsg, operation_Name
+)
 | where not(RawMsg has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
 | extend CleanMessage = replace_regex(replace_regex(RawMsg, @"[0-9a-fA-F-]{36}", @"<UUID>"), @"\b\d{2,}\b", @"<ID>")
 | summarize 
@@ -272,8 +291,7 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
     LastSeen = max(timestamp),
     AffectedPaths = make_set(operation_Name, 10)
   by type, CleanMessage
-| order by Count desc
-| take %d`, b.limit)
+| top %d by Count desc`, exceptionsBase, requestsBase, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
@@ -300,8 +318,7 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
   by name
 | where AvgSqlCalls > 1.0
 | project name, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
-| order by AvgSqlCalls desc
-| take %d`, depTimeFilter, b.limit)
+| top %d by AvgSqlCalls desc`, depTimeFilter, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
@@ -336,8 +353,7 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
     PctCache = iff(AvgTotal > 0, round(100.0 * AvgRedis / AvgTotal, 1), 0.0),
     PctAppCode = iff(AvgTotal > 0, round(100.0 * AvgApp / AvgTotal, 1), 0.0)
 | project name, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctAppCode
-| order by AvgTotalMs desc
-| take %d`, depTimeFilter, b.limit)
+| top %d by AvgTotalMs desc`, depTimeFilter, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 

@@ -71,8 +71,7 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 | where TimeGenerated between (datetime('%s') .. datetime('%s'))%s
 | extend Duration_s = round(toreal(QueryDurationMs) / 1000.0, 3)
 | project TimeGenerated, Duration_s, QueryDurationMs, RowsExamined, RowsSent, SqlText
-| order by QueryDurationMs desc
-| take %d`, FormatTime(start), FormatTime(end), dbFilter, topN)
+| top %d by QueryDurationMs desc`, FormatTime(start), FormatTime(end), dbFilter, topN)
 
 	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
 }
@@ -107,8 +106,7 @@ func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN in
     LastSeen = max(TimeGenerated)
   by SqlFingerprint
 | project SqlFingerprint, Executions, AvgMs, MaxMs, TotalMs, AvgRowsExamined, LastSeen
-| order by TotalMs desc
-| take %d`, FormatTime(start), FormatTime(end), dbFilter, buildFingerprintExtends(), lastStep, topN)
+| top %d by TotalMs desc`, FormatTime(start), FormatTime(end), dbFilter, buildFingerprintExtends(), lastStep, topN)
 
 	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
 }
@@ -171,8 +169,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
     LastSeen = max(timestamp),
     AffectedEndpoints = make_set(operation_Name, 5)
   by CleanMessage = substring(NormalizedMsg, 0, 250)
-| order by Count desc
-| take %d`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, probeFilter,
+| top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, probeFilter,
 		FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, probeFilter, topN)
 
 	return TargetQuery{Query: query, Backend: BackendAppInsights}

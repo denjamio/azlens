@@ -59,9 +59,13 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 		t.Errorf("expected robust probe exclusion filter with kube-probe and has_any, got: %s", query)
 	}
 
-	// Verify direct percentile calculation
-	if !strings.Contains(query, "P95 = percentile(duration, 95)") {
-		t.Errorf("expected direct percentile aggregate, got: %s", query)
+	// Verify single-pass percentile aggregation (one histogram scan) and
+	// scalar expansion without the illegal dynamic property access
+	if !strings.Contains(query, "P = percentiles(duration, 50, 75, 90, 95, 99)") {
+		t.Errorf("expected single-pass percentiles aggregate, got: %s", query)
+	}
+	if !strings.Contains(query, "P95 = todouble(P[3])") {
+		t.Errorf("expected P95 scalar expansion from the percentiles array, got: %s", query)
 	}
 	if strings.Contains(query, "P.percentile_duration") {
 		t.Errorf("query contains invalid property access P.percentile_duration, got: %s", query)
@@ -197,8 +201,8 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 	if strings.Contains(q, "DatabaseName_s") {
 		t.Errorf("query should not contain non-existent DatabaseName_s, got: %s", q)
 	}
-	if !strings.Contains(q, "order by QueryDurationMs desc") {
-		t.Errorf("expected slowest queries ordering, got: %s", q)
+	if !strings.Contains(q, "top 15 by QueryDurationMs desc") {
+		t.Errorf("expected top-N by query duration, got: %s", q)
 	}
 	if !strings.Contains(q, "QueryDurationMs") {
 		t.Errorf("expected QueryDurationMs column, got: %s", q)
@@ -231,11 +235,8 @@ func TestBuildMySqlSlowLogsGroupedQuery(t *testing.T) {
 			t.Errorf("expected %q aggregation, got: %s", metric, q)
 		}
 	}
-	if !strings.Contains(q, "order by TotalMs desc") {
-		t.Errorf("expected ordering by total accumulated duration, got: %s", q)
-	}
-	if !strings.Contains(q, "take 15") {
-		t.Errorf("expected take limit, got: %s", q)
+	if !strings.Contains(q, "top 15 by TotalMs desc") {
+		t.Errorf("expected top-N by total accumulated duration, got: %s", q)
 	}
 	if strings.Contains(q, "string(null)") {
 		t.Errorf("query contains invalid KQL syntax string(null), got: %s", q)
@@ -277,8 +278,14 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 
 	tq := b.WithTimeRange(start, end).WithTarget(target).BuildExceptionsSummary()
 	q := tq.Query
+	if !strings.Contains(q, "union isfuzzy=true") {
+		t.Errorf("expected exceptions + requests union, got: %s", q)
+	}
 	if !strings.Contains(q, "ActionController::RoutingError") {
 		t.Errorf("expected bot 404 routing filter in exceptions query, got: %s", q)
+	}
+	if !strings.Contains(q, "toint(resultCode) >= 500") || !strings.Contains(q, "strcat('HTTP ', resultCode)") {
+		t.Errorf("expected HTTP 5xx synthesis from requests, got: %s", q)
 	}
 	if !strings.Contains(q, "ClientClosedRequest") {
 		t.Errorf("expected client drop filter in exceptions query, got: %s", q)
@@ -288,5 +295,9 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	}
 	if !strings.Contains(q, "operation_Name has_any") {
 		t.Errorf("expected probe exclusion on operation_Name, got: %s", q)
+	}
+	// Both union branches must be partition-pruned by the same time window
+	if got := strings.Count(q, "timestamp between (datetime("); got != 2 {
+		t.Errorf("expected time filter in both union branches, got %d, in: %s", got, q)
 	}
 }

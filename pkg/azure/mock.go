@@ -237,6 +237,15 @@ func (m *MockClient) QueryExceptions(ctx context.Context, start, end time.Time, 
 				LastSeen:      now.Add(-1 * time.Hour),
 				AffectedPaths: []string{"GET /api/v1/catalog/search"},
 			},
+			{
+				// Present in both windows so the mock deploy-check stays healthy
+				Type:          "HTTP 503",
+				Message:       "POST /api/v1/orders/checkout",
+				Count:         9,
+				FirstSeen:     now.Add(-5 * time.Hour),
+				LastSeen:      now.Add(-2 * time.Hour),
+				AffectedPaths: []string{"POST /api/v1/orders/checkout"},
+			},
 		}, nil
 	}
 
@@ -248,6 +257,16 @@ func (m *MockClient) QueryExceptions(ctx context.Context, start, end time.Time, 
 			FirstSeen:     now.Add(-3 * time.Hour),
 			LastSeen:      now.Add(-8 * time.Minute),
 			AffectedPaths: []string{"GET /api/v1/catalog/search"},
+		},
+		{
+			// Synthesized from 5xx requests without exception telemetry,
+			// as the union in BuildExceptionsSummary produces
+			Type:          "HTTP 503",
+			Message:       "POST /api/v1/orders/checkout",
+			Count:         14,
+			FirstSeen:     now.Add(-2 * time.Hour),
+			LastSeen:      now.Add(-4 * time.Minute),
+			AffectedPaths: []string{"POST /api/v1/orders/checkout"},
 		},
 	}, nil
 }

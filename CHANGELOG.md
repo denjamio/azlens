@@ -5,27 +5,47 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.13] - 2026-09-04
+## [0.4.15] - 2026-09-04
+
+### Fixed
+
+- **`top errors` missed HTTP 5xx failures without exception telemetry**: The command documented "exceptions and HTTP 5xx errors" but queried only the `exceptions` table, returning nothing for services that respond 500/503 without throwing tracked exceptions (typical of OpenTelemetry-instrumented apps where the exception event never reaches App Insights). The query now unions both sources — real exceptions plus `requests` rows with `success == false` and `resultCode >= 500`, synthesized as `HTTP <code>` signatures (or `HTTP 5xx` when the code is unknown) with the endpoint as message context. Both branches carry identical partition-pruned scoping (time first, resource, roles, pods, synthetic/probe exclusions per table), and grouping, noise filters, ID normalization, affected-path attribution, and the parser are unchanged. A single round trip covers both sources: when no exceptions exist, the requests branch supplies the errors with no client-side fallback.
+
+### Optimized
+
+- **Single-pass percentiles in `deploy-check` overall, `top endpoints`, and `top queries`**: Replaced N separate `percentile()` aggregations (one histogram scan each) with one `percentiles()` call expanded back to scalar columns. Identical values and identical output column order; fewer aggregation passes over the scanned data.
+- **Top-N heap instead of full sort in every ranked query**: `order by … desc | take N` replaced with the equivalent `top N by …` across `top endpoints`, `top queries`, `top errors`, `top n-plus-one`, `top breakdown`, `top deprecations`, `top slow-logs`, and grouped slow logs — Kusto can stream a top-N heap instead of fully sorting each result set. Same rows, same order.
+
+## [0.4.14] - 2026-09-04
 
 ### Added
 
-- **`azlens top slow-logs --grouped` (query shape aggregation)**: New flag aggregating MySQL slow query logs by a normalized SQL fingerprint, reporting per shape: `Executions`, `Avg`, `Max`, and `Total Time` durations, `Rows Examined (avg)`, and `Last Seen`, ordered by total accumulated duration (highest overall impact first). Implemented as server-side KQL aggregation with mock parity, terminal/markdown/json renderers, and DB-latency severity coloring.
 - **Industry-anchored severity bands (prod-ready color standard)**: Centralized every color threshold in `pkg/reporter/thresholds.go` with documented bases: error rate 1%/5% (SRE error budget), API latency 300ms/1s (1-second rule), DB statements 100ms/1s (`long_query_time`), cache ops 5ms/25ms, scan ratio 100×/1000× (Percona missing-index heuristic), N+1 5/15 and regression deltas 15%/30% (analyzer defaults). Latency coloring is applied per dependency class, endpoint latency columns are now banded, and slow-logs `Rows Examined` is colored by examined/returned ratio instead of absolute counts. Documented in a README severity reference table.
-- **Modern width-aware table engine**: Replaced `tablewriter` with a purpose-built UTF-8 renderer (rounded borders, cyan headers, dim frames). Tables now adapt to the terminal width — flexible text columns shrink proportionally (never truncating numeric measurements or headers) instead of overflowing on narrow screens. Piped/redirected output is not truncated; `$COLUMNS` overrides detection. Terminal size is probed via `TIOCGWINSZ` (Linux/macOS) and `GetConsoleScreenBufferInfo` (Windows) — everything compiles statically into the binary, no runtime dependencies.
-- **`--color auto|always|never` global flag**: Controls output colorization. `auto` (default) colors only on a TTY honoring `NO_COLOR`; `always`/`never` force the mode. Severity-based cell coloring across every table: error rates, latency bands, slow-log durations, regression deltas, N+1 spikes, and deploy verdict statuses.
-- **Instrumentation noise classification (`top errors`, `deploy-check`)**: Exceptions like `ModuleNotFoundError` with message `Exception occurred when instrumenting: fastapi` are now recognized as auto-instrumentation SDK noise (the SDK failing to hook a framework), annotated with an explanatory hint in table and markdown output, and surfaced as a `[INSTRUMENTATION NOISE]` root-cause hint in deploy reports instead of being misread as an application exception.
 
 ### Changed
 
 - **Robust SQL fingerprint pipeline (fixes near-duplicate groups in `--grouped`)**: The fingerprint normalization is now a single RE2 step pipeline defined once in Go (`pkg/kql/fingerprint.go`) and rendered 1:1 into the KQL query, so local and server-side fingerprints cannot drift. On top of literal masking it now strips `/* */` and `--` comments (sqlcommenter/driver hints), normalizes casing (`SELECT` vs `select`), collapses IN-list and tuple lengths (`IN (?, ?, ?)` → `(?)`), handles hex literals and escaped/doubled quotes, and trims/collapses whitespace — same-shape queries collapse into one group. Covered by unit tests that mirror the KQL pipeline byte-for-byte.
-- **Human-friendly generic tables**: Arbitrary query results (and `azlens query`-style output) now humanize headers (`TotalCalls` → `Total Calls`, `TimeGenerated` → `Time`, `QueryDurationMs` → `Query Duration (ms)`, `operation_Name` → `Operation`) and normalize cell values: local-time timestamps, thousands-separated counts, humanized durations/percentages, joined KQL arrays, and `NULL` → `-`. Applied consistently to terminal and markdown output.
-- **Clarified slow-logs row metrics**: `azlens top slow-logs` headers renamed for clarity: `Examined` → `Rows Examined` and `Sent` → `Rows Returned` (`RowsSent` counts the rows the query returned to the client, not executions). Markdown output uses the same wording.
-- **Humanized deploy-check summary**: Latency amounts render compactly (`45ms`, not `45.00ms`), request counts with separators (`45,200 reqs`), and deltas signed with human units (`+12ms (+6.7%)`).
-- **Dependency diet**: Removed `github.com/olekukonko/tablewriter`; promoted already-vendored `github.com/mattn/go-runewidth` and `golang.org/x/sys` to direct (both pure Go, statically linked).
 
 ### Fixed
 
 - **`top errors` never showed affected endpoints**: The exceptions query returns `AffectedPaths` (`make_set(operation_Name, 10)`), but the parser discarded the column, leaving `ErrorSummary.AffectedPaths` empty in every real run (only mock data showed endpoints). It is now parsed, restoring endpoint attribution in the output and the deploy-check root-cause correlation that depends on it.
+- **CI golangci-lint failure**: Removed an unused header heuristic and corrected staticcheck naming (ST1003) flagged by the release gate.
+
+## [0.4.13] - 2026-09-04
+
+### Added
+
+- **`azlens top slow-logs --grouped` (query shape aggregation)**: New flag aggregating MySQL slow query logs by a normalized SQL fingerprint, reporting per shape: `Executions`, `Avg`, `Max`, and `Total Time` durations, `Rows Examined (avg)`, and `Last Seen`, ordered by total accumulated duration (highest overall impact first). Implemented as server-side KQL aggregation with mock parity and terminal/markdown/json renderers.
+- **Modern width-aware table engine**: Replaced `tablewriter` with a purpose-built UTF-8 renderer (rounded borders, cyan headers, dim frames). Tables now adapt to the terminal width — flexible text columns shrink proportionally (never truncating numeric measurements or headers) instead of overflowing on narrow screens. Piped/redirected output is not truncated; `$COLUMNS` overrides detection. Terminal size is probed via `TIOCGWINSZ` (Linux/macOS) and `GetConsoleScreenBufferInfo` (Windows) — everything compiles statically into the binary, no runtime dependencies.
+- **`--color auto|always|never` global flag**: Controls output colorization. `auto` (default) colors only on a TTY honoring `NO_COLOR`; `always`/`never` force the mode. Severity-based cell coloring across every table: error rates, slow-log durations, regression deltas, N+1 spikes, and deploy verdict statuses.
+- **Instrumentation noise classification (`top errors`, `deploy-check`)**: Exceptions like `ModuleNotFoundError` with message `Exception occurred when instrumenting: fastapi` are now recognized as auto-instrumentation SDK noise (the SDK failing to hook a framework), annotated with an explanatory hint in table and markdown output, and surfaced as a `[INSTRUMENTATION NOISE]` root-cause hint in deploy reports instead of being misread as an application exception.
+
+### Changed
+
+- **Human-friendly generic tables**: Arbitrary query results (and `azlens query`-style output) now humanize headers (`TotalCalls` → `Total Calls`, `TimeGenerated` → `Time`, `QueryDurationMs` → `Query Duration (ms)`, `operation_Name` → `Operation`) and normalize cell values: local-time timestamps, thousands-separated counts, humanized durations/percentages, joined KQL arrays, and `NULL` → `-`. Applied consistently to terminal and markdown output.
+- **Clarified slow-logs row metrics**: `azlens top slow-logs` headers renamed for clarity: `Examined` → `Rows Examined` and `Sent` → `Rows Returned` (`RowsSent` counts the rows the query returned to the client, not executions). Markdown output uses the same wording.
+- **Humanized deploy-check summary**: Latency amounts render compactly (`45ms`, not `45.00ms`), request counts with separators (`45,200 reqs`), and deltas signed with human units (`+12ms (+6.7%)`).
+- **Dependency diet**: Removed `github.com/olekukonko/tablewriter`; promoted already-vendored `github.com/mattn/go-runewidth` and `golang.org/x/sys` to direct (both pure Go, statically linked).
 
 ## [0.4.12] - 2026-09-04
 
