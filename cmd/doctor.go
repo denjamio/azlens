@@ -201,12 +201,12 @@ var doctorCmd = &cobra.Command{
 		}
 
 		// 2c. Session coverage: each subscription targeted by the active profile
-		for _, s := range configuredSubscriptions(rt.Profile) {
-			if ok, err := subscriptionAccessible(cmd.Context(), s); err == nil && ok {
-				color.Green("✓ Subscription session: %s available in the current az session", s)
+		for _, b := range configuredBackends(rt.Profile) {
+			if ok, err := subscriptionAccessible(cmd.Context(), b.subscription, b.env()); err == nil && ok {
+				color.Green("✓ Subscription session: %s available in the current az session", b.subscription)
 			} else {
-				color.Red("✗ Subscription session: %s not available in the current az session", s)
-				fmt.Println("  💡 Hint: Run 'az login --tenant <tenant-id>' for the directory hosting this subscription")
+				color.Red("✗ Subscription session: %s not available in the current az session", b.subscription)
+				fmt.Printf("  💡 Hint: Run '%s'\n", loginHint(b))
 				hasErrors = true
 			}
 		}

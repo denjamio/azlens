@@ -39,12 +39,12 @@ func TestSubscriptionAccessible(t *testing.T) {
 	stub := fakeAzAccountShow(t, []string{"sub-ok"})
 	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	ok, err := subscriptionAccessible(context.Background(), "sub-ok")
+	ok, err := subscriptionAccessible(context.Background(), "sub-ok", nil)
 	if err != nil || !ok {
 		t.Errorf("expected subscription 'sub-ok' accessible, got ok=%v err=%v", ok, err)
 	}
 
-	ok, err = subscriptionAccessible(context.Background(), "sub-missing")
+	ok, err = subscriptionAccessible(context.Background(), "sub-missing", nil)
 	if err != nil {
 		t.Errorf("expected nil error for missing subscription (needs login), got: %v", err)
 	}
@@ -126,5 +126,27 @@ func TestEnsureSubscriptionSessions(t *testing.T) {
 		if !strings.Contains(err.Error(), "az login --tenant") {
 			t.Errorf("expected actionable login hint in error:\n%s", err)
 		}
+		if !strings.Contains(err.Error(), "dir-logs") {
+			t.Errorf("expected hint to use the configured directory_id:\n%s", err)
+		}
 	})
+}
+
+func TestLoginHintUsesIsolatedProfile(t *testing.T) {
+	resetRootFlags()
+	defer resetRootFlags()
+
+	// With a directory_id the hint includes the isolated AZURE_CONFIG_DIR and
+	// the exact tenant to authenticate
+	b := backendSession{subscription: "sub-b", tenant: "dir-b", azConfigDir: "/home/u/.config/azlens/azure/dir-b"}
+	want := "AZURE_CONFIG_DIR=/home/u/.config/azlens/azure/dir-b az login --tenant dir-b"
+	if got := loginHint(b); got != want {
+		t.Errorf("loginHint mismatch:\n got: %s\nwant: %s", got, want)
+	}
+
+	// Without a directory_id the hint falls back to the generic tenant login
+	b = backendSession{subscription: "sub-b"}
+	if got := loginHint(b); got != "az login --tenant <directory-id of sub-b>" {
+		t.Errorf("fallback loginHint mismatch, got: %s", got)
+	}
 }

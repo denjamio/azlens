@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/denjamio/azlens/pkg/azure"
 	"github.com/denjamio/azlens/pkg/config"
 )
 
@@ -16,22 +17,33 @@ import (
 const subscriptionCheckTimeout = 5 * time.Second
 
 // backendSession couples a configured subscription with the Entra directory
-// (tenant ID) that hosts it, so the right 'az login --tenant <id>' can be
-// launched when the subscription is not in the session
+// (tenant ID) that hosts it and the isolated az profile that holds its session
 type backendSession struct {
 	subscription string
 	tenant       string
+	// azConfigDir is the isolated AZURE_CONFIG_DIR for this directory (empty =
+	// the user's main az profile, when no directory_id is configured)
+	azConfigDir string
+}
+
+// env returns the process environment prefix for az invocations of this backend
+func (b backendSession) env() []string {
+	if b.azConfigDir == "" {
+		return nil
+	}
+	return []string{"AZURE_CONFIG_DIR=" + b.azConfigDir}
 }
 
 // subscriptionAccessible reports whether the subscription is available in the
-// current az CLI session. azlens never stores or refreshes tokens: session and
+// given az CLI profile. azlens never stores or refreshes tokens: session and
 // token management remain entirely inside the az CLI.
-func subscriptionAccessible(ctx context.Context, subscriptionID string) (bool, error) {
+func subscriptionAccessible(ctx context.Context, subscriptionID string, env []string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, subscriptionCheckTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "az", "--only-show-errors", "account", "show",
 		"--subscription", subscriptionID, "--query", "id", "-o", "tsv")
+	cmd.Env = append(os.Environ(), env...)
 	if err := cmd.Run(); err != nil {
 		// az executed but the subscription is not in the account list (or the
 		// session is expired): treat both as "needs login"
@@ -45,16 +57,25 @@ func subscriptionAccessible(ctx context.Context, subscriptionID string) (bool, e
 }
 
 // configuredBackends returns the deduplicated backends targeted by the profile,
-// each with its subscription and (optionally) hosting directory
+// each with its subscription, hosting directory and isolated az profile
 func configuredBackends(prof config.Profile) []backendSession {
-	insights := backendSession{
-		subscription: strings.TrimSpace(prof.Target.Insights.SubscriptionID),
-		tenant:       strings.TrimSpace(prof.Target.Insights.DirectoryID),
+	build := func(sub, tenant string) backendSession {
+		b := backendSession{
+			subscription: strings.TrimSpace(sub),
+			tenant:       strings.TrimSpace(tenant),
+		}
+		if b.tenant != "" {
+			// Isolation failure is non-fatal here: the backend falls back to the
+			// main az profile and the query itself surfaces any real problem
+			if dir, err := azure.AzureConfigDir(b.tenant); err == nil {
+				b.azConfigDir = dir
+			}
+		}
+		return b
 	}
-	logs := backendSession{
-		subscription: strings.TrimSpace(prof.Target.Logs.SubscriptionID),
-		tenant:       strings.TrimSpace(prof.Target.Logs.DirectoryID),
-	}
+
+	insights := build(prof.Target.Insights.SubscriptionID, prof.Target.Insights.DirectoryID)
+	logs := build(prof.Target.Logs.SubscriptionID, prof.Target.Logs.DirectoryID)
 
 	var out []backendSession
 	if insights.subscription != "" {
@@ -98,13 +119,17 @@ func azLoginArgs(tenant string) []string {
 	return []string{"login"}
 }
 
-// azLoginCmd builds the interactive 'az login' command for the given directory.
-// The child process disables the v2 login experience (account picker) so the
-// flow goes straight to authentication; the user's global az CLI configuration
-// is never modified. To make it permanent: 'az config set core.login_experience_v2=off'.
-func azLoginCmd(tenant string) *exec.Cmd {
+// azLoginCmd builds the interactive 'az login' command for the given directory
+// and isolated profile. The child process disables the v2 login experience
+// (account picker) so the flow goes straight to authentication; the user's
+// main az profile is never modified. To make the direct flow permanent for all
+// az usage: 'az config set core.login_experience_v2=off'.
+func azLoginCmd(tenant, azConfigDir string) *exec.Cmd {
 	cmd := exec.Command("az", azLoginArgs(tenant)...)
 	cmd.Env = append(os.Environ(), "AZURE_CORE_LOGIN_EXPERIENCE_V2=off")
+	if azConfigDir != "" {
+		cmd.Env = append(cmd.Env, "AZURE_CONFIG_DIR="+azConfigDir)
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -113,19 +138,19 @@ func azLoginCmd(tenant string) *exec.Cmd {
 
 // launchAzLogin hands the terminal over to 'az login' so the user can
 // authenticate the directory owning the missing subscriptions
-func launchAzLogin(tenant string) error {
+func launchAzLogin(tenant, azConfigDir string) error {
 	if tenant != "" {
 		fmt.Fprintf(os.Stderr, "\n🔐 Launching 'az login --tenant %s' — authenticate the directory hosting the missing subscription (tokens stay inside the az CLI)...\n\n", tenant)
 	} else {
 		fmt.Fprintln(os.Stderr, "\n🔐 Launching 'az login' — pick the account/directory that owns the missing subscription (tokens stay inside the az CLI)...")
 	}
-	return azLoginCmd(tenant).Run()
+	return azLoginCmd(tenant, azConfigDir).Run()
 }
 
 // ensureSubscriptionSessions verifies that every subscription targeted by the
-// profile is available in the current az session. When one is missing and
-// running on a TTY, the interactive login flow is launched — once per distinct
-// directory ('az login --tenant <id>' when the backend's tenant is configured) —
+// profile is available in its az profile (isolated per directory when
+// directory_id is configured). When one is missing and running on a TTY, the
+// interactive login flow is launched — once per distinct directory —
 // re-verifying after each login. Non-TTY runs (CI) fail fast with actionable
 // guidance instead of hanging.
 func ensureSubscriptionSessions(prof config.Profile) error {
@@ -135,14 +160,14 @@ func ensureSubscriptionSessions(prof config.Profile) error {
 	}
 
 	ctx := context.Background()
-	accessible := func(sub string) bool {
-		ok, err := subscriptionAccessible(ctx, sub)
+	accessible := func(b backendSession) bool {
+		ok, err := subscriptionAccessible(ctx, b.subscription, b.env())
 		return err == nil && ok
 	}
 
 	var missing []backendSession
 	for _, b := range backends {
-		if !accessible(b.subscription) {
+		if !accessible(b) {
 			missing = append(missing, b)
 		}
 	}
@@ -155,19 +180,20 @@ func ensureSubscriptionSessions(prof config.Profile) error {
 		// plain 'az login' only when no directory is configured for it
 		launched := make(map[string]bool)
 		for _, b := range missing {
-			if launched[b.tenant] {
+			key := b.tenant + "|" + b.azConfigDir
+			if launched[key] {
 				continue
 			}
-			launched[b.tenant] = true
+			launched[key] = true
 
-			if err := launchAzLogin(b.tenant); err != nil {
+			if err := launchAzLogin(b.tenant, b.azConfigDir); err != nil {
 				fmt.Fprintf(os.Stderr, "⚠️  'az login' did not complete (%v)\n", err)
 				continue
 			}
 
 			var still []backendSession
 			for _, m := range missing {
-				if !accessible(m.subscription) {
+				if !accessible(m) {
 					still = append(still, m)
 				}
 			}
@@ -183,12 +209,20 @@ func ensureSubscriptionSessions(prof config.Profile) error {
 	hints := make([]string, 0, len(missing))
 	for _, b := range missing {
 		missingSubs = append(missingSubs, b.subscription)
-		if b.tenant != "" {
-			hints = append(hints, fmt.Sprintf("'az login --tenant %s'", b.tenant))
-		} else {
-			hints = append(hints, fmt.Sprintf("'az login --tenant <tenant-id of %s>'", b.subscription))
-		}
+		hints = append(hints, "'"+loginHint(b)+"'")
 	}
 	return fmt.Errorf("subscription(s) not in the active az session: %s\n💡 Hint: authenticate the directory hosting each subscription and retry: %s (azlens does not store tokens; sessions are managed by the az CLI)",
 		strings.Join(missingSubs, ", "), strings.Join(hints, " and "))
+}
+
+// loginHint builds the exact, copy-pasteable login command for a backend
+func loginHint(b backendSession) string {
+	prefix := ""
+	if b.azConfigDir != "" {
+		prefix = "AZURE_CONFIG_DIR=" + b.azConfigDir + " "
+	}
+	if b.tenant != "" {
+		return prefix + "az login --tenant " + b.tenant
+	}
+	return prefix + "az login --tenant <directory-id of " + b.subscription + ">"
 }

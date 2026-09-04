@@ -21,7 +21,7 @@ func fakeAzScript(t *testing.T, capturePath string) (binDir string) {
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> " + capturePath + "\n" +
-		"echo \"directory=$AZURE_TENANT_ID\" >> " + capturePath + "\n" +
+		"echo \"azprofile=$AZURE_CONFIG_DIR\" >> " + capturePath + "\n" +
 		"echo '" + fakeAzOutput + "'\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -69,6 +69,15 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	start := now.Add(-1 * time.Hour)
 	end := now
 
+	dirLogs, err := AzureConfigDir("dir-logs")
+	if err != nil {
+		t.Fatalf("failed resolving config dir: %v", err)
+	}
+	dirInsights, err := AzureConfigDir("dir-insights")
+	if err != nil {
+		t.Fatalf("failed resolving config dir: %v", err)
+	}
+
 	// 1. Log Analytics table query routes to the workspace with the logs subscription
 	if _, err := client.QueryMySQLSlowLogs(ctx, start, end, "testdb", false, 5); err != nil {
 		t.Fatalf("failed querying log analytics: %v", err)
@@ -78,11 +87,13 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		"monitor log-analytics query",
 		"--workspace 33333333-hhhh-iiii-jjjj-333333333333",
 		"--subscription sub-logs",
-		"directory=dir-logs",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("log analytics query missing %q in captured args:\n%s", want, cap)
 		}
+	}
+	if !strings.Contains(cap, "azprofile="+dirLogs) {
+		t.Errorf("expected isolated az profile env for logs directory in captured args:\n%s", cap)
 	}
 
 	// 2. App Insights query routes to the component with the insights subscription
@@ -95,11 +106,13 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",
-		"directory=dir-insights",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("app insights query missing %q in captured args:\n%s", want, cap)
 		}
+	}
+	if !strings.Contains(cap, "azprofile="+dirInsights) {
+		t.Errorf("expected isolated az profile env for insights directory in captured args:\n%s", cap)
 	}
 }
 

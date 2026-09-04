@@ -21,11 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     directory that owns it (interactive, with the v2 account-picker experience
     disabled for a direct flow) and re-verifies. CI runs fail fast with the
     exact per-subscription login commands.
-  - **Per-query token routing**: every `az` query runs with
-    `AZURE_TENANT_ID=<directory_id>` in its process environment, so data-plane
-    tokens are issued against the right directory even in multi-directory
-    setups — without `az account set` and without touching the user's active
-    account or default subscription.
+  - **Per-query token routing**: every `az` query runs against an isolated
+    az CLI profile per directory (`AZURE_CONFIG_DIR`, the documented isolation
+    mechanism), so data-plane tokens are issued by the right directory even in
+    multi-directory setups — without `az account set` and without ever
+    touching the user's main az profile.
 - **Config key renames for precision**: `subscription` → `subscription_id`
   (it is an ID), `tenant` → `directory_id`; `directory_id` sits above
   `subscription_id` in `insights` / `logs`.

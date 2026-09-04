@@ -344,24 +344,25 @@ AzLens runs read-only telemetry queries through the authenticated Azure CLI (`az
 
 ### Multi-Directory Setups (`directory_id`) & Sessions
 
-For cross-directory setups (App Insights in directory A, Log Analytics in directory B), configure each backend's `directory_id` (and its `subscription_id`) once in `shared`. azlens then handles the rest — without ever mutating your az CLI defaults (active account / default subscription stay untouched):
+For cross-directory setups (App Insights in directory A, Log Analytics in directory B), configure each backend's `directory_id` (and its `subscription_id`) once in `shared`. azlens then handles the rest using the fully documented `AZURE_CONFIG_DIR` isolation mechanism — your main az profile (`~/.azure`) is never touched:
 
-- **Per-query token routing**: each `az` query runs with `AZURE_TENANT_ID=<directory_id>` in its process environment, so the data-plane token is issued against the right directory even when the other directory is the active one. No `az account set` is ever needed.
-- **Pre-flight on every `top` / `deploy-check`**: verifies that each configured subscription is available in the current az session.
-- **Interactive login on demand**: on a terminal, if a subscription is missing from the session, azlens launches `az login --tenant <directory_id>` for the exact directory that owns it (with the interactive account-picker experience disabled for a direct flow) and re-verifies before querying.
-- **CI / non-interactive runs**: never hangs on a login prompt — it fails fast with `subscription(s) not in the active az session: <id>` and the exact `az login --tenant <directory_id>` commands to run.
+- **Isolated az profile per directory**: every query runs with `AZURE_CONFIG_DIR=<managed profile for that directory_id>`, so accounts, token caches and defaults are fully separate per directory. The data-plane token is always issued by the right directory — no `az account set`, no active-account ambiguity.
+- **`subscription_id` still required**: the directory routes the *identity* (who issues the token); the subscription routes the *query* to the resource (`--subscription`). A workspace GUID does not encode its subscription, so it is declared once in `shared`.
+- **Pre-flight on every `top` / `deploy-check`**: verifies that each configured subscription is available in its own az profile.
+- **Interactive login on demand**: on a terminal, if a subscription is missing from its profile, azlens launches `az login --tenant <directory_id>` inside that profile (with the interactive account-picker experience disabled for a direct flow) and re-verifies before querying.
+- **CI / non-interactive runs**: never hangs on a login prompt — it fails fast with `subscription(s) not in the active az session: <id>` and the exact, copy-pasteable login commands (`AZURE_CONFIG_DIR=... az login --tenant ...`).
 - **`azlens doctor`**: reports per-subscription session coverage (✓ / ✗) for the active profile.
 
 azlens never stores or refreshes tokens; session management stays entirely inside the az CLI. To make the direct login flow permanent for all your az usage: `az config set core.login_experience_v2=off`.
 
-One-time setup for a fresh machine:
+On a fresh machine, the first run of `azlens top` / `deploy-check` walks you through one login per directory (or run them yourself):
 
 ```bash
 az login --tenant <directory-A>   # hosts App Insights
 az login --tenant <directory-B>   # hosts Log Analytics
 ```
 
-After that, each query is routed statelessly with its own `--subscription` and `AZURE_TENANT_ID`; no account switching ever happens.
+After that, every query is routed statelessly: its own isolated profile for the identity, its own `--subscription` for the resource.
 
 Grant access with:
 

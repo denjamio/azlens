@@ -27,7 +27,7 @@ func fakeAzBatchScript(t *testing.T, capturePath string) string {
 	script := "#!/bin/sh\n" +
 		"echo \"=== INVOCATION ===\" >> " + capturePath + "\n" +
 		"echo \"$@\" >> " + capturePath + "\n" +
-		"echo \"directory=$AZURE_TENANT_ID\" >> " + capturePath + "\n" +
+		"echo \"azprofile=$AZURE_CONFIG_DIR\" >> " + capturePath + "\n" +
 		"echo '" + payload + "'\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
@@ -84,6 +84,11 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 		t.Errorf("fanout mismatch: %+v", wm.Fanout)
 	}
 
+	dirInsights, err := AzureConfigDir("dir-insights")
+	if err != nil {
+		t.Fatalf("failed resolving config dir: %v", err)
+	}
+
 	// 6. Single az invocation with semicolon-separated statements and correct routing
 	cap := readCapture(t, capture)
 	if invocations := strings.Count(cap, "=== INVOCATION ==="); invocations != 1 {
@@ -96,11 +101,13 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",
-		"directory=dir-insights",
 	} {
 		if !strings.Contains(cap, want) {
 			t.Errorf("batch query missing %q in captured args:\n%s", want, cap)
 		}
+	}
+	if !strings.Contains(cap, "azprofile="+dirInsights) {
+		t.Errorf("expected isolated az profile env in captured args:\n%s", cap)
 	}
 }
 

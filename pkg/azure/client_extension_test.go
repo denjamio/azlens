@@ -128,3 +128,16 @@ func TestAzExtensionForArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestAzureConfigDir(t *testing.T) {
+	if dir, err := AzureConfigDir("  "); err != nil || dir != "" {
+		t.Errorf("expected empty dir for empty directory id, got %q (%v)", dir, err)
+	}
+	dir, err := AzureConfigDir("DIR-ABC-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasSuffix(dir, "azlens/azure/dir-abc-123") {
+		t.Errorf("expected managed profile path suffix azlens/azure/dir-abc-123, got %q", dir)
+	}
+}

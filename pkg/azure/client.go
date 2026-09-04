@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -87,11 +88,28 @@ func (c *AzCliClient) GetProfile() config.Profile {
 	return c.opts.Profile
 }
 
+// AzureConfigDir returns the azlens-managed az CLI configuration directory for
+// an Entra directory (tenant) ID: a fully isolated az profile — accounts, token
+// caches and defaults — driven by the documented AZURE_CONFIG_DIR mechanism.
+// The user's main az profile is never touched.
+func AzureConfigDir(directoryID string) (string, error) {
+	directoryID = strings.TrimSpace(directoryID)
+	if directoryID == "" {
+		return "", nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed resolving the user config dir: %w", err)
+	}
+	return filepath.Join(base, "azlens", "azure", strings.ToLower(directoryID)), nil
+}
+
 // routeForTargetQuery selects the target backend (App Insights or Log Analytics)
 // and returns the az CLI arguments plus the directory ID the query must run
 // against. Nothing global is ever mutated: the directory travels with the query
-// as AZURE_TENANT_ID (per-process token routing) and the subscription as
-// --subscription, so the user's active az account and defaults stay untouched.
+// as an isolated AZURE_CONFIG_DIR profile (per-process token routing) and the
+// subscription as --subscription, so the user's active az account and defaults
+// stay untouched.
 func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string, error) {
 	var args []string
 	var targetSub string
@@ -222,10 +240,14 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string, directo
 
 	cmd := exec.CommandContext(ctx, "az", cmdArgs...)
 	if directoryID != "" {
-		// Directory-scoped token acquisition, process-local: the az child
-		// process acquires its data-plane token against this directory without
-		// touching the user's active account or default subscription
-		cmd.Env = append(os.Environ(), "AZURE_TENANT_ID="+directoryID)
+		configDir, err := AzureConfigDir(directoryID)
+		if err != nil {
+			return nil, fmt.Errorf("failed resolving the isolated az profile for directory '%s': %w", directoryID, err)
+		}
+		// Documented isolation mechanism: a dedicated az profile per directory
+		// holds its own accounts, token caches and defaults — the data-plane
+		// token is issued by the right directory with zero global side effects
+		cmd.Env = append(os.Environ(), "AZURE_CONFIG_DIR="+configDir)
 	}
 
 	out, err := cmd.CombinedOutput()
