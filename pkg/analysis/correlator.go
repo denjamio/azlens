@@ -1,3 +1,4 @@
+// Package analysis implements the operational correlation engine and problem detectors.
 package analysis
 
 import (
@@ -8,15 +9,14 @@ import (
 	"github.com/denjamio/azlens/pkg/domain"
 )
 
-// Correlator aggregates and correlates internal findings into user-visible Problems
-// and Watching items (Section 14).
+// Correlator maps telemetry findings into unified problem stories and worth-watching items.
 type Correlator struct{}
 
 func NewCorrelator() *Correlator {
 	return &Correlator{}
 }
 
-// Correlate collapses related symptoms into single operational stories.
+// Correlate groups related findings into a prioritized list of problems (Section 6 & 12).
 func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Finding) ([]domain.Problem, []domain.WatchingItem) {
 	var problems []domain.Problem
 	var watching []domain.WatchingItem
@@ -32,7 +32,6 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 	var workloadFindings []int
 	var oomFindings []int
 	var restartFindings []int
-	var staleFindings []int
 	var availFindings []int
 
 	for i, f := range findings {
@@ -53,8 +52,6 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 			oomFindings = append(oomFindings, i)
 		case domain.FindingRestartBurst:
 			restartFindings = append(restartFindings, i)
-		case domain.FindingTelemetryStale:
-			staleFindings = append(staleFindings, i)
 		case domain.FindingAvailabilityFailure:
 			availFindings = append(availFindings, i)
 		}
@@ -520,4 +517,3 @@ func roundFloat(val float64, precision int) float64 {
 	ratio := math.Pow(10, float64(precision))
 	return math.Round(val*ratio) / ratio
 }
-

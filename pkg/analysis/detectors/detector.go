@@ -1,7 +1,7 @@
+// Package detectors provides rule-based telemetry anomaly detectors.
 package detectors
 
 import (
-	"math"
 	"time"
 
 	"github.com/denjamio/azlens/pkg/domain"
@@ -89,10 +89,4 @@ func calcPctChange(baseline, current float64) float64 {
 		return 100.0
 	}
 	return ((current - baseline) / baseline) * 100.0
-}
-
-// Helper: roundFloat rounds float to n decimal places
-func roundFloat(val float64, precision int) float64 {
-	ratio := math.Pow(10, float64(precision))
-	return math.Round(val*ratio) / ratio
 }

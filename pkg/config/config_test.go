@@ -387,8 +387,7 @@ func TestResolveProfilePrecedence(t *testing.T) {
 	}
 
 	// 1. --profile / -p flag always wins
-	os.Setenv("AZLENS_PROFILE", "staging")
-	defer os.Unsetenv("AZLENS_PROFILE")
+	t.Setenv("AZLENS_PROFILE", "staging")
 
 	got, err := cfgMulti.ResolveProfile("dev")
 	if err != nil || got != "dev" {
@@ -402,7 +401,7 @@ func TestResolveProfilePrecedence(t *testing.T) {
 	}
 
 	// 3. defaults.profile wins when neither CLI nor env is set
-	os.Unsetenv("AZLENS_PROFILE")
+	t.Setenv("AZLENS_PROFILE", "")
 	got, err = cfgMulti.ResolveProfile("")
 	if err != nil || got != "prod" {
 		t.Fatalf("expected defaults.profile 'prod' to win, got %q (err: %v)", got, err)
@@ -431,4 +430,3 @@ func TestResolveProfilePrecedence(t *testing.T) {
 		t.Fatalf("expected error when multiple profiles exist without selection, got nil")
 	}
 }
-

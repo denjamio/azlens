@@ -210,7 +210,7 @@ type WatchingItem struct {
 	Scope     Scope      `json:"scope,omitempty"`
 }
 
-// Context headers for JSON output (Section 18.2).
+// ProfileContext represents context headers for JSON output (Section 18.2).
 type ProfileContext struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name,omitempty"`

@@ -34,11 +34,11 @@ make build
 
 ```mermaid
 flowchart LR
-    A["🚀 azlens [window]\n(Does anything need attention?)"] --> B["🔍 azlens explain [subject]\n(Why is this happening?)"]
-    A --> C["📊 azlens inspect <view>\n(Show me the evidence)"]
-    A --> D["🚀 azlens deploy [window]\n(Did this deploy make things worse?)"]
-    A --> E["🩺 azlens doctor\n(Check auth & capability coverage)"]
-    A --> F["⚙️ azlens config / upgrade\n(Profiles, settings & self-update)"]
+    A["🚀 azlens [window]<br/>(Does anything need attention?)"] --> B["🔍 azlens explain [subject]<br/>(Why is this happening?)"]
+    A --> C["📊 azlens inspect [view]<br/>(Show me the evidence)"]
+    A --> D["🚀 azlens deploy [window]<br/>(Did this deploy make things worse?)"]
+    A --> E["🩺 azlens doctor<br/>(Check auth & capability coverage)"]
+    A --> F["⚙️ azlens config / upgrade<br/>(Profiles, settings & self-update)"]
 ```
 
 ---

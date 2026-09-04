@@ -597,4 +597,3 @@ func cleanSubject(raw string) string {
 	}
 	return s
 }
-

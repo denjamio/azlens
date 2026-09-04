@@ -33,8 +33,8 @@ type PodRuntimeStatus struct {
 // ResourceSaturation describes CPU and memory utilization.
 type ResourceSaturation struct {
 	Scope       Scope   `json:"scope"`
-	CPUPct      float64 `json:"cpu_pct"`      // 0 - 100%
-	MemoryPct   float64 `json:"memory_pct"`   // 0 - 100%
+	CPUPct      float64 `json:"cpu_pct"`    // 0 - 100%
+	MemoryPct   float64 `json:"memory_pct"` // 0 - 100%
 	HasData     bool    `json:"has_data"`
 	IsSaturated bool    `json:"is_saturated"`
 }
@@ -86,9 +86,9 @@ type Snapshot struct {
 	SlowLogs     []model.SlowLogGroup `json:"slow_logs,omitempty"`
 
 	// Freshness and capability metadata
-	Freshness              FreshnessInfo              `json:"freshness"`
-	ConfiguredCapabilities map[CapabilityType]bool    `json:"configured_capabilities"`
-	QueryErrors            map[CapabilityType]error   `json:"query_errors,omitempty"`
+	Freshness              FreshnessInfo                      `json:"freshness"`
+	ConfiguredCapabilities map[CapabilityType]bool            `json:"configured_capabilities"`
+	QueryErrors            map[CapabilityType]error           `json:"query_errors,omitempty"`
 	CapabilityStates       map[CapabilityType]CapabilityState `json:"capability_states,omitempty"`
 }
 
@@ -100,14 +100,14 @@ func NewSnapshot(profile ProfileContext, scope Scope, window WindowContext) *Sna
 		Window:                 window,
 		Timestamp:              time.Now(),
 		CurrentEndpoints:       make([]model.RequestMetric, 0),
-		CurrentDependencies:   make([]model.DependencyMetric, 0),
-		CurrentExceptions:     make([]model.ErrorSummary, 0),
-		CurrentFanout:         make([]model.FanoutMetric, 0),
-		Availability:          make([]AvailabilityMetric, 0),
-		Workloads:             make([]WorkloadStatus, 0),
-		Pods:                  make([]PodRuntimeStatus, 0),
-		Saturation:            make([]ResourceSaturation, 0),
-		SlowLogs:              make([]model.SlowLogGroup, 0),
+		CurrentDependencies:    make([]model.DependencyMetric, 0),
+		CurrentExceptions:      make([]model.ErrorSummary, 0),
+		CurrentFanout:          make([]model.FanoutMetric, 0),
+		Availability:           make([]AvailabilityMetric, 0),
+		Workloads:              make([]WorkloadStatus, 0),
+		Pods:                   make([]PodRuntimeStatus, 0),
+		Saturation:             make([]ResourceSaturation, 0),
+		SlowLogs:               make([]model.SlowLogGroup, 0),
 		ConfiguredCapabilities: make(map[CapabilityType]bool),
 		QueryErrors:            make(map[CapabilityType]error),
 		CapabilityStates:       make(map[CapabilityType]CapabilityState),

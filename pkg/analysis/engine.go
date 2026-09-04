@@ -1,3 +1,4 @@
+// Package analysis implements the operational correlation engine and problem detectors.
 package analysis
 
 import (

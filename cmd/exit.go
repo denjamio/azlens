@@ -47,10 +47,6 @@ func GetExitCode(err error) int {
 	return ExitCodeFailure
 }
 
-func newQualityGateError(format string, args ...any) *ExitCodeError {
-	return NewExitError(ExitCodeQuality, format, args...)
-}
-
 func newActionableProblemError(format string, args ...any) *ExitCodeError {
 	return NewExitError(ExitCodeActionable, format, args...)
 }

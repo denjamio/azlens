@@ -1,3 +1,4 @@
+// Package telemetry coordinates telemetry acquisition from Azure and constructs snapshots.
 package telemetry
 
 import (
