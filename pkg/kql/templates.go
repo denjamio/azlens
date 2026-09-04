@@ -2,6 +2,7 @@ package kql
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/denjamio/azlens/pkg/config"
@@ -59,10 +60,10 @@ func BuildExceptionsSummaryQuery(start, end time.Time, target config.TargetConfi
 // BuildMySQLSlowLogsQuery builds KQL query for MySQL Flexible Server slow query logs
 // ordered by execution duration descending (slowest queries first).
 func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) TargetQuery {
-	dbFilter := ""
-	if dbName != "" {
-		dbFilter = fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
+	if strings.TrimSpace(dbName) == "" {
+		return TargetQuery{Backend: BackendLogAnalytics, Err: ErrMissingDatabase}
 	}
+	dbFilter := fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
 	if topN <= 0 {
 		topN = 15
 	}
@@ -84,10 +85,10 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 // ordered by total accumulated duration descending (highest overall impact
 // first).
 func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN int) TargetQuery {
-	dbFilter := ""
-	if dbName != "" {
-		dbFilter = fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
+	if strings.TrimSpace(dbName) == "" {
+		return TargetQuery{Backend: BackendLogAnalytics, Err: ErrMissingDatabase}
 	}
+	dbFilter := fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
 	if topN <= 0 {
 		topN = 15
 	}
@@ -131,10 +132,10 @@ func BuildLatencyBreakdownQuery(start, end time.Time, target config.TargetConfig
 
 // BuildDeprecationsQuery builds high-performance, noise-filtered KQL query to find deprecation warnings
 func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
-	roleFilter := ""
-	if len(target.Roles) > 0 {
-		roleFilter = fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.Roles))
+	if strings.TrimSpace(target.Role) == "" {
+		return TargetQuery{Backend: BackendAppInsights, Err: ErrMissingRole}
 	}
+	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.Role))
 	syntheticFilter := ""
 	if target.ExcludesSynthetic() {
 		syntheticFilter = "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"

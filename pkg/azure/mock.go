@@ -13,9 +13,9 @@ import (
 )
 
 // MockClient provides deterministic simulated Azure telemetry for testing and
-// offline demos. Both windows represent a healthy deployment: `deploy-check --mock`
+// offline demos. Both windows represent a healthy deployment: `azlens deploy --mock`
 // compares them and the quality gate exits 0, so the first contact with the CLI
-// is a success. This is also the data source for `top` when --mock is set.
+// is a success. This is also the data source for commands when --mock is set.
 type MockClient struct {
 	opts ClientOptions
 }
@@ -238,7 +238,7 @@ func (m *MockClient) QueryExceptions(ctx context.Context, start, end time.Time, 
 				AffectedPaths: []string{"GET /api/v1/catalog/search"},
 			},
 			{
-				// Present in both windows so the mock deploy-check stays healthy
+				// Present in both windows so the mock deploy stays healthy
 				Type:          "HTTP 503",
 				Message:       "POST /api/v1/orders/checkout",
 				Count:         9,

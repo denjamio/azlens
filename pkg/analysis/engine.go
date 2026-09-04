@@ -42,21 +42,12 @@ func (e *Engine) Analyze(snapshot *domain.Snapshot) *domain.AnalysisResult {
 	// 5. Compute overall environment health state
 	healthState, statusMsg := e.evaluator.DetermineHealthState(coverage, rankedProblems, findings)
 
-	// Build scope context
-	var roles, pods []string
-	if snapshot.Scope.Role != "" {
-		roles = []string{snapshot.Scope.Role}
-	}
-	if snapshot.Scope.Pod != "" {
-		pods = []string{snapshot.Scope.Pod}
-	}
-
 	return &domain.AnalysisResult{
 		SchemaVersion: "1",
 		Profile:       snapshot.Profile,
 		Scope: domain.ScopeContext{
-			Roles: roles,
-			Pods:  pods,
+			Role: snapshot.Scope.Role,
+			Pod:  snapshot.Scope.Pod,
 		},
 		Window:        snapshot.Window,
 		State:         healthState,

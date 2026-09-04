@@ -54,6 +54,7 @@ func TestMissingExtensionErrorGuidesWithHint(t *testing.T) {
 			profile: config.Profile{
 				Target: config.TargetConfig{
 					Insights: config.InsightsConfig{Name: "app-shared-prod"},
+					Role:     "order-service",
 				},
 			},
 			run: func(c *AzCliClient, ctx context.Context) error {
@@ -126,25 +127,5 @@ func TestAzExtensionForArgs(t *testing.T) {
 		if got := azExtensionForArgs(tc.args); got != tc.want {
 			t.Errorf("azExtensionForArgs(%v) = %q, want %q", tc.args, got, tc.want)
 		}
-	}
-}
-
-func TestAzureConfigDir(t *testing.T) {
-	if dir, err := AzureConfigDir("  "); err != nil || dir != "" {
-		t.Errorf("expected empty dir for empty directory id, got %q (%v)", dir, err)
-	}
-	dir, err := AzureConfigDir("DIR-ABC-123")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.HasSuffix(dir, "azlens/azure/dir-abc-123") {
-		t.Errorf("expected managed profile path suffix azlens/azure/dir-abc-123, got %q", dir)
-	}
-}
-
-func TestAzureExtensionDir(t *testing.T) {
-	t.Setenv("AZURE_EXTENSION_DIR", "/custom/ext/dir")
-	if got := AzureExtensionDir(); got != "/custom/ext/dir" {
-		t.Errorf("expected explicit AZURE_EXTENSION_DIR override, got %q", got)
 	}
 }

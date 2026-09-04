@@ -118,9 +118,9 @@ Exit codes:
 				DisplayName: rt.Profile.Name,
 			},
 			domain.Scope{
-				Role:      firstOrEmpty(rt.Profile.Target.Roles),
-				Pod:       firstOrEmpty(rt.Profile.Target.Pods),
-				Namespace: rt.Profile.Target.Logs.Namespace,
+				Role:     rt.Profile.Target.Role,
+				Pod:      rt.Profile.Target.Pod,
+				Database: rt.Profile.Target.Logs.Database,
 			},
 			domain.WindowContext{
 				Label:    fmt.Sprintf("deploy at %s", timeLabel),
@@ -192,13 +192,6 @@ Exit codes:
 			return nil
 		}
 	},
-}
-
-func firstOrEmpty(list []string) string {
-	if len(list) > 0 {
-		return list[0]
-	}
-	return ""
 }
 
 func init() {

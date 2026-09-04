@@ -30,7 +30,7 @@ var configProfilesCmd = &cobra.Command{
 		rt := runtimeFrom(cmd)
 		defaultProfile := rt.Config.GetDefaultProfile()
 
-		table := reporter.NewTable(os.Stdout, []string{"Active", "Profile", "App Insights", "Workspace", "Role Scope"},
+		table := reporter.NewTable(os.Stdout, []string{"Active", "Profile", "App Insights", "Workspace", "Service"},
 			[]int{reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft})
 
 		for _, key := range rt.Config.AvailableProfiles() {
@@ -54,9 +54,12 @@ var configProfilesCmd = &cobra.Command{
 			if wsID == "" {
 				wsID = "-"
 			}
-			roleScope := strings.Join(prof.Target.Roles, ", ")
-			if roleScope == "" {
-				roleScope = "-"
+			serviceScope := prof.Target.Service
+			if serviceScope == "" {
+				serviceScope = prof.Target.Role
+			}
+			if serviceScope == "" {
+				serviceScope = "-"
 			}
 
 			table.Append([]string{
@@ -64,7 +67,7 @@ var configProfilesCmd = &cobra.Command{
 				key,
 				insName,
 				wsID,
-				roleScope,
+				serviceScope,
 			})
 		}
 		table.Render()

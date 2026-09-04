@@ -165,25 +165,19 @@ func TestScenarioD_NewExceptionCausesUserFailures(t *testing.T) {
 	}
 }
 
-// Scenario E - OOM causes availability loss
-func TestScenarioE_OOMCausesAvailabilityLoss(t *testing.T) {
+// Scenario E - Availability failure (synthetic test degradation or 503 spike)
+func TestScenarioE_AvailabilityFailure(t *testing.T) {
 	snap := newTestSnapshot("backend")
 	now := time.Now()
 	snap.Freshness.RequestsLastSeen = &now
 
-	snap.Workloads = []domain.WorkloadStatus{
+	snap.Availability = []domain.AvailabilityMetric{
 		{
-			Name:            "backend",
-			Namespace:       "production",
-			DesiredReplicas: 3,
-			ReadyReplicas:   1,
-			OOMKills:        4,
+			TestName:    "checkout-synthetic-probe",
+			TotalTests:  50,
+			FailedTests: 10,
+			SuccessRate: 80.0,
 		},
-	}
-	snap.CurrentOverall = model.RequestMetric{
-		TotalCalls: 1000,
-		HTTP5xx:    100, // 10% 503s
-		ErrorRate:  10.0,
 	}
 
 	engine := analysis.NewEngine(detectors.DefaultConfig())
@@ -198,9 +192,6 @@ func TestScenarioE_OOMCausesAvailabilityLoss(t *testing.T) {
 	prob := res.Problems[0]
 	if prob.Kind != domain.ProblemKindAvailability {
 		t.Errorf("expected ProblemKindAvailability, got %s", prob.Kind)
-	}
-	if prob.Cause == nil || prob.Cause.Summary != "containers are being killed by memory pressure" {
-		t.Errorf("expected cause 'containers are being killed by memory pressure', got %+v", prob.Cause)
 	}
 }
 
@@ -229,14 +220,16 @@ func TestScenarioF_TelemetryDisappears(t *testing.T) {
 	}
 }
 
-// Scenario G - Partial Kubernetes coverage
-func TestScenarioG_PartialKubernetesCoverage(t *testing.T) {
+// Scenario G - Slow logs capability coverage
+func TestScenarioG_SlowLogsCoverage(t *testing.T) {
 	snap := newTestSnapshot("checkout")
 	now := time.Now()
 	snap.Freshness.RequestsLastSeen = &now
 	snap.CurrentOverall = model.RequestMetric{TotalCalls: 500, ErrorRate: 0.1, Latency: model.LatencyPercentiles{P95: 100.0}}
 
-	snap.ConfiguredCapabilities[domain.CapabilityResourceSaturation] = true
+	snap.SlowLogs = []model.SlowLogGroup{
+		{Fingerprint: "SELECT * FROM orders", Executions: 42},
+	}
 
 	engine := analysis.NewEngine(detectors.DefaultConfig())
 	res := engine.Analyze(snap)
@@ -245,16 +238,13 @@ func TestScenarioG_PartialKubernetesCoverage(t *testing.T) {
 		t.Errorf("expected healthy state for application requests, got %s", res.State)
 	}
 
-	var satUnavailable bool
+	var slowLogAvailable bool
 	for _, c := range res.Coverage {
-		if c.Capability == domain.CapabilityResourceSaturation && c.State == domain.CapabilityStateUnavailable {
-			satUnavailable = true
-			if c.Consequence != "CPU and memory saturation cannot be checked" {
-				t.Errorf("expected consequence 'CPU and memory saturation cannot be checked', got %q", c.Consequence)
-			}
+		if c.Capability == domain.CapabilityDatabaseSlowLogs && c.State == domain.CapabilityStateAvailable {
+			slowLogAvailable = true
 		}
 	}
-	if !satUnavailable {
-		t.Errorf("expected resource_saturation to be marked unavailable")
+	if !slowLogAvailable {
+		t.Errorf("expected database_slow_logs to be marked available")
 	}
 }

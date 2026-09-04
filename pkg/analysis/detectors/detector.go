@@ -47,16 +47,12 @@ type Registry struct {
 	detectors []Detector
 }
 
-// NewDefaultRegistry constructs a registry containing all 13 v0.1 detectors.
+// NewDefaultRegistry constructs a registry containing active APM detectors.
 func NewDefaultRegistry(cfg Config) *Registry {
 	return &Registry{
 		detectors: []Detector{
 			NewTelemetryStaleDetector(cfg),
 			NewAvailabilityFailureDetector(cfg),
-			NewWorkloadUnavailableDetector(cfg),
-			NewOOMKilledDetector(cfg),
-			NewRestartBurstDetector(cfg),
-			NewResourceSaturationDetector(cfg),
 			NewRequestLatencyRegressionDetector(cfg),
 			NewRequestErrorRegressionDetector(cfg),
 			NewNewExceptionDetector(cfg),

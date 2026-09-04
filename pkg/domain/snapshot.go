@@ -6,39 +6,6 @@ import (
 	"github.com/denjamio/azlens/pkg/model"
 )
 
-// WorkloadStatus describes the health and replica status of a Kubernetes workload.
-type WorkloadStatus struct {
-	Name            string `json:"name"`
-	Namespace       string `json:"namespace"`
-	Kind            string `json:"kind"` // Deployment, StatefulSet, DaemonSet, etc.
-	DesiredReplicas int32  `json:"desired_replicas"`
-	ReadyReplicas   int32  `json:"ready_replicas"`
-	PendingReplicas int32  `json:"pending_replicas"`
-	Restarts        int32  `json:"restarts"`
-	OOMKills        int32  `json:"oom_kills"`
-	CrashLooping    bool   `json:"crash_looping"`
-}
-
-// PodRuntimeStatus describes the runtime status of an individual pod.
-type PodRuntimeStatus struct {
-	Name      string    `json:"name"`
-	Namespace string    `json:"namespace"`
-	Workload  string    `json:"workload"`
-	Status    string    `json:"status"` // Running, Pending, CrashLoopBackOff, etc.
-	Restarts  int32     `json:"restarts"`
-	OOMKilled bool      `json:"oom_killed"`
-	LastSeen  time.Time `json:"last_seen"`
-}
-
-// ResourceSaturation describes CPU and memory utilization.
-type ResourceSaturation struct {
-	Scope       Scope   `json:"scope"`
-	CPUPct      float64 `json:"cpu_pct"`    // 0 - 100%
-	MemoryPct   float64 `json:"memory_pct"` // 0 - 100%
-	HasData     bool    `json:"has_data"`
-	IsSaturated bool    `json:"is_saturated"`
-}
-
 // AvailabilityMetric describes synthetic test or probe health.
 type AvailabilityMetric struct {
 	TestName    string  `json:"test_name"`
@@ -53,7 +20,6 @@ type FreshnessInfo struct {
 	RequestsLastSeen     *time.Time `json:"requests_last_seen,omitempty"`
 	DependenciesLastSeen *time.Time `json:"dependencies_last_seen,omitempty"`
 	ExceptionsLastSeen   *time.Time `json:"exceptions_last_seen,omitempty"`
-	RuntimeLastSeen      *time.Time `json:"runtime_last_seen,omitempty"`
 }
 
 // Snapshot is a source-neutral snapshot of all observations required for an
@@ -78,11 +44,8 @@ type Snapshot struct {
 	CurrentExceptions   []model.ErrorSummary     `json:"current_exceptions"`
 	CurrentFanout       []model.FanoutMetric     `json:"current_fanout"`
 
-	// Availability & Runtime telemetry
+	// Availability & Database Slow Logs telemetry
 	Availability []AvailabilityMetric `json:"availability,omitempty"`
-	Workloads    []WorkloadStatus     `json:"workloads,omitempty"`
-	Pods         []PodRuntimeStatus   `json:"pods,omitempty"`
-	Saturation   []ResourceSaturation `json:"saturation,omitempty"`
 	SlowLogs     []model.SlowLogGroup `json:"slow_logs,omitempty"`
 
 	// Freshness and capability metadata
@@ -104,9 +67,6 @@ func NewSnapshot(profile ProfileContext, scope Scope, window WindowContext) *Sna
 		CurrentExceptions:      make([]model.ErrorSummary, 0),
 		CurrentFanout:          make([]model.FanoutMetric, 0),
 		Availability:           make([]AvailabilityMetric, 0),
-		Workloads:              make([]WorkloadStatus, 0),
-		Pods:                   make([]PodRuntimeStatus, 0),
-		Saturation:             make([]ResourceSaturation, 0),
 		SlowLogs:               make([]model.SlowLogGroup, 0),
 		ConfiguredCapabilities: make(map[CapabilityType]bool),
 		QueryErrors:            make(map[CapabilityType]error),

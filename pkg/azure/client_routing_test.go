@@ -56,6 +56,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 				DirectoryID:    "dir-logs",
 				SubscriptionID: "sub-logs",
 			},
+			Role: "order-service",
 		},
 	}
 
@@ -115,6 +116,7 @@ func TestExecuteKQLRoutingFallbacks(t *testing.T) {
 		Name: "Logs Only",
 		Target: config.TargetConfig{
 			Logs: config.LogsConfig{WorkspaceID: "workspace-guid"},
+			Role: "order-service",
 		},
 	}
 	capture := filepath.Join(t.TempDir(), "args.txt")
@@ -134,7 +136,7 @@ func TestExecuteKQLRoutingFallbacks(t *testing.T) {
 	}
 
 	// 2. Profile with neither backend configured must fail fast
-	emptyClient := &AzCliClient{opts: ClientOptions{Profile: config.Profile{Name: "Empty"}}}
+	emptyClient := &AzCliClient{opts: ClientOptions{Profile: config.Profile{Name: "Empty", Target: config.TargetConfig{Role: "order-service"}}}}
 	if _, err := emptyClient.QueryRequestsSummary(ctx, start, end); err == nil {
 		t.Errorf("expected error when neither insights.name nor logs.workspace_id are configured")
 	}
@@ -144,6 +146,7 @@ func TestExecuteKQLPrintQuery(t *testing.T) {
 	prof := config.Profile{
 		Target: config.TargetConfig{
 			Insights: config.InsightsConfig{Name: "app-shared-pro"},
+			Role:     "order-service",
 		},
 	}
 	capture := filepath.Join(t.TempDir(), "args.txt")

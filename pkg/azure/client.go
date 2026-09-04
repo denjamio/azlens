@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,47 +95,6 @@ func NewClient(opts ClientOptions) AzureClient {
 
 func (c *AzCliClient) GetProfile() config.Profile {
 	return c.opts.Profile
-}
-
-// AzureConfigDir returns the azlens-managed az CLI configuration directory for
-// an Entra directory (tenant) ID: a fully isolated az profile — accounts, token
-// caches and defaults — driven by the documented AZURE_CONFIG_DIR mechanism.
-// The user's main az profile is never touched.
-func AzureConfigDir(directoryID string) (string, error) {
-	directoryID = strings.TrimSpace(directoryID)
-	if directoryID == "" {
-		return "", nil
-	}
-	// Prefer XDG_CONFIG_HOME or ~/.config to avoid spaces in paths on macOS
-	// (~/Library/Application Support), which breaks shell hints and subshell tools.
-	var base string
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		base = xdg
-	} else if home, err := os.UserHomeDir(); err == nil && home != "" {
-		base = filepath.Join(home, ".config")
-	} else {
-		var err error
-		base, err = os.UserConfigDir()
-		if err != nil {
-			return "", fmt.Errorf("failed resolving the user config dir: %w", err)
-		}
-	}
-	return filepath.Join(base, "azlens", "azure", strings.ToLower(directoryID)), nil
-}
-
-// AzureExtensionDir returns the directory where the user's primary az CLI extensions
-// are installed (defaults to ~/.azure/cliextensions). When AZURE_CONFIG_DIR is isolated,
-// pointing AZURE_EXTENSION_DIR to this shared directory ensures extensions like
-// log-analytics and application-insights remain accessible without reinstallation.
-func AzureExtensionDir() string {
-	if dir := os.Getenv("AZURE_EXTENSION_DIR"); dir != "" {
-		return dir
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".azure", "cliextensions")
 }
 
 // routeForTargetQuery selects the target backend (App Insights or Log Analytics)
@@ -440,6 +398,9 @@ func truncateOutput(s string, maxLen int) string {
 }
 
 func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQueryResult, error) {
+	if tq.Err != nil {
+		return nil, tq.Err
+	}
 	if c.opts.PrintQuery {
 		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
 	}
@@ -464,6 +425,9 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 	targetBackend := queries[0].Backend
 	rawQueries := make([]string, len(queries))
 	for i, q := range queries {
+		if q.Err != nil {
+			return nil, q.Err
+		}
 		if q.Backend != targetBackend {
 			return nil, fmt.Errorf("mixed backend batch is not supported: all queries must target the same backend (%s vs %s)", targetBackend, q.Backend)
 		}

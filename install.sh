@@ -143,4 +143,4 @@ case ":$PATH:" in
 esac
 
 echo -e "\n${GREEN}🎉 AzLens successfully installed!${NC}"
-echo -e "Try running: ${CYAN}azlens --help${NC} or ${CYAN}azlens deploy-check --mock${NC}\n"
+echo -e "Try running: ${CYAN}azlens --help${NC} or ${CYAN}azlens deploy 30m --mock${NC}\n"

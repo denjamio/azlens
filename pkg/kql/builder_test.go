@@ -1,6 +1,7 @@
 package kql
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -18,9 +19,9 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 	}
 
 	target := config.TargetConfig{
-		Roles:            config.StringList{"order-service"},
-		Pods:             config.StringList{"order-service-7f8d9b"},
-		Logs:             config.LogsConfig{Namespace: "ecommerce-prod"},
+		Role:             "order-service",
+		Pod:              "order-service-7f8d9b",
+		Logs:             config.LogsConfig{Database: "ecommerce_db"},
 		ExcludeSynthetic: config.BoolPtr(true),
 		ExcludeProbes:    config.BoolPtr(true),
 		CustomDimensions: map[string]string{
@@ -74,7 +75,7 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 
 func TestDependenciesTaxonomy(t *testing.T) {
 	b, _ := NewBuilder("dependencies")
-	tq := b.BuildDependenciesSummary("SQL")
+	tq := b.WithTarget(config.TargetConfig{Role: "order-service"}).BuildDependenciesSummary("SQL")
 
 	if tq.Backend != BackendAppInsights {
 		t.Errorf("expected BackendAppInsights, got: %s", tq.Backend)
@@ -93,8 +94,8 @@ func TestSanitizeNeutralizesKQLInjection(t *testing.T) {
 		time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC),
 		config.TargetConfig{
-			Roles:            config.StringList{malicious},
-			Pods:             config.StringList{`pod\' -x`},
+			Role:             malicious,
+			Pod:              `pod\' -x`,
 			CustomDimensions: map[string]string{"env": "ns' drop table --"},
 		},
 	)
@@ -138,7 +139,7 @@ func TestNewBuilderRejectsUnknownTable(t *testing.T) {
 func TestCrossCorrelationsQueries(t *testing.T) {
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
-	target := config.TargetConfig{Roles: config.StringList{"order-service"}}
+	target := config.TargetConfig{Role: "order-service"}
 
 	fanoutTQ := BuildFanoutSummaryQuery(start, end, target, 10)
 	fanoutQ := fanoutTQ.Query
@@ -156,7 +157,7 @@ func TestCrossCorrelationsQueries(t *testing.T) {
 	}
 }
 
-func TestMultiRoleAndPodFilters(t *testing.T) {
+func TestSingularRoleAndPodFilters(t *testing.T) {
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
 
@@ -166,23 +167,37 @@ func TestMultiRoleAndPodFilters(t *testing.T) {
 	}
 	tq := b.WithTimeRange(start, end).
 		WithTarget(config.TargetConfig{
-			Roles: config.StringList{"order-service", "billing-service", "returns-service"},
-			Pods:  config.StringList{"order-service-7c9d", "order-service-8f2e"},
+			Role: "order-service",
+			Pod:  "order-service",
 		}).BuildEndpointsSummary()
 
 	q := tq.Query
 
-	// Multi-role uses case-insensitive in~ (not a single =~ equality)
-	if !strings.Contains(q, "cloud_RoleName in~ ('order-service', 'billing-service', 'returns-service')") {
-		t.Errorf("expected multi-role in~ filter, got: %s", q)
+	if !strings.Contains(q, "cloud_RoleName =~ 'order-service'") {
+		t.Errorf("expected singular role =~ filter, got: %s", q)
 	}
-	if strings.Contains(q, "cloud_RoleName =~") {
-		t.Errorf("single-value =~ must not be used with multiple roles, got: %s", q)
+	if !strings.Contains(q, "cloud_RoleInstance has 'order-service'") {
+		t.Errorf("expected singular pod has filter, got: %s", q)
 	}
+}
 
-	// Multi-pod uses term-indexed has_any
-	if !strings.Contains(q, "cloud_RoleInstance has_any ('order-service-7c9d', 'order-service-8f2e')") {
-		t.Errorf("expected multi-pod has_any filter, got: %s", q)
+func TestTenancyFirewallBlocksUnscopedQueries(t *testing.T) {
+	start := time.Now().Add(-1 * time.Hour)
+	end := time.Now()
+
+	b, err := NewBuilder("requests")
+	if err != nil {
+		t.Fatalf("failed to create builder: %v", err)
+	}
+	tq := b.WithTimeRange(start, end).
+		WithTarget(config.TargetConfig{Role: ""}).
+		BuildEndpointsSummary()
+
+	if tq.Err == nil {
+		t.Fatalf("expected ErrMissingRole from tenancy firewall, got nil")
+	}
+	if !strings.Contains(tq.Err.Error(), "tenancy firewall") {
+		t.Errorf("expected tenancy firewall error, got: %v", tq.Err)
 	}
 }
 
@@ -243,10 +258,46 @@ func TestBuildMySqlSlowLogsGroupedQuery(t *testing.T) {
 	}
 }
 
+func TestBuildMySqlSlowLogsTenancyFirewall(t *testing.T) {
+	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
+
+	// 1. BuildMySQLSlowLogsQuery with empty db must return ErrMissingDatabase
+	tqRaw := BuildMySQLSlowLogsQuery(start, end, "", 15)
+	if !errors.Is(tqRaw.Err, ErrMissingDatabase) {
+		t.Errorf("expected ErrMissingDatabase for empty dbName, got: %v", tqRaw.Err)
+	}
+
+	// 2. BuildMySQLSlowLogsGroupedQuery with empty db must return ErrMissingDatabase
+	tqGrouped := BuildMySQLSlowLogsGroupedQuery(start, end, "  ", 15)
+	if !errors.Is(tqGrouped.Err, ErrMissingDatabase) {
+		t.Errorf("expected ErrMissingDatabase for whitespace dbName, got: %v", tqGrouped.Err)
+	}
+
+	// 3. QueryBuilder against MySqlSlowLogs must enforce checkTenancyFirewall
+	b, err := NewBuilder("MySqlSlowLogs")
+	if err != nil {
+		t.Fatalf("failed to create builder: %v", err)
+	}
+	b.WithTimeRange(start, end).WithTarget(config.TargetConfig{
+		Logs: config.LogsConfig{Database: ""},
+	})
+	if err := b.checkTenancyFirewall(); !errors.Is(err, ErrMissingDatabase) {
+		t.Errorf("expected checkTenancyFirewall to return ErrMissingDatabase, got: %v", err)
+	}
+
+	b.WithTarget(config.TargetConfig{
+		Logs: config.LogsConfig{Database: "ecommerce_db"},
+	})
+	if err := b.checkTenancyFirewall(); err != nil {
+		t.Errorf("expected checkTenancyFirewall to succeed with valid database, got: %v", err)
+	}
+}
+
 func TestBuildDeprecationsQuery(t *testing.T) {
 	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
-	target := config.TargetConfig{Roles: config.StringList{"order-service"}, ExcludeProbes: config.BoolPtr(true)}
+	target := config.TargetConfig{Role: "order-service", ExcludeProbes: config.BoolPtr(true)}
 
 	tq := BuildDeprecationsQuery(start, end, target, 15)
 	if tq.Backend != BackendAppInsights {
@@ -274,7 +325,7 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	b, _ := NewBuilder("exceptions")
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
-	target := config.TargetConfig{ExcludeProbes: config.BoolPtr(true), ExcludeSynthetic: config.BoolPtr(true)}
+	target := config.TargetConfig{Role: "order-service", ExcludeProbes: config.BoolPtr(true), ExcludeSynthetic: config.BoolPtr(true)}
 
 	tq := b.WithTimeRange(start, end).WithTarget(target).BuildExceptionsSummary()
 	q := tq.Query

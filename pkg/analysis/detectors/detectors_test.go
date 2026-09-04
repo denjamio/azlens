@@ -105,36 +105,29 @@ func TestNewExceptionNoisePolicy(t *testing.T) {
 	}
 }
 
-func TestOOMKilledAndWorkloadUnavailable(t *testing.T) {
+func TestAvailabilityFailureDetector(t *testing.T) {
 	snap := newTestSnapshot()
-	snap.Workloads = []domain.WorkloadStatus{
+	snap.Availability = []domain.AvailabilityMetric{
 		{
-			Name:            "backend",
-			Namespace:       "default",
-			DesiredReplicas: 3,
-			ReadyReplicas:   1,
-			OOMKills:        4,
+			TestName:    "ping-check",
+			TotalTests:  100,
+			FailedTests: 15,
+			SuccessRate: 85.0,
 		},
 	}
 
 	registry := detectors.NewDefaultRegistry(detectors.DefaultConfig())
 	findings := registry.Run(snap)
 
-	var hasWorkload, hasOOM bool
+	var hasAvail bool
 	for _, f := range findings {
-		if f.Kind == domain.FindingWorkloadUnavailable {
-			hasWorkload = true
-		}
-		if f.Kind == domain.FindingOOMKilled {
-			hasOOM = true
+		if f.Kind == domain.FindingAvailabilityFailure {
+			hasAvail = true
 		}
 	}
 
-	if !hasWorkload {
-		t.Errorf("expected FindingWorkloadUnavailable")
-	}
-	if !hasOOM {
-		t.Errorf("expected FindingOOMKilled")
+	if !hasAvail {
+		t.Errorf("expected FindingAvailabilityFailure")
 	}
 }
 

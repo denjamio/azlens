@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestCompleteTelemetryValueFromConfig(t *testing.T) {
+func TestCompleteServiceValueFromConfig(t *testing.T) {
 	resetRootFlags()
 	defer resetRootFlags()
 
@@ -19,8 +19,16 @@ version: "1.0"
 defaults:
   profile: prod
 shared:
-  roles: [order-service, billing-service, returns-service]
-  pods: [order-service, billing-worker]
+  services:
+    order:
+      role: order-service
+      pod: order-app
+    billing:
+      role: billing-service
+      pod: billing-worker
+    returns:
+      role: returns-service
+      pod: returns-app
 profiles:
   prod:
     name: "Production"
@@ -32,29 +40,23 @@ profiles:
 
 	dummy := &cobra.Command{Use: "dummy"}
 
-	// 1. Roles complete with the declared list
-	roleFn := completeTelemetryValue("role")
-	values, directive := roleFn(dummy, nil, "")
-	if len(values) != 3 || values[0] != "order-service" {
-		t.Errorf("expected declared roles, got %v", values)
+	// 1. Services complete with the declared sorted list
+	serviceFn := completeServiceValue()
+	values, directive := serviceFn(dummy, nil, "")
+	if len(values) != 3 || values[0] != "billing" || values[1] != "order" || values[2] != "returns" {
+		t.Errorf("expected declared services [billing order returns], got %v", values)
 	}
 	if directive != cobra.ShellCompDirectiveNoFileComp {
 		t.Errorf("expected ShellCompDirectiveNoFileComp, got %v", directive)
 	}
 
-	// 2. Pods complete with the declared list
-	podFn := completeTelemetryValue("pod")
-	if values, _ := podFn(dummy, nil, ""); len(values) != 2 {
-		t.Errorf("expected declared pods, got %v", values)
-	}
-
-	// 3. Prefix filtering applies to the declared values
-	if values, _ := roleFn(dummy, nil, "b"); len(values) != 1 || values[0] != "billing-service" {
-		t.Errorf("expected prefix-filtered roles, got %v", values)
+	// 2. Prefix filtering applies to the declared services
+	if values, _ := serviceFn(dummy, nil, "b"); len(values) != 1 || values[0] != "billing" {
+		t.Errorf("expected prefix-filtered service [billing], got %v", values)
 	}
 }
 
-func TestCompleteTelemetryValueEmptyWhenNothingDeclared(t *testing.T) {
+func TestCompleteServiceValueEmptyWhenNothingDeclared(t *testing.T) {
 	resetRootFlags()
 	defer resetRootFlags()
 
@@ -73,13 +75,9 @@ profiles:
 	}
 	configPathFlag = cfgPath
 
-	// Nothing declared: nothing completed (single path, no live discovery)
 	dummy := &cobra.Command{Use: "dummy"}
-	if values, _ := completeTelemetryValue("role")(dummy, nil, ""); values != nil {
-		t.Errorf("expected no completions when roles are not declared, got %v", values)
-	}
-	if values, _ := completeTelemetryValue("pod")(dummy, nil, ""); values != nil {
-		t.Errorf("expected no completions when pods are not declared, got %v", values)
+	if values, _ := completeServiceValue()(dummy, nil, ""); len(values) != 0 {
+		t.Errorf("expected no completions when services are not declared, got %v", values)
 	}
 }
 

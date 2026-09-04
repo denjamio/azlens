@@ -17,7 +17,7 @@ func TestAnalysisResultJSONSchema(t *testing.T) {
 			DisplayName: "Production",
 		},
 		Scope: domain.ScopeContext{
-			Roles: []string{"checkout"},
+			Role: "checkout",
 		},
 		Window: domain.WindowContext{
 			Label:    "last 60m",
@@ -97,7 +97,6 @@ func TestScopeString(t *testing.T) {
 	}{
 		{scope: domain.Scope{Endpoint: "POST /checkout"}, expected: "POST /checkout"},
 		{scope: domain.Scope{Role: "order-service"}, expected: "order-service"},
-		{scope: domain.Scope{Workload: "backend"}, expected: "backend"},
 		{scope: domain.Scope{Target: "payments-api"}, expected: "payments-api"},
 		{scope: domain.Scope{Pod: "checkout-abc-123"}, expected: "checkout-abc-123"},
 		{scope: domain.Scope{}, expected: ""},

@@ -29,10 +29,6 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 	var newExceptionFindings []int
 	var depLatencyFindings []int
 	var depErrorFindings []int
-	var workloadFindings []int
-	var oomFindings []int
-	var restartFindings []int
-	var availFindings []int
 
 	for i, f := range findings {
 		switch f.Kind {
@@ -46,26 +42,10 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 			depLatencyFindings = append(depLatencyFindings, i)
 		case domain.FindingDependencyErrorRegression:
 			depErrorFindings = append(depErrorFindings, i)
-		case domain.FindingWorkloadUnavailable:
-			workloadFindings = append(workloadFindings, i)
-		case domain.FindingOOMKilled:
-			oomFindings = append(oomFindings, i)
-		case domain.FindingRestartBurst:
-			restartFindings = append(restartFindings, i)
-		case domain.FindingAvailabilityFailure:
-			availFindings = append(availFindings, i)
 		}
 	}
 
-	// 1. Scenario E: Correlate Workload Availability + OOM + Restarts + 503s
-	if len(workloadFindings) > 0 || len(oomFindings) > 0 {
-		prob := correlateRuntimeAvailability(snapshot, findings, workloadFindings, oomFindings, restartFindings, availFindings, consumed)
-		if prob != nil {
-			problems = append(problems, *prob)
-		}
-	}
-
-	// 2. Scenario B & D: Correlate Endpoint Regressions with Dependencies or Exceptions
+	// 1. Scenario B & D: Correlate Endpoint Regressions with Dependencies or Exceptions
 	for _, latIdx := range latencyFindings {
 		if consumed[latIdx] {
 			continue
@@ -148,7 +128,7 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 		problems = append(problems, prob)
 	}
 
-	// 3. Process remaining unconsumed findings
+	// 2. Process remaining unconsumed findings
 	for i, f := range findings {
 		if consumed[i] {
 			continue
@@ -169,19 +149,6 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 				StartedAt: f.StartedAt,
 				Scope:     f.Scope,
 			})
-		case domain.FindingRestartBurst:
-			// Restarts with no request degradation -> Worth Watching!
-			watching = append(watching, domain.WatchingItem{
-				Summary: f.Summary,
-				Detail:  "no request impact detected",
-				Scope:   f.Scope,
-			})
-		case domain.FindingResourceSaturation:
-			watching = append(watching, domain.WatchingItem{
-				Summary: f.Summary,
-				Detail:  "approaching saturation thresholds",
-				Scope:   f.Scope,
-			})
 		case domain.FindingDependencyLatencyRegression, domain.FindingDependencyErrorRegression, domain.FindingDependencyFanoutRegression:
 			// Independent dependency problem
 			prob := domain.Problem{
@@ -193,7 +160,7 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 				Action: &domain.Action{
 					Summary: fmt.Sprintf("Inspect %s calls", f.Scope.Target),
 					Command: &domain.Command{
-						Display: fmt.Sprintf("azlens inspect dependencies --role %s", f.Scope.Role),
+						Display: fmt.Sprintf("azlens inspect dependencies -s %s", f.Scope.Role),
 					},
 				},
 			}
@@ -356,7 +323,7 @@ func buildEndpointProblem(
 		action = &domain.Action{
 			Summary: fmt.Sprintf("Inspect %s calls", depTarget),
 			Command: &domain.Command{
-				Display: fmt.Sprintf("azlens inspect dependencies --role %s", cleanName),
+				Display: fmt.Sprintf("azlens inspect dependencies -s %s", cleanName),
 			},
 		}
 	} else if excFinding != nil {
@@ -388,7 +355,7 @@ func buildEndpointProblem(
 		action = &domain.Action{
 			Summary: fmt.Sprintf("Inspect %s exceptions", excType),
 			Command: &domain.Command{
-				Display: fmt.Sprintf("azlens inspect errors --role %s", cleanName),
+				Display: fmt.Sprintf("azlens inspect errors -s %s", cleanName),
 			},
 		}
 	} else {
@@ -396,7 +363,7 @@ func buildEndpointProblem(
 		action = &domain.Action{
 			Summary: "Inspect endpoint metrics",
 			Command: &domain.Command{
-				Display: fmt.Sprintf("azlens inspect endpoints --role %s", cleanName),
+				Display: fmt.Sprintf("azlens inspect endpoints -s %s", cleanName),
 			},
 		}
 	}
@@ -416,100 +383,6 @@ func buildEndpointProblem(
 		Symptoms:  symptoms,
 		Cause:     cause,
 		Action:    action,
-	}
-}
-
-// correlateRuntimeAvailability correlates replica loss, OOM, restarts, and 503s into one story.
-func correlateRuntimeAvailability(
-	snapshot *domain.Snapshot,
-	findings []domain.Finding,
-	workloadIdxs []int,
-	oomIdxs []int,
-	restartIdxs []int,
-	availIdxs []int,
-	consumed map[int]bool,
-) *domain.Problem {
-	for _, idx := range workloadIdxs {
-		consumed[idx] = true
-	}
-	for _, idx := range oomIdxs {
-		consumed[idx] = true
-	}
-	for _, idx := range restartIdxs {
-		consumed[idx] = true
-	}
-	for _, idx := range availIdxs {
-		consumed[idx] = true
-	}
-
-	var workloadName string
-	var totalOOM int32
-	var desiredReplicas, readyReplicas int32
-
-	for _, w := range snapshot.Workloads {
-		workloadName = w.Name
-		totalOOM += w.OOMKills
-		desiredReplicas = w.DesiredReplicas
-		readyReplicas = w.ReadyReplicas
-	}
-	if workloadName == "" {
-		workloadName = "Backend"
-	}
-	cleanWorkload := strings.ToUpper(workloadName[:1]) + workloadName[1:]
-
-	summary := fmt.Sprintf("%s availability is degraded", cleanWorkload)
-
-	var evidenceList []domain.Evidence
-	var causeSummary string
-
-	if totalOOM > 0 || len(oomIdxs) > 0 {
-		causeSummary = "containers are being killed by memory pressure"
-		oomCount := totalOOM
-		if oomCount == 0 {
-			oomCount = int32(len(oomIdxs))
-		}
-		evidenceList = append(evidenceList, domain.Evidence{
-			Signal: fmt.Sprintf("%d OOM kills detected", oomCount),
-		})
-	} else {
-		causeSummary = "workload replicas became unavailable"
-	}
-
-	if desiredReplicas > 0 {
-		evidenceList = append(evidenceList, domain.Evidence{
-			Signal: fmt.Sprintf("available replicas dropped %d -> %d", desiredReplicas, readyReplicas),
-		})
-	}
-	if len(availIdxs) > 0 {
-		evidenceList = append(evidenceList, domain.Evidence{
-			Signal: "HTTP 503 error rate increased",
-		})
-	}
-
-	cause := &domain.Cause{
-		Summary:  causeSummary,
-		Subject:  workloadName,
-		Strength: domain.EvidenceStrengthStrong,
-		Evidence: evidenceList,
-	}
-
-	action := &domain.Action{
-		Summary: fmt.Sprintf("Inspect %s runtime and memory limits", workloadName),
-		Command: &domain.Command{
-			Display: fmt.Sprintf("azlens inspect runtime --pod %s", workloadName),
-		},
-	}
-
-	return &domain.Problem{
-		Kind:     domain.ProblemKindAvailability,
-		Priority: 1,
-		Scope: domain.Scope{
-			Workload: workloadName,
-			Role:     snapshot.Scope.Role,
-		},
-		Summary: summary,
-		Cause:   cause,
-		Action:  action,
 	}
 }
 

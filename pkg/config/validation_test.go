@@ -10,8 +10,10 @@ func TestProfileValidation(t *testing.T) {
 		Name: "Test",
 		Target: TargetConfig{
 			Insights:      InsightsConfig{Name: ""}, // Missing -> Error
-			Roles:         nil,                      // Missing -> Warning
-			ExcludeProbes: BoolPtr(false),           // Explicit false -> Warning
+			Logs:          LogsConfig{Database: ""}, // Missing -> Error
+			Service:       "",                       // Missing -> Error
+			Role:          "",
+			ExcludeProbes: BoolPtr(false), // Explicit false -> Warning
 		},
 		Thresholds: ProfileThresholds{
 			LatencyWarnPct: 30.0,
@@ -25,7 +27,8 @@ func TestProfileValidation(t *testing.T) {
 	}
 
 	hasAppErr := false
-	hasRoleWarn := false
+	hasDatabaseErr := false
+	hasServiceErr := false
 	hasProbesWarn := false
 	hasThresholdErr := false
 
@@ -33,8 +36,11 @@ func TestProfileValidation(t *testing.T) {
 		if iss.Field == "target.insights.name" && iss.Severity == SeverityError {
 			hasAppErr = true
 		}
-		if iss.Field == "target.roles" && iss.Severity == SeverityWarning {
-			hasRoleWarn = true
+		if iss.Field == "shared.logs.database" && iss.Severity == SeverityError {
+			hasDatabaseErr = true
+		}
+		if iss.Field == "target.service" && iss.Severity == SeverityError {
+			hasServiceErr = true
 		}
 		if iss.Field == "target.exclude_probes" && iss.Severity == SeverityWarning {
 			hasProbesWarn = true
@@ -47,8 +53,11 @@ func TestProfileValidation(t *testing.T) {
 	if !hasAppErr {
 		t.Errorf("expected error for unconfigured App Insights")
 	}
-	if !hasRoleWarn {
-		t.Errorf("expected warning for unconfigured Role")
+	if !hasDatabaseErr {
+		t.Errorf("expected error for unconfigured logs database")
+	}
+	if !hasServiceErr {
+		t.Errorf("expected error for unconfigured Service")
 	}
 	if !hasProbesWarn {
 		t.Errorf("expected warning for disabled exclude_probes")

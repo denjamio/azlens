@@ -557,12 +557,6 @@ func formatCapabilityName(cap domain.CapabilityType) string {
 		return "exceptions"
 	case domain.CapabilityAvailability:
 		return "availability"
-	case domain.CapabilityKubernetesWorkloads:
-		return "Kubernetes workloads"
-	case domain.CapabilityKubernetesEvents:
-		return "Kubernetes events"
-	case domain.CapabilityResourceSaturation:
-		return "Kubernetes resource metrics"
 	case domain.CapabilityDatabaseSlowLogs:
 		return "database slow logs"
 	default:

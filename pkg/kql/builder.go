@@ -3,12 +3,19 @@
 package kql
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/denjamio/azlens/pkg/config"
 )
+
+// ErrMissingRole indicates a tenancy violation where an application query was attempted without role/service scoping
+var ErrMissingRole = errors.New("tenancy firewall: query generation blocked because role/service filter is empty; set an active service or role to isolate telemetry")
+
+// ErrMissingDatabase indicates a tenancy violation where a database query was attempted without database scoping
+var ErrMissingDatabase = errors.New("tenancy firewall: query generation blocked because database filter is empty; set logs.database to isolate database telemetry")
 
 // Backend identifies the Azure telemetry service target
 type Backend string
@@ -22,9 +29,13 @@ const (
 type TargetQuery struct {
 	Query   string
 	Backend Backend
+	Err     error
 }
 
 func (t TargetQuery) String() string {
+	if t.Err != nil {
+		return fmt.Sprintf("Error: %v", t.Err)
+	}
 	return t.Query
 }
 
@@ -94,30 +105,31 @@ func (b *QueryBuilder) WithLimit(limit int) *QueryBuilder {
 	return b
 }
 
-// equalityExpr builds a case-insensitive equality KQL expression over a column:
-// =~ for a single value, in~ for several (both leverage the same semantics)
-func equalityExpr(column string, values config.StringList) string {
-	if len(values) == 1 {
-		return fmt.Sprintf("%s =~ '%s'", column, sanitize(values[0]))
-	}
-	quoted := make([]string, len(values))
-	for i, v := range values {
-		quoted[i] = fmt.Sprintf("'%s'", sanitize(v))
-	}
-	return fmt.Sprintf("%s in~ (%s)", column, strings.Join(quoted, ", "))
+// equalityExpr builds a case-insensitive equality KQL expression over a column (=~)
+func equalityExpr(column, value string) string {
+	return fmt.Sprintf("%s =~ '%s'", column, sanitize(value))
 }
 
-// tokenExpr builds a term-indexed KQL match over a column: has for a single
-// value, has_any for several (inverted-term-index friendly)
-func tokenExpr(column string, values config.StringList) string {
-	if len(values) == 1 {
-		return fmt.Sprintf("%s has '%s'", column, sanitize(values[0]))
+// tokenExpr builds a term-indexed KQL match over a column (has)
+func tokenExpr(column, value string) string {
+	return fmt.Sprintf("%s has '%s'", column, sanitize(value))
+}
+
+// checkTenancyFirewall enforces strict multi-tenancy:
+//   - Application queries against App Insights tables (requests, dependencies, exceptions, traces)
+//     MUST have an active Role filter to prevent unbounded scans across shared resource tenants.
+//   - Database queries against Log Analytics (MySqlSlowLogs) MUST have an active Database filter.
+func (b *QueryBuilder) checkTenancyFirewall() error {
+	if strings.EqualFold(b.table, "MySqlSlowLogs") {
+		if strings.TrimSpace(b.target.Logs.Database) == "" {
+			return ErrMissingDatabase
+		}
+		return nil
 	}
-	quoted := make([]string, len(values))
-	for i, v := range values {
-		quoted[i] = fmt.Sprintf("'%s'", sanitize(v))
+	if strings.TrimSpace(b.target.Role) == "" {
+		return ErrMissingRole
 	}
-	return fmt.Sprintf("%s has_any (%s)", column, strings.Join(quoted, ", "))
+	return nil
 }
 
 // buildBaseClauses produces the table reference followed by the optimized,
@@ -146,13 +158,18 @@ func (b *QueryBuilder) buildBaseFilters() string {
 	}
 
 	// 3. Microservice / Role Scope (App Insights indexed field)
-	if len(b.target.Roles) > 0 && !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("cloud_RoleName", b.target.Roles)))
+	if strings.TrimSpace(b.target.Role) != "" && !strings.EqualFold(b.table, "MySqlSlowLogs") {
+		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("cloud_RoleName", b.target.Role)))
 	}
 
 	// 4. Pod Scope (cloud_RoleInstance in App Insights)
-	if len(b.target.Pods) > 0 {
-		sb.WriteString(fmt.Sprintf("| where %s\n", tokenExpr("cloud_RoleInstance", b.target.Pods)))
+	if strings.TrimSpace(b.target.Pod) != "" && !strings.EqualFold(b.table, "MySqlSlowLogs") {
+		sb.WriteString(fmt.Sprintf("| where %s\n", tokenExpr("cloud_RoleInstance", b.target.Pod)))
+	}
+
+	// 5. Database Scope (MySqlSlowLogs in Log Analytics)
+	if strings.EqualFold(b.table, "MySqlSlowLogs") && strings.TrimSpace(b.target.Logs.Database) != "" {
+		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("Db", b.target.Logs.Database)))
 	}
 
 	// 5. Exclude synthetic availability tests if configured
@@ -184,6 +201,9 @@ func (b *QueryBuilder) buildBaseFilters() string {
 // instead of one pass per percentile); the values are identical to individual
 // percentile() calls.
 func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{Backend: b.backend, Err: err}
+	}
 	base := b.buildBaseClauses()
 	q := base + `| summarize 
     TotalCalls = count(),
@@ -203,6 +223,9 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
 // BuildEndpointsSummary generates per-endpoint latency percentiles and error rates,
 // returning the top N by P95 (top-N heap instead of a full sort)
 func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{Backend: b.backend, Err: err}
+	}
 	base := b.buildBaseClauses()
 	q := base + fmt.Sprintf(`| summarize 
     TotalCalls = count(),
@@ -220,6 +243,9 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
 
 // BuildDependenciesSummary generates slow database / HTTP calls summary
 func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{Backend: b.backend, Err: err}
+	}
 	var sb strings.Builder
 	sb.WriteString(b.buildBaseClauses())
 
@@ -260,6 +286,9 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 // requests table as "HTTP <code>" signatures, so services that fail without
 // throwing tracked exceptions still surface in 'top errors'.
 func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{Backend: b.backend, Err: err}
+	}
 	exceptionsBase := b.buildBaseFilters()
 	reqBuilder := mustBuilder("requests").WithTimeRange(b.startTime, b.endTime).WithTarget(b.target)
 	requestsBase := reqBuilder.buildBaseFilters()
@@ -297,6 +326,9 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 
 // BuildFanoutSummary measures N+1 and SQL fan-out by crossing requests with dependencies
 func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{Backend: b.backend, Err: err}
+	}
 	base := b.buildBaseClauses()
 	depTimeFilter := ""
 	if !b.startTime.IsZero() && !b.endTime.IsZero() {
@@ -324,6 +356,9 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 
 // BuildLatencyBreakdown breaks down request time across dependencies and app compute
 func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{Backend: b.backend, Err: err}
+	}
 	base := b.buildBaseClauses()
 	depTimeFilter := ""
 	if !b.startTime.IsZero() && !b.endTime.IsZero() {

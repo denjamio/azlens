@@ -21,12 +21,10 @@ func resetRootFlags() {
 	colorModeFlag = "auto"
 	mockFlag = false
 	printQueryFlag = false
-	roleFlag = nil
-	podFlag = nil
-	topLimit = config.DefaultLimit
-	topDepType = "all"
+	serviceFlag = ""
 	inspectLimit = config.DefaultLimit
 	inspectDepType = "all"
+	inspectSlowLogsGrouped = false
 	deployAtTimeFlag = ""
 	RootCmd.SetArgs(nil)
 	RootCmd.SetOut(nil)
@@ -123,8 +121,8 @@ func TestDoctorRegistration(t *testing.T) {
 	}
 }
 
-func TestResolveTopLimit(t *testing.T) {
-	cmd := topEndpointsCmd
+func TestResolveInspectLimit(t *testing.T) {
+	cmd := inspectEndpointsCmd
 	rt := &appRuntime{
 		EffectiveDefaults: config.Defaults{
 			Limit: 42,
@@ -135,26 +133,26 @@ func TestResolveTopLimit(t *testing.T) {
 
 	f := cmd.Flag("limit")
 	if f == nil {
-		t.Fatalf("expected 'limit' flag to be found on topEndpointsCmd via parent")
+		t.Fatalf("expected 'limit' flag to be found on inspectEndpointsCmd via parent")
 	}
 
 	// 1. Without flag changed, takes EffectiveDefaults
 	f.Changed = false
-	topLimit = 15
-	if got := resolveTopLimit(cmd); got != 42 {
+	inspectLimit = 15
+	if got := resolveInspectLimit(cmd); got != 42 {
 		t.Errorf("expected 42 from EffectiveDefaults, got %d", got)
 	}
 
 	// 2. When flag is explicitly changed, flag wins
 	f.Changed = true
-	topLimit = 7
-	if got := resolveTopLimit(cmd); got != 7 {
+	inspectLimit = 7
+	if got := resolveInspectLimit(cmd); got != 7 {
 		t.Errorf("expected 7 from explicit flag, got %d", got)
 	}
 
 	// Reset
 	f.Changed = false
-	topLimit = 15
+	inspectLimit = 15
 }
 
 func TestBrokenConfigDoesNotBlockIndependentCommands(t *testing.T) {
@@ -183,35 +181,35 @@ func TestBrokenConfigDoesNotBlockIndependentCommands(t *testing.T) {
 		t.Errorf("expected 'completion bash' to succeed with broken config, got: %v", err)
 	}
 
-	// 3. Telemetry command (top) properly fails loading broken config
+	// 3. Telemetry command (inspect) properly fails loading broken config
 	buf.Reset()
-	RootCmd.SetArgs([]string{"--config", brokenCfg, "top", "endpoints", "--mock"})
+	RootCmd.SetArgs([]string{"--config", brokenCfg, "inspect", "endpoints", "--mock"})
 	if err := RootCmd.Execute(); err == nil {
-		t.Errorf("expected 'top' to fail with broken config, got nil error")
+		t.Errorf("expected 'inspect' to fail with broken config, got nil error")
 	}
 }
 
-func TestTopSlowLogsCommand(t *testing.T) {
+func TestInspectSlowLogsCommand(t *testing.T) {
 	resetRootFlags()
 	defer resetRootFlags()
 
-	// slow-logs must be registered directly under topCmd as its own verb
+	// slow-logs must be registered directly under inspectCmd as its own verb
 	found := false
-	for _, c := range topCmd.Commands() {
+	for _, c := range inspectCmd.Commands() {
 		if c.Name() == "slow-logs" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected 'slow-logs' to be a subcommand of 'top'")
+		t.Fatalf("expected 'slow-logs' to be a subcommand of 'inspect'")
 	}
 
 	buf := new(bytes.Buffer)
 	RootCmd.SetOut(buf)
-	RootCmd.SetArgs([]string{"top", "slow-logs", "1h", "--mock"})
+	RootCmd.SetArgs([]string{"inspect", "slow-logs", "1h", "--mock"})
 	if err := RootCmd.Execute(); err != nil {
-		t.Fatalf("expected 'azlens top slow-logs 1h --mock' to succeed, got: %v", err)
+		t.Fatalf("expected 'azlens inspect slow-logs 1h --mock' to succeed, got: %v", err)
 	}
 }
 
@@ -317,17 +315,18 @@ func TestTimeParsingHelpers(t *testing.T) {
 	}
 }
 
-func TestAllTopSubcommandsWithMock(t *testing.T) {
+func TestAllInspectSubcommandsWithMock(t *testing.T) {
 	subcommands := [][]string{
-		{"top", "endpoints", "30m", "--mock"},
-		{"top", "queries", "30m", "--mock"},
-		{"top", "slow-logs", "30m", "--mock"},
-		{"top", "slow-logs", "30m", "--grouped", "--mock"},
-		{"top", "n-plus-one", "30m", "--mock"},
-		{"top", "breakdown", "30m", "--mock"},
-		{"top", "errors", "30m", "--mock"},
-		{"top", "deprecations", "30m", "--mock"},
-		{"deploy-check", "30m", "--mock"},
+		{"inspect", "endpoints", "30m", "--mock"},
+		{"inspect", "dependencies", "30m", "--mock"},
+		{"inspect", "queries", "30m", "--mock"},
+		{"inspect", "slow-logs", "30m", "--mock"},
+		{"inspect", "slow-logs", "30m", "--grouped", "--mock"},
+		{"inspect", "n-plus-one", "30m", "--mock"},
+		{"inspect", "breakdown", "30m", "--mock"},
+		{"inspect", "errors", "30m", "--mock"},
+		{"inspect", "deprecations", "30m", "--mock"},
+		{"deploy", "30m", "--mock"},
 	}
 
 	for _, args := range subcommands {
@@ -339,7 +338,7 @@ func TestAllTopSubcommandsWithMock(t *testing.T) {
 			RootCmd.SetOut(buf)
 			RootCmd.SetArgs(args)
 			if err := RootCmd.Execute(); err != nil {
-				// deploy-check --mock compares two healthy windows, so the quality
+				// deploy --mock compares two healthy windows, so the quality
 				// gate must exit 0; any error here is a mock wiring regression
 				t.Fatalf("command failed: %v", err)
 			}
@@ -347,7 +346,7 @@ func TestAllTopSubcommandsWithMock(t *testing.T) {
 	}
 }
 
-func TestMockDeployCheckVerdictIsHealthy(t *testing.T) {
+func TestMockDeployVerdictIsHealthy(t *testing.T) {
 	resetRootFlags()
 	defer resetRootFlags()
 
@@ -356,10 +355,10 @@ func TestMockDeployCheckVerdictIsHealthy(t *testing.T) {
 	defer func() { _ = os.Chdir(origWd) }()
 	_ = os.Chdir(dir)
 
-	RootCmd.SetArgs([]string{"deploy-check", "30m", "--mock", "-o", "json"})
+	RootCmd.SetArgs([]string{"deploy", "30m", "--mock", "-o", "json"})
 	// A non-nil error here would mean the mock data drifted into regression
 	// territory (exit code 2), breaking the offline first-run experience
 	if err := RootCmd.Execute(); err != nil {
-		t.Fatalf("expected healthy mock deploy-check (exit 0), got: %v", err)
+		t.Fatalf("expected healthy mock deploy (exit 0), got: %v", err)
 	}
 }

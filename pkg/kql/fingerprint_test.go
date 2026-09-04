@@ -77,7 +77,10 @@ func TestSQLFingerprintEscapedQuotesAndComments(t *testing.T) {
 
 func TestBuildMySQLSlowLogsGroupedQueryUsesSharedPipeline(t *testing.T) {
 	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
-	tq := BuildMySQLSlowLogsGroupedQuery(start, start.Add(time.Hour), "", 15)
+	tq := BuildMySQLSlowLogsGroupedQuery(start, start.Add(time.Hour), "backend_ror", 15)
+	if tq.Err != nil {
+		t.Fatalf("unexpected error: %v", tq.Err)
+	}
 	q := tq.Query
 
 	// One replace_regex extend per shared pipeline step, seeded from F0

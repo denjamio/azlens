@@ -79,7 +79,19 @@ Exact matches win; ambiguous matches return deterministic candidates without gue
 		res := engine.Analyze(snap)
 
 		// 3. Resolve subject to target problem or component
-		targetProblem, resolvedSubject, err := resolveExplainSubject(rawSubject, res, snap, rt.Profile.Target.Roles)
+		var configuredServices []string
+		if rt.Profile.Target.Service != "" {
+			configuredServices = append(configuredServices, rt.Profile.Target.Service)
+		}
+		if rt.Profile.Target.Role != "" && rt.Profile.Target.Role != rt.Profile.Target.Service {
+			configuredServices = append(configuredServices, rt.Profile.Target.Role)
+		}
+		for s := range rt.Profile.Target.Services {
+			if s != rt.Profile.Target.Service {
+				configuredServices = append(configuredServices, s)
+			}
+		}
+		targetProblem, resolvedSubject, err := resolveExplainSubject(rawSubject, res, snap, configuredServices)
 		if err != nil {
 			return err
 		}
@@ -122,7 +134,7 @@ func resolveExplainSubject(
 	rawSubject string,
 	res *domain.AnalysisResult,
 	snap *domain.Snapshot,
-	configuredRoles []string,
+	configuredServices []string,
 ) (*domain.Problem, string, error) {
 	subject := strings.TrimSpace(rawSubject)
 
@@ -150,7 +162,7 @@ func resolveExplainSubject(
 
 	for i := range res.Problems {
 		p := &res.Problems[i]
-		names := []string{p.Scope.Endpoint, p.Scope.Role, p.Scope.Target, p.Scope.Workload}
+		names := []string{p.Scope.Endpoint, p.Scope.Role, p.Scope.Target}
 		if p.Cause != nil {
 			names = append(names, p.Cause.Summary)
 		}
@@ -177,8 +189,8 @@ func resolveExplainSubject(
 		return exactProblem, exactName, nil
 	}
 
-	// 2. Check configured roles
-	for _, r := range configuredRoles {
+	// 2. Check configured services
+	for _, r := range configuredServices {
 		r = strings.TrimSpace(r)
 		if r == "" {
 			continue
@@ -187,7 +199,7 @@ func resolveExplainSubject(
 			return findProblemForScope(res.Problems, r), r, nil
 		}
 		if strings.Contains(strings.ToLower(r), lowerSubj) {
-			candidatesMap[r] = "role"
+			candidatesMap[r] = "service"
 		}
 	}
 
@@ -262,7 +274,6 @@ func findProblemForScope(problems []domain.Problem, name string) *domain.Problem
 		if strings.EqualFold(p.Scope.Endpoint, name) ||
 			strings.EqualFold(p.Scope.Role, name) ||
 			strings.EqualFold(p.Scope.Target, name) ||
-			strings.EqualFold(p.Scope.Workload, name) ||
 			strings.Contains(strings.ToLower(p.Summary), strings.ToLower(clean)) {
 			return p
 		}

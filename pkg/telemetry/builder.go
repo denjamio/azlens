@@ -37,15 +37,6 @@ func (b *SnapshotBuilder) BuildSnapshot(
 		displayName = profileName
 	}
 
-	primaryRole := ""
-	if len(prof.Target.Roles) > 0 {
-		primaryRole = prof.Target.Roles[0]
-	}
-	primaryPod := ""
-	if len(prof.Target.Pods) > 0 {
-		primaryPod = prof.Target.Pods[0]
-	}
-
 	dur := end.Sub(start)
 	durationStr := dur.Round(time.Minute).String()
 
@@ -55,9 +46,9 @@ func (b *SnapshotBuilder) BuildSnapshot(
 			DisplayName: displayName,
 		},
 		domain.Scope{
-			Role:      primaryRole,
-			Pod:       primaryPod,
-			Namespace: prof.Target.Logs.Namespace,
+			Role:     prof.Target.Role,
+			Pod:      prof.Target.Pod,
+			Database: prof.Target.Logs.Database,
 		},
 		domain.WindowContext{
 			Label:    windowLabel,
@@ -75,11 +66,6 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	}
 	if prof.Target.Logs.Database != "" {
 		snapshot.ConfiguredCapabilities[domain.CapabilityDatabaseSlowLogs] = true
-	}
-	if prof.Target.Logs.Namespace != "" || len(prof.Target.Pods) > 0 {
-		snapshot.ConfiguredCapabilities[domain.CapabilityKubernetesWorkloads] = true
-		snapshot.ConfiguredCapabilities[domain.CapabilityKubernetesEvents] = true
-		snapshot.ConfiguredCapabilities[domain.CapabilityResourceSaturation] = true
 	}
 
 	// Calculate equal baseline window preceding the current window

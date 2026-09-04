@@ -55,6 +55,7 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 				SubscriptionID: "sub-insights",
 			},
 			Logs: config.LogsConfig{WorkspaceID: "workspace-guid"},
+			Role: "order-service",
 		},
 	}
 

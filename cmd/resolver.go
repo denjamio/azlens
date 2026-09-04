@@ -64,7 +64,7 @@ func (r *DefaultResolver) ResolveWindow(arg string) (time.Time, time.Time, error
 	return parseDurationWindow(windowStr)
 }
 
-// ResolveSince resolves deploy-check comparison duration: positional arg > EffectiveDefaults.Since > config.DefaultSince
+// ResolveSince resolves deploy comparison duration: positional arg > EffectiveDefaults.Since > config.DefaultSince
 func (r *DefaultResolver) ResolveSince(arg string) (time.Duration, error) {
 	durStr := arg
 	if durStr == "" {

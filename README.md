@@ -33,19 +33,19 @@ make build
 4. **Actionability over raw data**: Every finding provides an immediate, copy-pasteable next step command.
 
 ```mermaid
-flowchart LR
-    A["🚀 azlens [window]<br/>(Does anything need attention?)"] --> B["🔍 azlens explain [subject]<br/>(Why is this happening?)"]
-    A --> C["📊 azlens inspect [view]<br/>(Show me the evidence)"]
-    A --> D["🚀 azlens deploy [window]<br/>(Did this deploy make things worse?)"]
-    A --> E["🩺 azlens doctor<br/>(Check auth & capability coverage)"]
-    A --> F["⚙️ azlens config / upgrade<br/>(Profiles, settings & self-update)"]
+graph TD
+    A["🚀 azlens: Operational Health Check"] --> B["🔍 azlens explain: Root Cause Analysis"]
+    A --> C["📊 azlens inspect: Telemetry Evidence"]
+    A --> D["🚀 azlens deploy: Release Safety Verification"]
+    A --> E["🩺 azlens doctor: Coverage & Diagnostics"]
+    A --> F["⚙️ azlens config / upgrade: Settings & Updater"]
 ```
 
 ---
 
 ## 📋 Command Reference
 
-### 1. Primary Operational Command (`azlens [window]`)
+### 1. Primary Operational Command (`azlens [window] [-s SERVICE]`)
 
 Evaluate current operational health across all configured capabilities:
 
@@ -53,13 +53,13 @@ Evaluate current operational health across all configured capabilities:
 # Check current operational status over default window (last 1h)
 azlens
 
-# Inspect last 30 minutes or 2 hours
-azlens 30m
-azlens 2h
+# Target a specific microservice with -s / --service
+azlens -s checkout
+azlens 30m -s checkout
 
 # Target a specific environment profile
-azlens -p prod
-azlens -p staging
+azlens -p prod -s checkout
+azlens -p staging -s checkout
 
 # Machine-readable output (JSON schema v1 or Markdown)
 azlens -o json
@@ -85,18 +85,18 @@ Needs Attention:
       • POST /api/v1/orders/checkout p95 latency: 912ms (baseline 380ms, +140%)
       • api.stripe.com dependency errors: 5.8% (baseline 0.1%, +5.7pp)
     Next action:
-      -> azlens explain api.stripe.com
+      -> azlens explain api.stripe.com -s checkout
 
 Worth Watching:
 [1] NoMethodError in /api/v1/user/settings (12 occurrences)
     Impact:       Negligible (< 0.05% of request volume)
     Next action:
-      -> azlens explain NoMethodError
+      -> azlens explain NoMethodError -s checkout
 ```
 
 ---
 
-### 2. Root Cause Analysis (`azlens explain [subject] [window]`)
+### 2. Root Cause Analysis (`azlens explain [subject] [window] [-s SERVICE]`)
 
 Explain why an operational problem is happening and show deep supporting evidence:
 
@@ -105,9 +105,9 @@ Explain why an operational problem is happening and show deep supporting evidenc
 azlens explain
 
 # Explain a specific service, endpoint, dependency, or exception
-azlens explain checkout
-azlens explain api.stripe.com
-azlens explain NpgsqlException 2h
+azlens explain checkout -s checkout
+azlens explain api.stripe.com -s checkout
+azlens explain NpgsqlException 2h -s checkout
 ```
 
 **Deterministic Ambiguity Protection:**
@@ -123,44 +123,54 @@ Be more specific.
 
 ---
 
-### 3. Direct Telemetry Inspection (`azlens inspect <view> [window]`)
+### 3. Direct Telemetry Inspection (`azlens inspect <view> [window] [-s SERVICE]`)
 
 Drill down into inspectable operational evidence, ordered by operational impact:
 
 ```bash
 # Slowest API endpoints ordered by P95 latency and error rates
-azlens inspect endpoints 30m -n 10
+azlens inspect endpoints 30m -n 10 -s checkout
 
 # Slow database queries and external HTTP/Redis dependencies
-azlens inspect dependencies 1h --type SQL
-azlens inspect dependencies 1h --type all
+azlens inspect dependencies 1h --type SQL -s checkout
+azlens inspect dependencies 1h --type all -s checkout
+
+# Database queries and slow logs by latency impact
+azlens inspect queries 2h -s checkout
 
 # Database engine slow query logs (MySqlSlowLogs in Log Analytics)
-azlens inspect queries 2h
+azlens inspect slow-logs 2h
+azlens inspect slow-logs 2h --grouped
+
+# Detect N+1 queries across endpoints
+azlens inspect n-plus-one 1h -s checkout
+
+# Latency breakdown across Database, External APIs, Cache, and App Code
+azlens inspect breakdown 2h -s checkout
 
 # Grouped application exceptions and HTTP 5xx errors
-azlens inspect errors 1h
+azlens inspect errors 1h -s checkout
 
-# Kubernetes container workloads, crash loops, and OOM kills
-azlens inspect runtime
+# Framework, language, and library deprecation warnings
+azlens inspect deprecations 24h -s checkout
 ```
 
 ---
 
-### 4. Post-Deploy Regression Verifier (`azlens deploy [window] [--at TIME]`)
+### 4. Post-Deploy Regression Verifier (`azlens deploy [window] [--at TIME] [-s SERVICE]`)
 
 Compare telemetry between two equal time windows (before vs after release) to verify deployment safety:
 
 ```bash
 # Compare the last 30 minutes vs the 30 minutes before
-azlens deploy 30m
+azlens deploy 30m -s checkout
 
 # Center comparison on a deployment timestamp
-azlens deploy 30m --at 14:30
-azlens deploy 30m --at -20m
+azlens deploy 30m --at 14:30 -s checkout
+azlens deploy 30m --at -20m -s checkout
 
 # Target production profile and output as Markdown for PR / CI
-azlens deploy 30m -p prod -o markdown
+azlens deploy 30m -p prod -s checkout -o markdown
 ```
 
 **Clean Verdicts:**
@@ -172,21 +182,18 @@ azlens deploy 30m -p prod -o markdown
 
 ### 5. Diagnostics & Coverage (`azlens doctor`)
 
-Verify Azure CLI installation, authentication, and inspect the 8 operational capabilities:
+Verify Azure CLI installation, authentication, reachability, and inspect APM capabilities:
 
 ```bash
 azlens doctor
 ```
 
-Reports status across all 8 capabilities:
-- `requests` (App Insights / Container App requests)
-- `dependencies` (SQL, Redis, HTTP calls)
-- `exceptions` (Application error signatures)
-- `availability` (Synthetic availability tests)
-- `kubernetes_workloads` (Replica counts, status)
-- `kubernetes_events` (KubeEvents, pod restarts)
-- `resource_saturation` (Container CPU and memory)
-- `database_slow_logs` (MySQL slow query logs)
+Reports status across the 5 genuine APM capabilities:
+- `requests` (Application Insights requests & latency percentiles)
+- `dependencies` (SQL, Redis, Cosmos DB, and HTTP calls)
+- `exceptions` (Application error signatures and 5xx spikes)
+- `availability` (Synthetic availability probe health)
+- `database_slow_logs` (Engine slow query logs in Log Analytics)
 
 ---
 
@@ -208,8 +215,6 @@ azlens upgrade --check   # Check if a new version is available without installin
 azlens version           # Print build version, commit, and date
 ```
 
-*(Note: `azlens update`, `azlens deploy-check`, and `azlens top` are retained as deprecated aliases for backward compatibility).*
-
 ---
 
 ## 🚦 Process Exit Codes
@@ -230,26 +235,47 @@ AzLens exit codes are pipeline-aware and designed for CI/CD gates:
   shell: bash
   run: |
     set -o pipefail
-    azlens deploy 30m -p prod -o markdown | tee deploy-verdict.md
+    azlens deploy 30m -p prod -s checkout -o markdown | tee deploy-verdict.md
 ```
 
 ---
 
-## ⚙️ Configuration & Profile Isolation (`azlens.yaml`)
+## ⚙️ Configuration & Service Catalog (`azlens.yaml`)
 
 AzLens follows **Convention over Configuration**. The config file is the single source of truth for environments:
 
 ```yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# AzLens Configuration Reference (azlens.yaml)
+# Explanatory comments are consolidated in this header block.
+# ─────────────────────────────────────────────────────────────────────────────
+
 version: "1.0"
 
 defaults:
   profile: prod          # Default active profile
+  service: checkout      # Default active service
   window: "1h"           # Default operational window
   limit: 15              # Table row limit
   output: "table"        # table | markdown | json
 
-# Shared targets and thresholds
+# Shared targets: declared ONCE, inherited by all profiles
 shared:
+  logs:
+    database: "orders_db"    # MySQL slow query logs tenant database (required)
+
+  # Service catalog: maps logical services to physical telemetry targets
+  services:
+    checkout:
+      role: checkout-service   # App Insights cloud_RoleName
+      pod: checkout-app        # Pod base name without replica hash
+    orders:
+      role: order-service
+      pod: order-app
+    billing:
+      role: billing-service
+      pod: billing-worker
+
   thresholds:
     p95_latency_warn_pct: 15.0
     p95_latency_crit_pct: 30.0
@@ -266,10 +292,6 @@ profiles:
     target:
       insights:
         name: "app-insights-prod"
-      logs:
-        namespace: "prod"
-      roles:
-        - checkout-service
 
   staging:
     name: "Staging"
@@ -279,11 +301,17 @@ profiles:
     target:
       insights:
         name: "app-insights-staging"
-      logs:
-        namespace: "staging"
-      roles:
-        - checkout-service
 ```
+
+### Singular Service Flag (`-s` / `--service`)
+- Target any service by name: `-s <name>` or `--service <name>`.
+- The CLI automatically looks up the service in `shared.services` to apply the exact `cloud_RoleName` and `cloud_RoleInstance` filters.
+- **Ad-hoc fallback**: If you pass a service name not present in the catalog (`-s custom-job`), AzLens uses `custom-job` for both role and pod matching.
+
+### Dual-Layer Tenancy Enforcement
+To guarantee multi-tenant safety and prevent unscoped cross-tenant queries:
+1. **Config Validation**: `shared.logs.database` and an active service/role are mandatory (`SeverityError`). Newly installed or non-telemetry commands (`--help`, `version`, `config init`, `config profiles`, `config path`) remain lazy and non-blocking.
+2. **KQL Query Firewall**: In `pkg/kql/builder.go`, application queries (`requests`, `dependencies`, `exceptions`, `traces`) refuse to build if no role filter is present (`ErrMissingRole`), and database slow log queries (`MySqlSlowLogs`) refuse to build without a database filter (`ErrMissingDatabase`).
 
 ### Profile Resolution Precedence
 1. Explicit CLI flag: `--profile <name>` / `-p <name>`

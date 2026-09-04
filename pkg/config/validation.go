@@ -36,33 +36,33 @@ func (p *Profile) Validate() []ValidationIssue {
 		})
 	}
 
-	// 2. RoleName check (microservice isolation)
-	if len(p.Target.Roles) == 0 {
+	// 2. Logs database check (mandatory multi-tenancy)
+	if strings.TrimSpace(p.Target.Logs.Database) == "" {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.roles",
-			Severity: SeverityWarning,
-			Message:  "cloud_RoleName (`target.roles`) is not configured. Queries will scan telemetry from ALL services in this App Insights resource.",
-			Hint:     "Set 'target.roles: <service-name>' to isolate your microservice telemetry.",
+			Field:    "shared.logs.database",
+			Severity: SeverityError,
+			Message:  "Logs database (`logs.database`) is not configured. Database is mandatory to ensure tenant isolation.",
+			Hint:     "Set 'shared.logs.database: <dbname>' (e.g. 'backend_ror') in your configuration.",
 		})
 	}
 
-	// 3. Workspace check (Log Analytics, optional)
+	// 3. Service targeting check (mandatory microservice isolation)
+	if strings.TrimSpace(p.Target.Service) == "" && strings.TrimSpace(p.Target.Role) == "" {
+		issues = append(issues, ValidationIssue{
+			Field:    "target.service",
+			Severity: SeverityError,
+			Message:  "Target service is not configured. Service targeting is mandatory to isolate microservice telemetry and prevent unbounded scans.",
+			Hint:     "Configure 'defaults.service: <service-name>', declare services under 'shared.services', or specify '--service <name>' / '-s <name>'.",
+		})
+	}
+
+	// 4. Workspace check (Log Analytics, optional)
 	if strings.TrimSpace(p.Target.Logs.WorkspaceID) == "" {
 		issues = append(issues, ValidationIssue{
 			Field:    "target.logs.workspace_id",
 			Severity: SeverityInfo,
 			Message:  "Log Analytics workspace Customer ID is not set.",
-			Hint:     "Set 'target.logs.workspace_id' to your Log Analytics workspace GUID to inspect database slow logs (MySqlSlowLogs) and container logs.",
-		})
-	}
-
-	// 4. Database check (optional)
-	if strings.TrimSpace(p.Target.Logs.Database) == "" {
-		issues = append(issues, ValidationIssue{
-			Field:    "target.logs.database",
-			Severity: SeverityInfo,
-			Message:  "Database filter ('target.logs.database') is not configured.",
-			Hint:     "Set 'target.logs.database' (e.g. 'ecommerce_db') to filter MySqlSlowLogs by default.",
+			Hint:     "Set 'target.logs.workspace_id' to your Log Analytics workspace GUID to inspect database slow logs (MySqlSlowLogs).",
 		})
 	}
 

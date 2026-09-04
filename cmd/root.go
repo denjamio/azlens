@@ -28,8 +28,7 @@ var (
 	colorModeFlag  string
 	mockFlag       bool
 	printQueryFlag bool
-	roleFlag       []string
-	podFlag        []string
+	serviceFlag    string
 )
 
 // applyColorMode resolves the --color policy for this run. The default 'auto'
@@ -46,19 +45,6 @@ func applyColorMode(mode string) {
 
 // defaultQueryTimeout is the default per-query budget; override with --query-timeout
 const defaultQueryTimeout = 45 * time.Second
-
-// splitCSVValues expands repeatable, comma-separated flag values into a clean list
-func splitCSVValues(values []string) []string {
-	var out []string
-	for _, v := range values {
-		for _, part := range strings.Split(v, ",") {
-			if p := strings.TrimSpace(part); p != "" {
-				out = append(out, p)
-			}
-		}
-	}
-	return out
-}
 
 // queryTimeout is the per-query budget for Azure telemetry queries, bound to
 // the hidden --query-timeout flag (useful for large windows on slow workspaces)
@@ -104,7 +90,7 @@ func commandChain(cmd *cobra.Command, names ...string) bool {
 
 // isTelemetryCommand reports whether the command queries live Azure telemetry
 func isTelemetryCommand(cmd *cobra.Command) bool {
-	return commandChain(cmd, "top", "deploy-check", "inspect", "deploy", "explain") || !cmd.HasParent()
+	return commandChain(cmd, "inspect", "deploy", "explain") || !cmd.HasParent()
 }
 
 // requiresConfig returns true if the command needs configuration loading and
@@ -207,20 +193,41 @@ into clear, actionable stories with supporting evidence and next actions.`,
 			return profErr
 		}
 
-		// 3. Apply per-run target overrides (--role / --pod win over shared and profile config)
-		if len(roleFlag) > 0 {
-			prof.Target.Roles = splitCSVValues(roleFlag)
-		}
-		if len(podFlag) > 0 {
-			prof.Target.Pods = splitCSVValues(podFlag)
-		}
-
-		// 4. Apply config defaults (output) when not explicitly set by flags
+		// 3. Apply config defaults (output) when not explicitly set by flags
 		effDefaults := cfg.EffectiveDefaults(activeProfileName)
 		resolver := NewDefaultResolver(effDefaults)
 		resolvedOutput := resolver.ResolveOutput(cmd, outputFlag)
 
-		// 5. Pre-flight diagnostics on telemetry commands (top, deploy-check) when not running in offline mock mode
+		// 4. Resolve active service: CLI flag --service > profile target.service > defaults.service
+		targetService := serviceFlag
+		if targetService == "" {
+			targetService = prof.Target.Service
+		}
+		if targetService == "" {
+			targetService = effDefaults.Service
+		}
+		prof.Target.Service = targetService
+
+		// Resolve role and pod from declared services map or fallback ad-hoc
+		if targetService != "" {
+			if sDef, ok := prof.Target.Services[targetService]; ok {
+				if sDef.Role != "" {
+					prof.Target.Role = sDef.Role
+				} else {
+					prof.Target.Role = targetService
+				}
+				if sDef.Pod != "" {
+					prof.Target.Pod = sDef.Pod
+				} else {
+					prof.Target.Pod = targetService
+				}
+			} else {
+				prof.Target.Role = targetService
+				prof.Target.Pod = targetService
+			}
+		}
+
+		// 5. Pre-flight diagnostics on telemetry commands when not running in offline mock mode
 		if isTelemetryCommand(cmd) && !mockFlag {
 			if err := runPreflightDiagnostics(prof); err != nil {
 				return err
@@ -287,8 +294,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&colorModeFlag, "color", "auto", "Colorize output (auto, always, never)")
 	RootCmd.PersistentFlags().BoolVar(&mockFlag, "mock", false, "Use mock/simulated telemetry data (no Azure connection needed)")
 	RootCmd.PersistentFlags().BoolVarP(&printQueryFlag, "print-query", "q", false, "Print generated KQL query statements before executing")
-	RootCmd.PersistentFlags().StringArrayVar(&roleFlag, "role", nil, "Override target.roles (App Insights cloud_RoleName) for this run; repeatable or comma-separated")
-	RootCmd.PersistentFlags().StringArrayVar(&podFlag, "pod", nil, "Override target.pods (cloud_RoleInstance token) for this run; repeatable or comma-separated")
+	RootCmd.PersistentFlags().StringVarP(&serviceFlag, "service", "s", "", "Target service name defined in services or ad-hoc (sets role and pod filters)")
 	RootCmd.PersistentFlags().DurationVar(&queryTimeout, "query-timeout", defaultQueryTimeout, "Per-query timeout budget (e.g. 30s, 2m)")
 	_ = RootCmd.PersistentFlags().MarkHidden("query-timeout")
 
@@ -308,8 +314,5 @@ func init() {
 		return []string{"auto", "always", "never"}, cobra.ShellCompDirectiveNoFileComp
 	})
 
-	// --role / --pod complete from the config file first (instant), falling
-	// back to live telemetry discovery: filters are picked, never typed
-	_ = RootCmd.RegisterFlagCompletionFunc("role", completeTelemetryValue("role"))
-	_ = RootCmd.RegisterFlagCompletionFunc("pod", completeTelemetryValue("pod"))
+	_ = RootCmd.RegisterFlagCompletionFunc("service", completeServiceValue())
 }

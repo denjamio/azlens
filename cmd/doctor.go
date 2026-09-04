@@ -187,7 +187,7 @@ var doctorCmd = &cobra.Command{
 		if snap == nil {
 			snap = domain.NewSnapshot(
 				domain.ProfileContext{Name: rt.ProfileName, DisplayName: rt.Profile.Name},
-				domain.Scope{Role: firstOrEmpty(rt.Profile.Target.Roles)},
+				domain.Scope{Role: rt.Profile.Target.Role, Pod: rt.Profile.Target.Pod, Database: rt.Profile.Target.Logs.Database},
 				domain.WindowContext{Label: "last 1h", Start: now.Add(-1 * time.Hour), End: now},
 			)
 		}

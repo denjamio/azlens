@@ -19,18 +19,15 @@ const (
 	HealthStateUnknown  HealthState = "unknown"
 )
 
-// CapabilityType identifies an observable telemetry capability (Section 9).
+// CapabilityType identifies an observable telemetry capability.
 type CapabilityType string
 
 const (
-	CapabilityRequests            CapabilityType = "requests"
-	CapabilityDependencies        CapabilityType = "dependencies"
-	CapabilityExceptions          CapabilityType = "exceptions"
-	CapabilityAvailability        CapabilityType = "availability"
-	CapabilityKubernetesWorkloads CapabilityType = "kubernetes_workloads"
-	CapabilityKubernetesEvents    CapabilityType = "kubernetes_events"
-	CapabilityResourceSaturation  CapabilityType = "resource_saturation"
-	CapabilityDatabaseSlowLogs    CapabilityType = "database_slow_logs"
+	CapabilityRequests         CapabilityType = "requests"
+	CapabilityDependencies     CapabilityType = "dependencies"
+	CapabilityExceptions       CapabilityType = "exceptions"
+	CapabilityAvailability     CapabilityType = "availability"
+	CapabilityDatabaseSlowLogs CapabilityType = "database_slow_logs"
 )
 
 // CapabilityState represents the reachability or freshness state of a capability.
@@ -52,14 +49,13 @@ type CapabilityStatus struct {
 	LastSeen    *time.Time      `json:"last_seen,omitempty"`
 }
 
-// Scope defines the targeted operational boundaries (role, endpoint, pod, etc.).
+// Scope defines the targeted operational boundaries (role, endpoint, pod, database, etc.).
 type Scope struct {
-	Role      string `json:"role,omitempty"`
-	Endpoint  string `json:"endpoint,omitempty"`
-	Target    string `json:"target,omitempty"`
-	Workload  string `json:"workload,omitempty"`
-	Pod       string `json:"pod,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Target   string `json:"target,omitempty"`
+	Pod      string `json:"pod,omitempty"`
+	Database string `json:"database,omitempty"`
 }
 
 // String returns a human-friendly representation of the scope.
@@ -70,14 +66,14 @@ func (s Scope) String() string {
 	if s.Role != "" {
 		return s.Role
 	}
-	if s.Workload != "" {
-		return s.Workload
-	}
 	if s.Target != "" {
 		return s.Target
 	}
 	if s.Pod != "" {
 		return s.Pod
+	}
+	if s.Database != "" {
+		return s.Database
 	}
 	return ""
 }
@@ -156,10 +152,6 @@ const (
 	FindingDependencyLatencyRegression FindingKind = "dependency_latency_regression"
 	FindingDependencyErrorRegression   FindingKind = "dependency_error_regression"
 	FindingDependencyFanoutRegression  FindingKind = "dependency_fanout_regression"
-	FindingWorkloadUnavailable         FindingKind = "workload_unavailable"
-	FindingRestartBurst                FindingKind = "restart_burst"
-	FindingOOMKilled                   FindingKind = "oom_killed"
-	FindingResourceSaturation          FindingKind = "resource_saturation"
 	FindingTelemetryStale              FindingKind = "telemetry_stale"
 	FindingAvailabilityFailure         FindingKind = "availability_failure"
 )
@@ -217,8 +209,9 @@ type ProfileContext struct {
 }
 
 type ScopeContext struct {
-	Roles []string `json:"roles,omitempty"`
-	Pods  []string `json:"pods,omitempty"`
+	Service string `json:"service,omitempty"`
+	Role    string `json:"role,omitempty"`
+	Pod     string `json:"pod,omitempty"`
 }
 
 type WindowContext struct {

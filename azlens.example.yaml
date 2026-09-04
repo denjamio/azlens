@@ -1,39 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AzLens Configuration Reference (azlens.yaml)
+#
+# CONVENTIONS & ARCHITECTURE:
+# 1. SHARED TARGET:
+#    Declare ONCE in 'shared:' everything that does not vary across environments.
+#    Profiles inherit shared settings and override only what differs
+#    (typically insights.name and logs.workspace_id).
+#
+# 2. MULTI-TENANCY & SERVICE ISOLATION:
+#    - Multi-tenancy requires 'shared.logs.database' and an active service.
+#    - Queries enforce tenant isolation on Log Analytics (database) and App Insights (role).
+#    - Application queries require a role filter; database queries require a database filter.
+#
+# 3. SERVICE CATALOG:
+#    - 'shared.services' maps logical service names to physical telemetry targets:
+#        role: EXACT cloud_RoleName in Application Insights
+#        pod:  cloud_RoleInstance base token without the dynamic replica hash
+#    - 'defaults.service' specifies the default active service.
+#    - CLI: target any service with '-s <name>' or '--service <name>'.
+#    - Ad-hoc fallback: if '-s <name>' is not defined in services, role and pod
+#      both default to '<name>'.
+#
+# 4. AZURE SESSIONS & SCRIPTING:
+#    - azlens delegates authentication to the Azure CLI ('az').
+#    - Subscription and tenant IDs guide token routing; no tokens are stored locally.
+# ─────────────────────────────────────────────────────────────────────────────
+
 version: "1.0"
 
-# Operational defaults (inherited by all profiles)
 defaults:
   profile: prod
+  service: checkout
   window: "1h"
   since: "1h"
   limit: 15
   output: "table"
 
-# ─── Shared target ────────────────────────────────────────────────────────
-# Declare ONCE everything that does NOT vary across environments.
-# Profiles inherit every field here and only declare what differs
-# (typically insights.name and logs.workspace_id). Any shared field can be
-# overridden per profile when needed.
-#
-# Sessions: azlens verifies that every configured subscription is available in
-# the current az session and launches 'az login' for you when it is not
-# (tokens stay entirely inside the az CLI — nothing is stored by azlens).
-# az resolves the directory (tenant) of each query from its subscription.
 shared:
   insights:
-    resource_group: "rg-shared-prod"                         # Resource group hosting App Insights (required when using component name)
-    directory_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" # Entra directory hosting App Insights (drives 'az login --tenant' and per-query token routing)
-    subscription_id: "11111111-aaaa-bbbb-cccc-111111111111" # Subscription hosting App Insights (routes the query)
+    resource_group: "rg-shared-prod"
+    directory_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    subscription_id: "11111111-aaaa-bbbb-cccc-111111111111"
   logs:
-    directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" # Entra directory hosting Log Analytics
-    subscription_id: "22222222-dddd-eeee-ffff-222222222222" # Subscription hosting Log Analytics (routes the query)
-    namespace: "ecommerce"         # Kubernetes namespace
-    database: "backend_ror"        # Database name for MySqlSlowLogs filtering
-  roles: []                       # cloud_RoleName(s): EXACT microservice names — scalar or list (empty = all services)
-  pods: []                        # Pod names WITHOUT the deployment hash, token-matched — scalar or list (empty = all pods)
+    directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    subscription_id: "22222222-dddd-eeee-ffff-222222222222"
+    database: "backend_ror"
+
+  services:
+    checkout:
+      role: checkout-service
+      pod: checkout-app
+    orders:
+      role: order-service
+      pod: order-app
+    billing:
+      role: billing-service
+      pod: billing-worker
+
   exclude_synthetic: true
   exclude_probes: true
 
-  # Quality gate policy shared by every profile (per-profile overrides allowed)
   thresholds:
     p95_latency_warn_pct: 15.0
     p95_latency_crit_pct: 30.0
@@ -41,23 +67,14 @@ shared:
     error_rate_crit_delta: 3.0
     min_sample_calls: 5
 
-# Environment targets: only what differs per environment
 profiles:
   prod:
     name: "Production Microservices"
     target:
       insights:
-        name: "app-shared-prod"  # Resource name from the portal URL (or App ID GUID)
+        name: "app-shared-prod"
       logs:
-        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333" # Log Analytics workspace Customer ID GUID
-
-    # Quality gate thresholds (optional, defaults: 15% warn / 30% crit, 5 min samples)
-    thresholds:
-      p95_latency_warn_pct: 15.0
-      p95_latency_crit_pct: 30.0
-      error_rate_warn_delta: 1.0
-      error_rate_crit_delta: 3.0
-      min_sample_calls: 5
+        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
 
   staging:
     name: "Staging Environment"
@@ -83,7 +100,3 @@ profiles:
         name: "app-shared-dev"
       logs:
         workspace_id: "55555555-eeee-ffff-dddd-555555555555"
-
-# Filter a specific microservice or pod without editing this file:
-#   azlens inspect endpoints 1h --role order-service
-#   azlens deploy 30m --role order-service

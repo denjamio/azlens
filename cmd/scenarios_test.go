@@ -25,6 +25,9 @@ func TestScenarioH_MultiProfileIsolation(t *testing.T) {
 
 	cfgContent := `defaults:
   profile: prod
+shared:
+  logs:
+    database: my-tenant-db
 profiles:
   prod:
     name: Production
@@ -33,8 +36,7 @@ profiles:
     workspace_id: ws-prod
     target:
       app_insights_app: app-prod
-      roles:
-        - checkout
+      service: checkout
   staging:
     name: Staging
     subscription_id: sub-staging
@@ -42,8 +44,7 @@ profiles:
     workspace_id: ws-staging
     target:
       app_insights_app: app-staging
-      roles:
-        - checkout-staging
+      service: checkout-staging
 `
 	if err := os.WriteFile(filepath.Join(dir, "azlens.yaml"), []byte(cfgContent), 0644); err != nil {
 		t.Fatalf("failed to write test azlens.yaml: %v", err)
@@ -162,7 +163,7 @@ func TestScenarioK_AmbiguousExplainSubject(t *testing.T) {
 	}
 }
 
-// Scenario L - Upgrade naming: upgrade is canonical, update is hidden alias with deprecation warning
+// Scenario L - Upgrade naming: upgrade is canonical and update is eliminated
 func TestScenarioL_UpgradeNaming(t *testing.T) {
 	// 1. Root command help shows upgrade
 	rootHelpBuf := new(bytes.Buffer)
@@ -175,12 +176,11 @@ func TestScenarioL_UpgradeNaming(t *testing.T) {
 		t.Errorf("expected 'upgrade' in root help, got:\n%s", rootHelp)
 	}
 
-	// 2. Update is hidden from help
-	if !updateCmd.Hidden {
-		t.Errorf("expected updateCmd to be Hidden")
-	}
-	if updateCmd.Deprecated == "" {
-		t.Errorf("expected updateCmd to be marked Deprecated")
+	// 2. Update is not registered on RootCmd
+	for _, c := range RootCmd.Commands() {
+		if c.Name() == "update" {
+			t.Errorf("expected 'update' to not be registered on RootCmd")
+		}
 	}
 
 	// 3. Upgrade command help succeeds cleanly

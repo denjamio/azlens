@@ -50,7 +50,7 @@ func TestRunAzQueryRetriesTransientFailures(t *testing.T) {
 	payload := `{"tables":[{"name":"PrimaryResult","columns":[{"name":"c0","type":"real"}],"rows":[[100,2,50,40,200,60,80,120,180,300,1.2,98,1,1]]}]}`
 	t.Setenv("PATH", fakeAzFlakyScript(t, counter, "502 Bad Gateway", payload, 2)+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	client := &AzCliClient{opts: ClientOptions{Profile: config.Profile{Target: config.TargetConfig{Insights: config.InsightsConfig{Name: "app"}}}}}
+	client := &AzCliClient{opts: ClientOptions{Profile: config.Profile{Target: config.TargetConfig{Insights: config.InsightsConfig{Name: "app"}, Role: "order-service"}}}}
 	now := time.Now()
 
 	metric, err := client.QueryRequestsSummary(context.Background(), now.Add(-time.Hour), now)
@@ -58,7 +58,7 @@ func TestRunAzQueryRetriesTransientFailures(t *testing.T) {
 		t.Fatalf("expected transient failures to be retried, got: %v", err)
 	}
 	if metric.TotalCalls != 100 {
-		t.Errorf("unexpected metric parsed: %+v", metric)
+		t.Errorf("expected 100 calls, got %d", metric.TotalCalls)
 	}
 
 	invocations, err := os.ReadFile(counter)
@@ -75,7 +75,7 @@ func TestRunAzQueryFailsFastOnPermanentError(t *testing.T) {
 	counter := filepath.Join(t.TempDir(), "count")
 	t.Setenv("PATH", fakeAzFlakyScript(t, counter, "ERROR: Please run az login", "unused", 99)+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	client := &AzCliClient{opts: ClientOptions{Profile: config.Profile{Target: config.TargetConfig{Insights: config.InsightsConfig{Name: "app"}}}}}
+	client := &AzCliClient{opts: ClientOptions{Profile: config.Profile{Target: config.TargetConfig{Insights: config.InsightsConfig{Name: "app"}, Role: "order-service"}}}}
 	now := time.Now()
 
 	_, err := client.QueryRequestsSummary(context.Background(), now.Add(-time.Hour), now)

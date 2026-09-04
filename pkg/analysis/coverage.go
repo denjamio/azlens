@@ -22,9 +22,6 @@ func (c *CapabilityEvaluator) EvaluateCoverage(snapshot *domain.Snapshot) []doma
 		domain.CapabilityDependencies,
 		domain.CapabilityExceptions,
 		domain.CapabilityAvailability,
-		domain.CapabilityKubernetesWorkloads,
-		domain.CapabilityKubernetesEvents,
-		domain.CapabilityResourceSaturation,
 		domain.CapabilityDatabaseSlowLogs,
 	}
 
@@ -113,41 +110,6 @@ func (c *CapabilityEvaluator) evaluateCapability(snapshot *domain.Snapshot, capT
 			return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
 		}
 		return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateNotConfigured}
-
-	case domain.CapabilityKubernetesWorkloads:
-		if len(snapshot.Workloads) > 0 || len(snapshot.Pods) > 0 {
-			return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
-		}
-		if configured := snapshot.ConfiguredCapabilities[capType]; configured {
-			return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateUnavailable}
-		}
-		return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateNotConfigured}
-
-	case domain.CapabilityKubernetesEvents:
-		if configured := snapshot.ConfiguredCapabilities[capType]; configured {
-			return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
-		}
-		return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateNotConfigured}
-
-	case domain.CapabilityResourceSaturation:
-		for _, s := range snapshot.Saturation {
-			if s.HasData {
-				return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
-			}
-		}
-		if configured := snapshot.ConfiguredCapabilities[capType]; configured {
-			return domain.CapabilityStatus{
-				Capability:  capType,
-				State:       domain.CapabilityStateUnavailable,
-				Reason:      "Kubernetes resource metrics unavailable",
-				Consequence: "CPU and memory saturation cannot be checked",
-			}
-		}
-		return domain.CapabilityStatus{
-			Capability:  capType,
-			State:       domain.CapabilityStateNotConfigured,
-			Consequence: "CPU and memory saturation cannot be checked",
-		}
 
 	case domain.CapabilityDatabaseSlowLogs:
 		if len(snapshot.SlowLogs) > 0 {

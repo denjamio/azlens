@@ -18,6 +18,7 @@ func TestConfigLoadAndGetProfile(t *testing.T) {
 version: "1.0"
 defaults:
   profile: checkout
+  service: checkout-api
 
 profiles:
   checkout:
@@ -25,7 +26,8 @@ profiles:
     target:
       insights:
         name: "app-checkout-prod"
-      roles: "checkout-api"
+      service: "checkout-api"
+      role: "checkout-api"
     thresholds:
       p95_latency_warn_pct: 18.0
       p95_latency_crit_pct: 35.0
@@ -48,8 +50,8 @@ profiles:
 		t.Fatalf("failed getting default profile: %v", err)
 	}
 
-	if len(prof.Target.Roles) != 1 || prof.Target.Roles[0] != "checkout-api" {
-		t.Errorf("expected role 'checkout-api', got %v", prof.Target.Roles)
+	if prof.Target.Role != "checkout-api" {
+		t.Errorf("expected role 'checkout-api', got %v", prof.Target.Role)
 	}
 	if prof.Thresholds.LatencyCritPct != 35.0 {
 		t.Errorf("expected 35.0 crit threshold, got %f", prof.Thresholds.LatencyCritPct)
@@ -113,6 +115,7 @@ func TestConfigTargetExplicit(t *testing.T) {
 version: "1.0"
 defaults:
   profile: prod
+  service: order-service
 
 profiles:
   prod:
@@ -124,10 +127,10 @@ profiles:
       logs:
         workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
         subscription_id: "sub-logs-456"
-        namespace: "ecommerce"
         database: "backend_ror"
-      roles: "order-service"
-      pods: "order-service"
+      service: "order-service"
+      role: "order-service"
+      pod: "order-service"
       exclude_synthetic: true
       exclude_probes: true
 `
@@ -151,8 +154,8 @@ profiles:
 	if prof.Target.Insights.SubscriptionID != "sub-insights-123" {
 		t.Errorf("expected Target.Insights.SubscriptionID 'sub-insights-123', got '%s'", prof.Target.Insights.SubscriptionID)
 	}
-	if len(prof.Target.Roles) != 1 || prof.Target.Roles[0] != "order-service" {
-		t.Errorf("expected Target.Roles 'order-service', got %v", prof.Target.Roles)
+	if prof.Target.Role != "order-service" {
+		t.Errorf("expected Target.Role 'order-service', got %v", prof.Target.Role)
 	}
 	if prof.Target.Logs.WorkspaceID != "33333333-hhhh-iiii-jjjj-333333333333" {
 		t.Errorf("expected Target.Logs.WorkspaceID '33333333-hhhh-iiii-jjjj-333333333333', got '%s'", prof.Target.Logs.WorkspaceID)
@@ -160,11 +163,8 @@ profiles:
 	if prof.Target.Logs.SubscriptionID != "sub-logs-456" {
 		t.Errorf("expected Target.Logs.SubscriptionID 'sub-logs-456', got '%s'", prof.Target.Logs.SubscriptionID)
 	}
-	if prof.Target.Logs.Namespace != "ecommerce" {
-		t.Errorf("expected Target.Logs.Namespace 'ecommerce', got '%s'", prof.Target.Logs.Namespace)
-	}
-	if len(prof.Target.Pods) != 1 || prof.Target.Pods[0] != "order-service" {
-		t.Errorf("expected Target.Pods 'order-service', got %v", prof.Target.Pods)
+	if prof.Target.Pod != "order-service" {
+		t.Errorf("expected Target.Pod 'order-service', got %v", prof.Target.Pod)
 	}
 	if prof.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected Target.Logs.Database 'backend_ror', got '%s'", prof.Target.Logs.Database)
@@ -181,13 +181,11 @@ func TestSharedTargetInheritance(t *testing.T) {
 	}
 	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
-	// Realistic topology: App Insights and Log Analytics live in different
-	// Entra ID directories; the 3 environments share subscriptions, filters,
-	// and flags — only insights.name and logs.workspace_id differ per env.
 	yamlContent := `
 version: "1.0"
 defaults:
   profile: prod
+  service: order-service
 
 shared:
   insights:
@@ -196,10 +194,17 @@ shared:
   logs:
     directory_id: "dir-logs-shared"
     subscription_id: "sub-logs-shared"
-    namespace: "ecommerce"
     database: "backend_ror"
-  roles: "order-service"
-  pods: "order-service"
+  services:
+    order-service:
+      role: order-service
+      pod: order-service
+    billing-service:
+      role: billing-service
+      pod: billing-service
+  service: "order-service"
+  role: "order-service"
+  pod: "order-service"
   exclude_synthetic: true
   exclude_probes: true
   custom_dimensions:
@@ -224,12 +229,13 @@ profiles:
         name: "app-shared-staging"
       logs:
         workspace_id: "ws-guid-staging"
-      roles: "billing-service"          # per-env override of a shared field
-      exclude_probes: false            # explicit false overrides shared true
+      service: "billing-service"
+      role: "billing-service"
+      exclude_probes: false
       custom_dimensions:
-        team: "staging-oncall"         # map keys merge, profile wins
+        team: "staging-oncall"
     thresholds:
-      p95_latency_warn_pct: 25.0       # per-env override of shared policy
+      p95_latency_warn_pct: 25.0
 `
 	if err := os.WriteFile(tmpFile.Name(), []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed writing temp file: %v", err)
@@ -257,7 +263,7 @@ profiles:
 	if prod.Target.Insights.DirectoryID != "dir-insights-shared" || prod.Target.Logs.DirectoryID != "dir-logs-shared" {
 		t.Errorf("expected shared directory IDs inherited, got: %+v / %+v", prod.Target.Insights, prod.Target.Logs)
 	}
-	if len(prod.Target.Roles) != 1 || prod.Target.Roles[0] != "order-service" || len(prod.Target.Pods) != 1 || prod.Target.Pods[0] != "order-service" || prod.Target.Logs.Namespace != "ecommerce" || prod.Target.Logs.Database != "backend_ror" {
+	if prod.Target.Role != "order-service" || prod.Target.Pod != "order-service" || prod.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected shared filters inherited, got: %+v", prod.Target)
 	}
 	if !prod.Target.ExcludesSynthetic() || !prod.Target.ExcludesProbes() {
@@ -275,8 +281,8 @@ profiles:
 	if err != nil {
 		t.Fatalf("failed getting staging profile: %v", err)
 	}
-	if len(staging.Target.Roles) != 1 || staging.Target.Roles[0] != "billing-service" {
-		t.Errorf("expected profile role override to win over shared, got %v", staging.Target.Roles)
+	if staging.Target.Role != "billing-service" {
+		t.Errorf("expected profile role override to win over shared, got %v", staging.Target.Role)
 	}
 	if staging.Target.ExcludesProbes() {
 		t.Errorf("expected explicit profile exclude_probes=false to override shared true")
@@ -287,7 +293,7 @@ profiles:
 	if !staging.Target.ExcludesSynthetic() {
 		t.Errorf("expected shared exclude_synthetic=true still inherited")
 	}
-	if len(staging.Target.Pods) != 1 || staging.Target.Pods[0] != "order-service" || staging.Target.Logs.Namespace != "ecommerce" {
+	if staging.Target.Pod != "order-service" || staging.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected other shared filters still inherited, got: %+v", staging.Target)
 	}
 	if staging.Target.CustomDimensions["team"] != "staging-oncall" {
@@ -295,49 +301,22 @@ profiles:
 	}
 
 	// 3. shared config itself is untouched by merges (no mutation side effects)
-	if len(cfg.Shared.Roles) != 1 || cfg.Shared.Roles[0] != "order-service" {
-		t.Errorf("shared target must not be mutated by GetProfile, got roles %v", cfg.Shared.Roles)
+	if cfg.Shared.Role != "order-service" {
+		t.Errorf("shared target must not be mutated by GetProfile, got role %v", cfg.Shared.Role)
 	}
 }
 
-func TestStringListUnmarshal(t *testing.T) {
-	cases := []struct {
-		name    string
-		yaml    string
-		want    StringList
-		wantErr bool
-	}{
-		{name: "scalar", yaml: `roles: order-service`, want: StringList{"order-service"}},
-		{name: "list", yaml: `roles: [order-service, billing-service]`, want: StringList{"order-service", "billing-service"}},
-		{name: "block list", yaml: "roles:\n  - order-service\n  - billing-service\n", want: StringList{"order-service", "billing-service"}},
-		{name: "empty scalar means unset", yaml: `roles: ""`, want: nil},
-		{name: "empty list means unset", yaml: `roles: []`, want: nil},
-		{name: "map is invalid", yaml: "roles:\n  a: b\n", wantErr: true},
+func TestServiceDefUnmarshal(t *testing.T) {
+	yamlData := `
+role: checkout-svc
+pod: checkout-app
+`
+	var sDef ServiceDef
+	if err := yaml.Unmarshal([]byte(yamlData), &sDef); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var out struct {
-				Roles StringList `yaml:"roles"`
-			}
-			if err := yaml.Unmarshal([]byte(tc.yaml), &out); err != nil {
-				if !tc.wantErr {
-					t.Fatalf("unexpected unmarshal error: %v", err)
-				}
-				return
-			}
-			if tc.wantErr {
-				t.Fatalf("expected error, got none (%v)", out.Roles)
-			}
-			if len(out.Roles) != len(tc.want) {
-				t.Fatalf("expected %v, got %v", tc.want, out.Roles)
-			}
-			for i := range tc.want {
-				if out.Roles[i] != tc.want[i] {
-					t.Fatalf("expected %v, got %v", tc.want, out.Roles)
-				}
-			}
-		})
+	if sDef.Role != "checkout-svc" || sDef.Pod != "checkout-app" {
+		t.Errorf("expected ServiceDef{Role: checkout-svc, Pod: checkout-app}, got %+v", sDef)
 	}
 }
 

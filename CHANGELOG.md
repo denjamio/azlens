@@ -5,6 +5,30 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-04
+
+### Added
+
+- **Singular Service Architecture (`-s` / `--service`)**: Exposed a single clean scoping flag `-s` / `--service <name>` for microservice targeting across all telemetry commands (`azlens`, `explain`, `inspect`, `deploy`).
+- **Shared Service Catalog**: Configured `shared.services` mapping logical service names to singular `role` (`cloud_RoleName`) and `pod` (base token for `cloud_RoleInstance`).
+- **Configurable Default Service**: Active operational default service is now declared under `defaults.service`.
+- **Dual-Layer Tenancy Enforcement**:
+  - Layer 1: Mandatory validation of `shared.logs.database` and active service/role in profile configuration.
+  - Layer 2: Hard query builder firewall (`checkTenancyFirewall`) refusing to generate unscoped KQL application queries without a role filter (`ErrMissingRole`) and database slow query logs without a database filter (`ErrMissingDatabase`).
+
+### Removed
+
+- **Purged `namespace` Dead Code**: Completely removed unused `target.logs.namespace` / `shared.logs.namespace` across the codebase, domain types, and configuration since AzLens exclusively inspects structured APM tables and MySQL slow logs, making `logs.database` the definitive Log Analytics tenant filter.
+- **Removed Deprecated Commands & Aliases**: Completely eliminated legacy commands `azlens top`, `azlens deploy-check`, and `azlens update`.
+- **Removed Kubernetes Infrastructure Stubs**: Removed `azlens inspect runtime` and unqueried infrastructure anomaly detectors (`WorkloadUnavailable`, `RestartBurst`, `OOMKilled`, `ResourceSaturation`), focusing AzLens strictly on the 5 genuine APM capabilities (`requests`, `dependencies`, `exceptions`, `availability`, `database_slow_logs`).
+- **Removed Legacy Multi-Target Flags**: Removed `--role` and `--pod` CLI flags and plural fallbacks.
+- **Removed Dead Helper Code**: Removed unused `AzureConfigDir` and `AzureExtensionDir` helpers.
+
+### Changed
+
+- **Consolidated Header Comments**: Grouped all explanatory comments at the top of `azlens.example.yaml` and `StarterConfigTemplate`.
+- **README Flowchart**: Replaced Mermaid syntax with GitHub-safe diagram format.
+
 ## [1.0.1] - 2026-09-04
 
 ### Fixed
@@ -348,6 +372,7 @@ hardening and are not part of the public 0.1.0 surface:
   `workspace`, `workspace_id`, `role`, `namespace`, `db`, `pod_name`, ...) in favor
   of the nested `insights` / `logs` blocks.
 
+[1.1.0]: https://github.com/denjamio/azlens/releases/tag/v1.1.0
 [1.0.1]: https://github.com/denjamio/azlens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/denjamio/azlens/releases/tag/v1.0.0
 [0.1.0]: https://github.com/denjamio/azlens/releases/tag/v0.1.0
