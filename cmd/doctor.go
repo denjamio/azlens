@@ -9,13 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/denjamio/azlens/pkg/analysis"
 	"github.com/denjamio/azlens/pkg/config"
+	"github.com/denjamio/azlens/pkg/domain"
+	"github.com/denjamio/azlens/pkg/reporter"
+	"github.com/denjamio/azlens/pkg/telemetry"
 )
 
-// checkAzureCLIAvailable looks up the az binary in PATH
 func checkAzureCLIAvailable() (string, error) {
 	azPath, err := exec.LookPath("az")
 	if err != nil {
@@ -24,11 +26,6 @@ func checkAzureCLIAvailable() (string, error) {
 	return azPath, nil
 }
 
-// azRequiredExtensions maps the az command groups azlens invokes to the Azure
-// CLI extension that provides them. Both query commands are extension commands:
-// without them installed, az fails with "'X' is misspelled or not recognized by
-// the system." (az itself misspells "misspelled" — the client matches both
-// spellings of its output).
 var azRequiredExtensions = []struct {
 	Extension string
 	Provides  string
@@ -37,8 +34,6 @@ var azRequiredExtensions = []struct {
 	{"log-analytics", "az monitor log-analytics query (Log Analytics telemetry)"},
 }
 
-// missingAzExtensions returns the azlens-required extensions not installed in the az CLI.
-// 'az extension list' is a local, unauthenticated operation.
 func missingAzExtensions() ([]string, error) {
 	out, err := exec.Command("az", "extension", "list", "--only-show-errors", "-o", "json").Output()
 	if err != nil {
@@ -63,14 +58,9 @@ func missingAzExtensions() ([]string, error) {
 	return missing, nil
 }
 
-// checkRequiredAzExtensions fails fast with actionable guidance when the
-// extension providing the az command groups for this profile's configured
-// backends is missing. log-analytics is also the App Insights fallback backend
-// (queries route to the workspace when insights.name is empty).
 func checkRequiredAzExtensions(prof config.Profile) error {
 	missing, err := missingAzExtensions()
 	if err != nil {
-		// Cannot verify locally: let the query itself surface any real problem
 		return nil
 	}
 	needed := make(map[string]bool)
@@ -93,10 +83,9 @@ func checkRequiredAzExtensions(prof config.Profile) error {
 	for _, m := range blocking {
 		hints = append(hints, fmt.Sprintf("'az extension add --name %s'", m))
 	}
-	return fmt.Errorf("azure cli extension(s) not installed: %s — the query commands for this profile's targets will not work.\n💡 Hint: Run %s (verify with 'az extension list')", strings.Join(blocking, ", "), strings.Join(hints, " and "))
+	return fmt.Errorf("azure cli extension(s) not installed: %s\n💡 Hint: Run %s", strings.Join(blocking, ", "), strings.Join(hints, " and "))
 }
 
-// validateProfileIssues runs profile validation rules and returns any error
 func validateProfileIssues(prof config.Profile) ([]config.ValidationIssue, error) {
 	issues := prof.Validate()
 	for _, iss := range issues {
@@ -107,14 +96,11 @@ func validateProfileIssues(prof config.Profile) ([]config.ValidationIssue, error
 	return issues, nil
 }
 
-// runPreflightDiagnostics runs the shared pre-flight checks used by PersistentPreRunE
 func runPreflightDiagnostics(prof config.Profile) error {
 	if _, err := checkAzureCLIAvailable(); err != nil {
 		return err
 	}
 
-	// Fail fast with guidance when the az extension providing this profile's
-	// backend commands is missing (avoids the cryptic az "not recognized" error)
 	if err := checkRequiredAzExtensions(prof); err != nil {
 		return err
 	}
@@ -122,128 +108,98 @@ func runPreflightDiagnostics(prof config.Profile) error {
 	issues, err := validateProfileIssues(prof)
 	for _, iss := range issues {
 		if iss.Severity == config.SeverityWarning {
-			// Warnings do not block execution but surface risky configurations
 			fmt.Fprintf(os.Stderr, "⚠️  [%s] %s\n💡 Hint: %s\n", iss.Field, iss.Message, iss.Hint)
 		}
 	}
 	return err
 }
 
+// doctorCmd represents the doctor command (Section 6.5).
+// Question answered: "Can AzLens correctly observe this environment?"
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
-	Short: "Run diagnostics on Azure CLI authentication and azlens configuration",
-	Long:  "Inspects local environment, Azure credentials, and validates the active profile targets.",
+	Use:     "doctor",
+	Short:   "Diagnose AzLens configuration, authentication, reachability, and capability coverage",
+	Long:    "Inspects local environment, Azure credentials, data-source reachability, and telemetry coverage.",
+	GroupID: "operational",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rt := runtimeFrom(cmd)
-		fmt.Println(color.CyanString("AzLens Doctor Diagnostic Report"))
-		fmt.Println("================================")
+		ctx := cmd.Context()
 
-		hasErrors := false
+		docResult := &reporter.DoctorResult{
+			ProfileName: rt.Profile.Name,
+		}
+		if docResult.ProfileName == "" {
+			docResult.ProfileName = rt.ProfileName
+		}
 
-		// 1. Azure CLI binary check (shared check)
-		azPath, err := checkAzureCLIAvailable()
-		if err != nil {
-			color.Red("✗ Azure CLI ('az'): not found in PATH")
-			fmt.Println("  💡 Hint: Install Azure CLI (curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash)")
-			hasErrors = true
+		// 1. Azure CLI Authentication Check
+		if mockFlag {
+			docResult.AzureAuth = true
+			docResult.AuthUser = "mock-user@azure.local"
 		} else {
-			color.Green("✓ Azure CLI ('az'): %s", azPath)
-		}
-
-		// 2. Azure CLI authentication check
-		if azPath != "" {
-			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-			defer cancel()
-			out, azErr := exec.CommandContext(ctx, "az", "account", "show", "--query", "{user:user.name,sub:name,subId:id}", "-o", "json").Output()
-			if azErr != nil {
-				color.Yellow("⚠️  Azure Login: not authenticated or session expired")
-				fmt.Println("  💡 Hint: Run 'az login' to authenticate with Azure")
-			} else {
-				var info struct {
-					User  string `json:"user"`
-					Sub   string `json:"sub"`
-					SubID string `json:"subId"`
-				}
-				if json.Unmarshal(out, &info) == nil && info.Sub != "" {
-					color.Green("✓ Azure Login: authenticated as %s (Subscription: %s [%s])", info.User, info.Sub, info.SubID)
-				} else {
-					color.Green("✓ Azure Login: session active")
-				}
-			}
-		}
-
-		// 2b. Azure CLI extension check (the query commands are extension commands)
-		if azPath != "" {
-			missing, extErr := missingAzExtensions()
-			switch {
-			case extErr != nil:
-				color.Yellow("⚠️  Azure CLI extensions: could not verify (%v)", extErr)
-			case len(missing) > 0:
-				color.Red("✗ Azure CLI extensions: missing %s", strings.Join(missing, ", "))
-				for _, m := range missing {
-					for _, req := range azRequiredExtensions {
-						if req.Extension == m {
-							fmt.Printf("    %s\n", req.Provides)
-						}
+			azPath, err := checkAzureCLIAvailable()
+			if err == nil && azPath != "" {
+				authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				out, azErr := exec.CommandContext(authCtx, "az", "account", "show", "--query", "{user:user.name,sub:name,subId:id}", "-o", "json").Output()
+				if azErr == nil {
+					var info struct {
+						User  string `json:"user"`
+						Sub   string `json:"sub"`
+						SubID string `json:"subId"`
 					}
-					fmt.Printf("  💡 Hint: Run 'az extension add --name %s'\n", m)
-				}
-				hasErrors = true
-			default:
-				color.Green("✓ Azure CLI extensions: application-insights, log-analytics installed")
-			}
-		}
-
-		// 2c. Session coverage: each subscription targeted by the active profile
-		for _, b := range configuredBackends(rt.Profile) {
-			if ok, err := subscriptionAccessible(cmd.Context(), b.subscription, b.tenant); err == nil && ok {
-				color.Green("✓ Subscription session: %s available in the current az session", b.subscription)
-			} else {
-				color.Red("✗ Subscription session: %s not available in the current az session", b.subscription)
-				fmt.Printf("  💡 Hint: Run '%s'\n", loginHint(b))
-				hasErrors = true
-			}
-		}
-
-		// 3. Config file check
-		if rt.Config != nil && rt.Config.LoadedPath != "" {
-			color.Green("✓ Configuration: loaded from %s", rt.Config.LoadedPath)
-		} else {
-			color.Yellow("⚠️  Configuration: running with in-memory defaults (no azlens.yaml found)")
-			fmt.Println("  💡 Hint: Run 'azlens config init' to create a starter configuration file")
-		}
-
-		// 4. Validate active profile (shared check)
-		profName := rt.ProfileName
-		fmt.Printf("\nValidating profile '%s':\n", color.CyanString(profName))
-
-		issues, valErr := validateProfileIssues(rt.Profile)
-		if len(issues) == 0 {
-			color.Green("✓ Profile '%s' is valid and ready to query!", profName)
-		} else {
-			for _, iss := range issues {
-				switch iss.Severity {
-				case config.SeverityError:
-					color.Red("✗ [%s] %s", iss.Field, iss.Message)
-					fmt.Printf("  💡 %s\n", iss.Hint)
-				case config.SeverityWarning:
-					color.Yellow("⚠️  [%s] %s", iss.Field, iss.Message)
-					fmt.Printf("  💡 %s\n", iss.Hint)
-				case config.SeverityInfo:
-					color.Cyan("ℹ️  [%s] %s", iss.Field, iss.Message)
-					fmt.Printf("  💡 %s\n", iss.Hint)
+					if json.Unmarshal(out, &info) == nil && info.Sub != "" {
+						docResult.AzureAuth = true
+						docResult.AuthUser = info.User
+						docResult.AuthSub = info.Sub
+					}
 				}
 			}
 		}
-		if valErr != nil {
-			hasErrors = true
+
+		// 2. Configured Backends Check
+		var backends []reporter.BackendStatus
+		if rt.Profile.Target.Insights.Name != "" {
+			backends = append(backends, reporter.BackendStatus{
+				Name:      "Application Insights",
+				Available: true,
+			})
+		}
+		if rt.Profile.Target.Logs.WorkspaceID != "" {
+			backends = append(backends, reporter.BackendStatus{
+				Name:      "Log Analytics",
+				Available: true,
+			})
+		}
+		if len(backends) == 0 {
+			backends = append(backends, reporter.BackendStatus{
+				Name:      "Telemetry Backend",
+				Available: false,
+				Details:   "neither insights.name nor logs.workspace_id configured",
+			})
+		}
+		docResult.Backends = backends
+
+		// 3. Telemetry Coverage Check
+		now := time.Now()
+		builder := telemetry.NewSnapshotBuilder(rt.Client)
+		snap, _ := builder.BuildSnapshot(ctx, rt.ProfileName, rt.Profile, now.Add(-1*time.Hour), now, "last 1h")
+		if snap == nil {
+			snap = domain.NewSnapshot(
+				domain.ProfileContext{Name: rt.ProfileName, DisplayName: rt.Profile.Name},
+				domain.Scope{Role: firstOrEmpty(rt.Profile.Target.Roles)},
+				domain.WindowContext{Label: "last 1h", Start: now.Add(-1 * time.Hour), End: now},
+			)
 		}
 
-		fmt.Println()
-		if hasErrors {
-			return fmt.Errorf("doctor detected configuration issues that prevent telemetry queries")
+		evaluator := analysis.NewCapabilityEvaluator()
+		docResult.Coverage = evaluator.EvaluateCoverage(snap)
+
+		if rt.Output == "json" {
+			return reporter.PrintJSON(os.Stdout, docResult)
 		}
-		color.Green("✓ Doctor checks complete. Everything is healthy!")
+
+		reporter.PrintDoctorTerminal(os.Stdout, docResult)
 		return nil
 	},
 }

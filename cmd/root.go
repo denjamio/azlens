@@ -12,8 +12,13 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/denjamio/azlens/pkg/analysis"
+	"github.com/denjamio/azlens/pkg/analysis/detectors"
 	"github.com/denjamio/azlens/pkg/azure"
 	"github.com/denjamio/azlens/pkg/config"
+	"github.com/denjamio/azlens/pkg/domain"
+	"github.com/denjamio/azlens/pkg/reporter"
+	"github.com/denjamio/azlens/pkg/telemetry"
 )
 
 var (
@@ -99,30 +104,84 @@ func commandChain(cmd *cobra.Command, names ...string) bool {
 
 // isTelemetryCommand reports whether the command queries live Azure telemetry
 func isTelemetryCommand(cmd *cobra.Command) bool {
-	return commandChain(cmd, "top", "deploy-check")
+	return commandChain(cmd, "top", "deploy-check", "inspect", "deploy", "explain") || !cmd.HasParent()
 }
 
 // requiresConfig returns true if the command needs configuration loading and
-// runtime injection. 'config init' is exempt: it must work when no config exists yet.
+// runtime injection. 'config init' and 'version' are exempt.
 func requiresConfig(cmd *cobra.Command) bool {
-	if cmd.Name() == "init" {
+	if cmd.Name() == "init" || cmd.Name() == "version" {
 		return false
 	}
 	return isTelemetryCommand(cmd) || commandChain(cmd, "config", "doctor")
 }
 
-// RootCmd represents the base command when called without any subcommands
+// RootCmd represents the base operational command (Section 6.1).
+// Question answered: "Does anything need my attention right now?"
 var RootCmd = &cobra.Command{
-	Use:   "azlens",
-	Short: "AzLens - Actionable Observability & Deploy Regressions Analyzer for Azure",
-	Long: `AzLens is a high-performance CLI tool that interrogates Azure Monitor,
-Application Insights, and Log Analytics to deliver actionable telemetry insights:
-  * Detect latency percentiles (P50, P90, P95, P99) and error regressions before vs after deploy
-  * Identify top slow requests, database queries, and external dependencies
-  * Group exceptions and detect new error signatures introduced in releases
-  * Manage multiple project/environment profiles with project and pod scoped safe KQL`,
+	Use:   "azlens [window]",
+	Short: "AzLens - Actionable Observability & Operational CLI for Azure",
+	Long: `AzLens answers one primary question:
+  "Does this environment need my attention right now?"
+
+It interprets telemetry and returns:
+  problem -> impact -> likely cause -> evidence -> next action
+
+Healthy signals are silent by default. Operational issues collapse
+into clear, actionable stories with supporting evidence and next actions.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	Args:          cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := context.WithTimeout(cmd.Context(), queryTimeout)
+		defer cancel()
+		rt := runtimeFrom(cmd)
+
+		windowArg := firstArg(args)
+		start, end, err := rt.Resolver.ResolveWindow(windowArg)
+		if err != nil {
+			return fmt.Errorf("invalid time window: %w", err)
+		}
+		windowLabel := formatWindowLabel(start, end)
+
+		builder := telemetry.NewSnapshotBuilder(rt.Client)
+		snapshot, err := builder.BuildSnapshot(ctx, rt.ProfileName, rt.Profile, start, end, windowLabel)
+		if err != nil && snapshot == nil {
+			return err
+		}
+
+		detCfg := detectors.DefaultConfig()
+		if rt.Profile.Thresholds.LatencyWarnPct > 0 {
+			detCfg.LatencyWarnPct = rt.Profile.Thresholds.LatencyWarnPct
+		}
+		if rt.Profile.Thresholds.LatencyCritPct > 0 {
+			detCfg.LatencyCritPct = rt.Profile.Thresholds.LatencyCritPct
+		}
+		if rt.Profile.Thresholds.MinSampleCalls > 0 {
+			detCfg.MinSampleCalls = rt.Profile.Thresholds.MinSampleCalls
+		}
+
+		engine := analysis.NewEngine(detCfg)
+		res := engine.Analyze(snapshot)
+
+		out := cmd.OutOrStdout()
+		if rt.Output == "json" {
+			_ = reporter.PrintJSON(out, res)
+		} else if rt.Output == "markdown" || rt.Output == "md" {
+			reporter.PrintOperationalMarkdown(out, res)
+		} else {
+			reporter.PrintOperationalTerminal(out, res)
+		}
+
+		switch res.State {
+		case domain.HealthStateDegraded:
+			return newActionableProblemError("%d problem(s) need attention", len(res.Problems))
+		case domain.HealthStateUnknown:
+			return newUnknownHealthError("insufficient visibility to determine health")
+		default:
+			return nil
+		}
+	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		applyColorMode(colorModeFlag)
 
@@ -137,10 +196,10 @@ Application Insights, and Log Analytics to deliver actionable telemetry insights
 			return fmt.Errorf("failed loading configuration: %w", err)
 		}
 
-		// 2. Resolve active profile (defaults.profile or --profile/-p)
-		activeProfileName := cfg.GetDefaultProfile()
-		if profileFlag != "" {
-			activeProfileName = profileFlag
+		// 2. Resolve active profile in exact precedence order (Section 4)
+		activeProfileName, err := cfg.ResolveProfile(profileFlag)
+		if err != nil && !mockFlag {
+			return err
 		}
 
 		prof, profErr := cfg.GetProfile(activeProfileName)
@@ -210,6 +269,15 @@ func Execute() {
 }
 
 func init() {
+	RootCmd.AddGroup(&cobra.Group{
+		ID:    "operational",
+		Title: "Operational Commands:",
+	})
+	RootCmd.AddGroup(&cobra.Group{
+		ID:    "supporting",
+		Title: "Supporting Commands:",
+	})
+
 	RootCmd.Version = Version
 	RootCmd.SetVersionTemplate(fmt.Sprintf("azlens version %s (commit: %s, built: %s)\n", Version, Commit, Date))
 

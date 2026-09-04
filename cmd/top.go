@@ -25,10 +25,12 @@ func resolveTopLimit(cmd *cobra.Command) int {
 	return runtimeFrom(cmd).Resolver.ResolveLimit(cmd, topLimit)
 }
 
-// topCmd represents the live triage command
+// topCmd represents the live triage command (deprecated alias for inspect)
 var topCmd = &cobra.Command{
-	Use:   "top [endpoints | queries | slow-logs | n-plus-one | breakdown | errors | deprecations] [duration]",
-	Short: "Inspect top latency bottlenecks, slow queries, slow logs, N+1 queries, latency breakdown, errors, or deprecations",
+	Use:        "top [endpoints | queries | slow-logs | n-plus-one | breakdown | errors | deprecations] [duration]",
+	Short:      "Inspect top latency bottlenecks (deprecated; use 'azlens inspect')",
+	Deprecated: "use 'azlens inspect' instead",
+	Hidden:     true,
 	Long: `Quickly identify performance bottlenecks and system health metrics over a recent time window.
 
 Subcommands:

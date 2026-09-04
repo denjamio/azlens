@@ -374,3 +374,61 @@ func TestAvailableProfilesIsSorted(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveProfilePrecedence(t *testing.T) {
+	// Setup test config with multiple profiles and a default
+	cfgMulti := &Config{
+		Defaults: Defaults{Profile: "prod"},
+		Profiles: map[string]Profile{
+			"prod":    {Name: "Production"},
+			"staging": {Name: "Staging"},
+			"dev":     {Name: "Development"},
+		},
+	}
+
+	// 1. --profile / -p flag always wins
+	os.Setenv("AZLENS_PROFILE", "staging")
+	defer os.Unsetenv("AZLENS_PROFILE")
+
+	got, err := cfgMulti.ResolveProfile("dev")
+	if err != nil || got != "dev" {
+		t.Fatalf("expected CLI flag 'dev' to win over env and config, got %q (err: %v)", got, err)
+	}
+
+	// 2. AZLENS_PROFILE wins when flag is empty
+	got, err = cfgMulti.ResolveProfile("")
+	if err != nil || got != "staging" {
+		t.Fatalf("expected AZLENS_PROFILE 'staging' to win over config default, got %q (err: %v)", got, err)
+	}
+
+	// 3. defaults.profile wins when neither CLI nor env is set
+	os.Unsetenv("AZLENS_PROFILE")
+	got, err = cfgMulti.ResolveProfile("")
+	if err != nil || got != "prod" {
+		t.Fatalf("expected defaults.profile 'prod' to win, got %q (err: %v)", got, err)
+	}
+
+	// 4. The only configured profile is selected when defaults.profile is absent
+	cfgSingle := &Config{
+		Profiles: map[string]Profile{
+			"only-one": {Name: "Only One"},
+		},
+	}
+	got, err = cfgSingle.ResolveProfile("")
+	if err != nil || got != "only-one" {
+		t.Fatalf("expected the single profile 'only-one' to be selected, got %q (err: %v)", got, err)
+	}
+
+	// 5. Error when multiple profiles exist and none can be selected
+	cfgNoDefault := &Config{
+		Profiles: map[string]Profile{
+			"prod":    {Name: "Production"},
+			"staging": {Name: "Staging"},
+		},
+	}
+	_, err = cfgNoDefault.ResolveProfile("")
+	if err == nil {
+		t.Fatalf("expected error when multiple profiles exist without selection, got nil")
+	}
+}
+

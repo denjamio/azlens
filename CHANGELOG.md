@@ -5,6 +5,29 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-09-04
+
+### Added
+
+- **AzLens Operational CLI Specification (v0.1)**: Transformed AzLens into a simple, opinionated, actionable operational CLI answering: *"Does this environment need my attention right now?"*
+- **Primary Operational Command (`azlens [window]`)**: Evaluates operational health across all configured capabilities. Silence is a feature: outputs `Everything looks normal.` when healthy.
+- **Analytical Engine & 13 Detectors (`pkg/analysis/`)**: Implemented source-neutral analytical engine with 13 detectors: `RequestLatencyRegression`, `RequestErrorRegression`, `NewException`, `ExceptionRegression`, `DependencyLatencyRegression`, `DependencyErrorRegression`, `DependencyFanoutRegression`, `WorkloadUnavailable`, `RestartBurst`, `OOMKilled`, `ResourceSaturation`, `TelemetryStale`, `AvailabilityFailure`.
+- **Symptom Correlation & Ranking (`correlator.go`, `ranking.go`)**: Collapses multiple related symptoms into a single problem story (e.g. endpoint latency regressed by downstream dependency; request errors caused by new exceptions; container OOM kills and workload unavailability). Demotes low-impact items to "Worth Watching". Caps visible output at 3 "Needs Attention" problems and 3 "Worth Watching" items.
+- **Root Cause Analysis (`azlens explain [subject] [window]`)**: Explains operational problems and provides supporting evidence with deterministic ambiguity matching protection.
+- **Telemetry Inspection (`azlens inspect <view> [window]`)**: Direct visibility into operational evidence: `endpoints`, `dependencies`, `queries`, `errors`, and `runtime`.
+- **Deployment Safety Verification (`azlens deploy [window] [--at TIME]`)**: Compares telemetry across before vs after release windows, showing only changed signals.
+- **Environment Diagnostics (`azlens doctor`)**: Diagnostics covering Azure authentication, backend reachability, and 8-capability operational coverage.
+- **Canonical Self-Updater (`azlens upgrade`)**: Direct in-place upgrade with SHA256 checksum verification.
+- **JSON Schema v1 (`pkg/domain/`)**: Unified machine-readable JSON format across operational commands.
+- **Pipeline-Aware Process Exit Codes**: `0` (healthy / safe), `1` (failure / error), `2` (actionable problem / regression), `3` (insufficient data / unknown).
+- **Profile Resolution Precedence**: Strict 5-level precedence: `--profile/-p` > `AZLENS_PROFILE` > `defaults.profile` > single profile > error.
+
+### Deprecated
+
+- **`azlens top`**: Deprecated in favor of `azlens inspect`.
+- **`azlens deploy-check`**: Deprecated in favor of `azlens deploy`.
+- **`azlens update`**: Deprecated in favor of `azlens upgrade`.
+
 ## [0.4.15] - 2026-09-04
 
 ### Fixed
@@ -318,4 +341,5 @@ hardening and are not part of the public 0.1.0 surface:
   `workspace`, `workspace_id`, `role`, `namespace`, `db`, `pod_name`, ...) in favor
   of the nested `insights` / `logs` blocks.
 
+[1.0.0]: https://github.com/denjamio/azlens/releases/tag/v1.0.0
 [0.1.0]: https://github.com/denjamio/azlens/releases/tag/v0.1.0

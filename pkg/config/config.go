@@ -242,6 +242,33 @@ type Config struct {
 	LoadedPath string             `yaml:"-" json:"-"` // Where the config was resolved from
 }
 
+// ResolveProfile resolves the active profile name in exact precedence order (Section 4):
+// 1. --profile / -p (passed as cliProfile)
+// 2. AZLENS_PROFILE environment variable
+// 3. defaults.profile in azlens.yaml
+// 4. the only configured profile, if exactly one exists
+// 5. actionable error if multiple profiles exist and none can be selected
+func (c *Config) ResolveProfile(cliProfile string) (string, error) {
+	if trimmed := strings.TrimSpace(cliProfile); trimmed != "" {
+		return trimmed, nil
+	}
+	if envProf := strings.TrimSpace(os.Getenv("AZLENS_PROFILE")); envProf != "" {
+		return envProf, nil
+	}
+	if c != nil && strings.TrimSpace(c.Defaults.Profile) != "" {
+		return strings.TrimSpace(c.Defaults.Profile), nil
+	}
+	if c != nil && len(c.Profiles) == 1 {
+		for name := range c.Profiles {
+			return name, nil
+		}
+	}
+	if c != nil && len(c.Profiles) > 1 {
+		return "", fmt.Errorf("no profile selected and multiple profiles configured (%s): select one with --profile / -p, set AZLENS_PROFILE, or configure defaults.profile in azlens.yaml", strings.Join(c.AvailableProfiles(), ", "))
+	}
+	return DefaultProfile, nil
+}
+
 // GetDefaultProfile resolves the active profile from defaults.profile (fallback: DefaultProfile)
 func (c *Config) GetDefaultProfile() string {
 	if c == nil {

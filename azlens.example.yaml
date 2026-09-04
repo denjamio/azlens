@@ -85,4 +85,5 @@ profiles:
         workspace_id: "55555555-eeee-ffff-dddd-555555555555"
 
 # Filter a specific microservice or pod without editing this file:
-#   azlens top endpoints 1h --role order-service --pod order-service
+#   azlens inspect endpoints 1h --role order-service
+#   azlens deploy 30m --role order-service

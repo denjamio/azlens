@@ -13,18 +13,24 @@ import (
 	"github.com/denjamio/azlens/pkg/reporter"
 )
 
+// configCmd represents the config command (Section 6.6).
+// Question answered: "Where and how does AzLens look?"
 var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Manage azlens configuration and project profiles",
-	Long:  `View and initialize project/environment profiles in azlens.yaml.`,
+	Use:     "config",
+	Short:   "View and manage AzLens configuration and environment profiles",
+	Long:    `View effective configuration, list environment profiles, and identify config file paths.`,
+	GroupID: "supporting",
 }
 
-var configListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all configured project profiles",
+var configProfilesCmd = &cobra.Command{
+	Use:     "profiles",
+	Aliases: []string{"list"},
+	Short:   "List all configured environment profiles and identify the default profile",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rt := runtimeFrom(cmd)
-		table := reporter.NewTable(os.Stdout, []string{"Active", "Profile", "App Insights", "Workspace", "Role"},
+		defaultProfile := rt.Config.GetDefaultProfile()
+
+		table := reporter.NewTable(os.Stdout, []string{"Active", "Profile", "App Insights", "Workspace", "Role Scope"},
 			[]int{reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft})
 
 		for _, key := range rt.Config.AvailableProfiles() {
@@ -35,7 +41,9 @@ var configListCmd = &cobra.Command{
 
 			activeMark := ""
 			if key == rt.ProfileName {
-				activeMark = color.GreenString("✓ (current)")
+				activeMark = color.GreenString("✓ (active)")
+			} else if key == defaultProfile {
+				activeMark = color.CyanString("(default)")
 			}
 
 			insName := prof.Target.Insights.Name
@@ -64,9 +72,23 @@ var configListCmd = &cobra.Command{
 	},
 }
 
+var configPathCmd = &cobra.Command{
+	Use:   "path",
+	Short: "Print the path of the configuration file currently in use",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		rt := runtimeFrom(cmd)
+		if rt.Config != nil && rt.Config.LoadedPath != "" {
+			fmt.Println(rt.Config.LoadedPath)
+		} else {
+			fmt.Println("in-memory defaults (no configuration file found)")
+		}
+		return nil
+	},
+}
+
 var configShowCmd = &cobra.Command{
 	Use:   "show",
-	Short: "Display the active profile configuration",
+	Short: "Display the effective active profile configuration with redacted secrets",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rt := runtimeFrom(cmd)
 		prof, err := rt.Config.GetProfile(rt.ProfileName)
@@ -74,8 +96,17 @@ var configShowCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Active Profile: %s (Source: %s)\n\n", color.CyanString(rt.ProfileName), rt.Config.LoadedPath)
-		data, err := yaml.Marshal(prof)
+		loadedFrom := rt.Config.LoadedPath
+		if loadedFrom == "" {
+			loadedFrom = "in-memory defaults"
+		}
+
+		fmt.Printf("Active Profile: %s (Source: %s)\n\n", color.CyanString(rt.ProfileName), loadedFrom)
+
+		// Redact secrets in custom dimensions or fields
+		redactedProf := redactProfileSecrets(prof)
+
+		data, err := yaml.Marshal(redactedProf)
 		if err != nil {
 			return fmt.Errorf("failed rendering profile: %w", err)
 		}
@@ -84,12 +115,30 @@ var configShowCmd = &cobra.Command{
 	},
 }
 
+func redactProfileSecrets(prof config.Profile) config.Profile {
+	redacted := prof
+	if len(prof.Target.CustomDimensions) > 0 {
+		cleaned := make(map[string]string, len(prof.Target.CustomDimensions))
+		for k, v := range prof.Target.CustomDimensions {
+			lowerK := strings.ToLower(k)
+			if strings.Contains(lowerK, "secret") ||
+				strings.Contains(lowerK, "password") ||
+				strings.Contains(lowerK, "token") ||
+				strings.Contains(lowerK, "key") {
+				cleaned[k] = "[REDACTED]"
+			} else {
+				cleaned[k] = v
+			}
+		}
+		redacted.Target.CustomDimensions = cleaned
+	}
+	return redacted
+}
+
 var configInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create a starter azlens.yaml config file in current directory",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// azlens.yaml: clear naming, no leading dot — meant to be COMMITTED by
-		// the host project and shared by the team. One file, one name, one place.
 		target := "azlens.yaml"
 		if _, err := os.Stat(target); err == nil {
 			return fmt.Errorf("%s already exists in current directory", target)
@@ -107,7 +156,8 @@ var configInitCmd = &cobra.Command{
 }
 
 func init() {
-	configCmd.AddCommand(configListCmd)
+	configCmd.AddCommand(configProfilesCmd)
+	configCmd.AddCommand(configPathCmd)
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configInitCmd)
 

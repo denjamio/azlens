@@ -25,8 +25,28 @@ func resetRootFlags() {
 	podFlag = nil
 	topLimit = config.DefaultLimit
 	topDepType = "all"
-	deployAtTime = ""
+	inspectLimit = config.DefaultLimit
+	inspectDepType = "all"
+	deployAtTimeFlag = ""
 	RootCmd.SetArgs(nil)
+	RootCmd.SetOut(nil)
+	RootCmd.SetErr(nil)
+	if f := RootCmd.Flags().Lookup("version"); f != nil {
+		_ = f.Value.Set("false")
+		f.Changed = false
+	}
+	if f := RootCmd.Flags().Lookup("mock"); f != nil {
+		_ = f.Value.Set("false")
+		f.Changed = false
+	}
+	if f := RootCmd.Flags().Lookup("profile"); f != nil {
+		_ = f.Value.Set("")
+		f.Changed = false
+	}
+	if f := RootCmd.Flags().Lookup("output"); f != nil {
+		_ = f.Value.Set("table")
+		f.Changed = false
+	}
 }
 
 func TestRootVersionFlag(t *testing.T) {
