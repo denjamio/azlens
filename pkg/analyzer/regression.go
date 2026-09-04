@@ -71,6 +71,7 @@ func Compare(opts CompareOptions) model.DiffReport {
 	detectNewErrors(&report, opts)
 	compareFanout(&report, opts)
 	correlateRootCauses(&report)
+	correlateInstrumentationNoise(&report, opts)
 
 	return report
 }
@@ -289,6 +290,25 @@ func correlateRootCauses(report *model.DiffReport) {
 				}
 			}
 		}
+	}
+}
+
+// correlateInstrumentationNoise surfaces failures raised by the auto-instrumentation
+// SDK itself (e.g. OpenTelemetry failing to hook 'fastapi'): they are easy to
+// misread as application exceptions, but they signal a missing module in the
+// deployed runtime image (phase 7)
+func correlateInstrumentationNoise(report *model.DiffReport, opts CompareOptions) {
+	seen := make(map[string]bool)
+	for _, err := range opts.CurrErrors {
+		target, ok := err.InstrumentationTarget()
+		if !ok || seen[target] {
+			continue
+		}
+		seen[target] = true
+		report.RootCauseHints = append(report.RootCauseHints,
+			fmt.Sprintf("[INSTRUMENTATION NOISE] '%s' while hooking '%s' is emitted by the auto-instrumentation SDK itself — "+
+				"a required module is missing or not importable in the deployed image (verify the instrumentation package is installed), "+
+				"not an application exception", err.Type, target))
 	}
 }
 

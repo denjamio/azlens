@@ -5,6 +5,22 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.13] - 2026-09-04
+
+### Added
+
+- **`azlens top slow-logs --grouped` (query shape aggregation)**: New flag aggregating MySQL slow query logs by a normalized SQL fingerprint — string and numeric literals are masked (`'?'`, `?`) and whitespace collapsed, so `'pending'` vs `'shipped'` or `id = 42` vs `id = 43` collapse into the same query shape. Reports per shape: `Executions`, `Avg`, `Max`, and `Total Time` durations, `Rows Examined (avg)`, and `Last Seen`, ordered by total accumulated duration (highest overall impact first). Implemented as server-side KQL aggregation (`replace_regex` + `summarize`), with mock parity, terminal/markdown/json renderers, and severity coloring (execution counts, average and total durations).
+- **Modern width-aware table engine**: Replaced `tablewriter` with a purpose-built UTF-8 renderer (rounded borders, cyan headers, dim frames). Tables now adapt to the terminal width — flexible text columns shrink proportionally (never truncating numeric measurements or headers) instead of overflowing on narrow screens. Piped/redirected output is not truncated; `$COLUMNS` overrides detection. Terminal size is probed via `TIOCGWINSZ` (Linux/macOS) and `GetConsoleScreenBufferInfo` (Windows) — everything compiles statically into the binary, no runtime dependencies.
+- **`--color auto|always|never` global flag**: Controls output colorization. `auto` (default) colors only on a TTY honoring `NO_COLOR`; `always`/`never` force the mode. Severity-based cell coloring across every table: error rates (green <1% < yellow <5% ≤ red), slow-log durations (yellow ≥1s, red ≥5s), latency regression deltas, N+1 spikes, and deploy verdict statuses.
+- **Instrumentation noise classification (`top errors`, `deploy-check`)**: Exceptions like `ModuleNotFoundError` with message `Exception occurred when instrumenting: fastapi` are now recognized as auto-instrumentation SDK noise (the SDK failing to hook a framework), annotated with an explanatory hint in table and markdown output, and surfaced as a `[INSTRUMENTATION NOISE]` root-cause hint in deploy reports instead of being misread as an application exception.
+
+### Changed
+
+- **Human-friendly generic tables**: Arbitrary query results (and `azlens query`-style output) now humanize headers (`TotalCalls` → `Total Calls`, `TimeGenerated` → `Time`, `QueryDurationMs` → `Query Duration (ms)`, `operation_Name` → `Operation`) and normalize cell values: local-time timestamps, thousands-separated counts, humanized durations/percentages, joined KQL arrays, and `NULL` → `-`. Applied consistently to terminal and markdown output.
+- **Clarified slow-logs row metrics**: `azlens top slow-logs` headers renamed for clarity: `Examined` → `Rows Examined` and `Sent` → `Rows Returned` (`RowsSent` counts the rows the query returned to the client, not executions). Markdown output uses the same wording.
+- **Humanized deploy-check summary**: Latency amounts render compactly (`45ms`, not `45.00ms`), request counts with separators (`45,200 reqs`), and deltas signed with human units (`+12ms (+6.7%)`).
+- **Dependency diet**: Removed `github.com/olekukonko/tablewriter`; promoted already-vendored `github.com/mattn/go-runewidth` and `golang.org/x/sys` to direct (both pure Go, statically linked).
+
 ## [0.4.12] - 2026-09-04
 
 ### Fixed

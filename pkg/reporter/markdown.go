@@ -175,10 +175,16 @@ func PrintErrorsMarkdown(w io.Writer, errors []model.ErrorSummary) {
 		if len(e.AffectedPaths) > 0 {
 			fmt.Fprintf(w, "   - **Affected Endpoints:** `%v`\n", e.AffectedPaths)
 		}
+		if target, ok := e.InstrumentationTarget(); ok {
+			fmt.Fprintf(w, "   - ℹ️ *Instrumentation noise:* emitted by the auto-instrumentation SDK while hooking `%s` — "+
+				"a module is missing or not importable in the runtime image (verify the instrumentation package is installed), "+
+				"not an application error\n", target)
+		}
 	}
 }
 
-// PrintGenericMarkdown formats arbitrary tabular query results as Markdown
+// PrintGenericMarkdown formats arbitrary tabular query results as Markdown with
+// humanized headers and normalized cell values
 func PrintGenericMarkdown(w io.Writer, res model.GenericQueryResult) {
 	if w == nil {
 		w = os.Stdout
@@ -188,19 +194,28 @@ func PrintGenericMarkdown(w io.Writer, res model.GenericQueryResult) {
 		return
 	}
 
+	headers := make([]string, len(res.Columns))
+	for i, c := range res.Columns {
+		headers[i] = humanizeHeader(c)
+	}
+
 	// Header
-	fmt.Fprintf(w, "| %s |\n", strings.Join(res.Columns, " | "))
+	fmt.Fprintf(w, "| %s |\n", strings.Join(headers, " | "))
 	fmt.Fprint(w, "|")
-	for range res.Columns {
+	for range headers {
 		fmt.Fprint(w, " :--- |")
 	}
 	fmt.Fprintln(w)
 
 	// Rows
 	for _, row := range res.Rows {
-		rowStrs := make([]string, len(row))
-		for i, v := range row {
-			rowStrs[i] = fmt.Sprintf("%v", v)
+		rowStrs := make([]string, len(headers))
+		for i := range headers {
+			var v interface{}
+			if i < len(row) {
+				v = row[i]
+			}
+			rowStrs[i] = markdownCell(res.Columns[i], v)
 		}
 		fmt.Fprintf(w, "| %s |\n", strings.Join(rowStrs, " | "))
 	}
@@ -265,6 +280,34 @@ func PrintDeprecationsMarkdown(w io.Writer, deps []model.DeprecationSummary) {
 	}
 }
 
+// PrintSlowLogsGroupMarkdown renders slow query logs aggregated by normalized
+// SQL fingerprint in Markdown
+func PrintSlowLogsGroupMarkdown(w io.Writer, groups []model.SlowLogGroup) {
+	if w == nil {
+		w = os.Stdout
+	}
+	if len(groups) == 0 {
+		fmt.Fprintln(w, "*No slow queries recorded in this time window.*")
+		return
+	}
+
+	fmt.Fprintln(w, "### 🐢 MySQL Slow Query Logs (Grouped by SQL Fingerprint)")
+	fmt.Fprintln(w, "| SQL Fingerprint | Executions | Avg | Max | Total Time | Rows Examined (avg) | Last Seen |")
+	fmt.Fprintln(w, "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+
+	for _, g := range groups {
+		lastSeenStr := "-"
+		if !g.LastSeen.IsZero() {
+			lastSeenStr = g.LastSeen.UTC().Format("2006-01-02 15:04:05 UTC")
+		}
+		fp := strings.ReplaceAll(g.Fingerprint, "|", "\\|")
+		fp = strings.ReplaceAll(fp, "\n", " ")
+		fmt.Fprintf(w, "| `%s` | **%s** | %s | %s | **%s** | %s | %s |\n",
+			fp, formatNumber(g.Executions), formatLatencyHuman(g.AvgMs), formatLatencyHuman(g.MaxMs),
+			formatLatencyHuman(g.TotalMs), formatNumber(int64(g.AvgRowsExamined)), lastSeenStr)
+	}
+}
+
 // PrintSlowLogsMarkdown renders list of MySQL slow query logs in Markdown
 func PrintSlowLogsMarkdown(w io.Writer, logs []model.SlowLogEntry) {
 	if w == nil {
@@ -276,7 +319,7 @@ func PrintSlowLogsMarkdown(w io.Writer, logs []model.SlowLogEntry) {
 	}
 
 	fmt.Fprintln(w, "### 🐢 MySQL Slow Query Logs")
-	fmt.Fprintln(w, "| Timestamp | Duration | Rows Examined | Rows Sent | SQL Query |")
+	fmt.Fprintln(w, "| Timestamp | Duration | Rows Examined | Rows Returned | SQL Query |")
 	fmt.Fprintln(w, "| :--- | :--- | :--- | :--- | :--- |")
 
 	for _, l := range logs {

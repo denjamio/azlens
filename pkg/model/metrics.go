@@ -2,7 +2,11 @@
 // (configuration, query building, analysis, and reporting).
 package model
 
-import "time"
+import (
+	"regexp"
+	"strings"
+	"time"
+)
 
 // TimeWindow defines a start and end time for metrics collection
 type TimeWindow struct {
@@ -55,6 +59,25 @@ type ErrorSummary struct {
 	FirstSeen     time.Time `json:"first_seen"`     // Timestamp first seen
 	LastSeen      time.Time `json:"last_seen"`      // Timestamp last seen
 	AffectedPaths []string  `json:"affected_paths"` // Endpoints throwing this error
+}
+
+// instrumentationNoiseRe matches exceptions raised by the auto-instrumentation
+// SDK itself (e.g. OpenTelemetry failing to hook a framework module), capturing
+// the framework or module it was hooking
+var instrumentationNoiseRe = regexp.MustCompile(`(?i)exception occurred when instrumenting\s*:?\s*(\S*)`)
+
+// InstrumentationTarget reports whether the error was emitted by the
+// auto-instrumentation layer itself rather than application code, and if so,
+// which framework or module it was hooking ("fastapi", "flask", ...).
+// These are deployment/packaging signals (a missing module in the runtime
+// image), not API failures.
+func (e ErrorSummary) InstrumentationTarget() (string, bool) {
+	m := instrumentationNoiseRe.FindStringSubmatch(e.Message)
+	if m == nil {
+		return "", false
+	}
+	target := strings.Trim(m[1], ".,'\"")
+	return target, true
 }
 
 // RegressionSeverity denotes the severity of a detected regression
@@ -148,6 +171,19 @@ type SlowLogEntry struct {
 	RowsExamined int64     `json:"rows_examined"`
 	RowsSent     int64     `json:"rows_sent"`
 	SQLText      string    `json:"sql_text"`
+}
+
+// SlowLogGroup aggregates MySQL slow query log entries that share the same
+// normalized SQL fingerprint (string and numeric literals masked): how many
+// times the query shape executed plus its duration and rows profile
+type SlowLogGroup struct {
+	Fingerprint     string    `json:"fingerprint"`
+	Executions      int64     `json:"executions"`
+	AvgMs           float64   `json:"avg_ms"`
+	MaxMs           float64   `json:"max_ms"`
+	TotalMs         float64   `json:"total_ms"`
+	AvgRowsExamined float64   `json:"avg_rows_examined"`
+	LastSeen        time.Time `json:"last_seen"`
 }
 
 // FanoutMetric measures N+1 and database fan-out per endpoint

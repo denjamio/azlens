@@ -18,6 +18,7 @@ func resetRootFlags() {
 	configPathFlag = ""
 	profileFlag = ""
 	outputFlag = config.DefaultOutput
+	colorModeFlag = "auto"
 	mockFlag = false
 	printQueryFlag = false
 	roleFlag = nil
@@ -301,6 +302,7 @@ func TestAllTopSubcommandsWithMock(t *testing.T) {
 		{"top", "endpoints", "30m", "--mock"},
 		{"top", "queries", "30m", "--mock"},
 		{"top", "slow-logs", "30m", "--mock"},
+		{"top", "slow-logs", "30m", "--grouped", "--mock"},
 		{"top", "n-plus-one", "30m", "--mock"},
 		{"top", "breakdown", "30m", "--mock"},
 		{"top", "errors", "30m", "--mock"},

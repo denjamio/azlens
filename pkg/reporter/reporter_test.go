@@ -59,23 +59,41 @@ func TestReporterOutputs(t *testing.T) {
 
 func TestGenericTableAndMarkdown(t *testing.T) {
 	res := model.GenericQueryResult{
-		Columns: []string{"ColA", "ColB"},
+		Columns: []string{"TotalCalls", "TimeGenerated", "QueryDurationMs"},
 		Rows: [][]interface{}{
-			{"Val1", 123},
+			{1234, "2026-09-04T10:15:30Z", 812.0},
 		},
 	}
+	expectedTime := parseTimeForTest(t, "2026-09-04T10:15:30Z")
 
 	var termBuf bytes.Buffer
 	PrintGenericTable(&termBuf, res)
-	if !strings.Contains(termBuf.String(), "COLA") || !strings.Contains(termBuf.String(), "Val1") {
-		t.Errorf("expected generic table output, got: %s", termBuf.String())
+	termOut := termBuf.String()
+	if !strings.Contains(termOut, "Total Calls") || !strings.Contains(termOut, "Query Duration (ms)") {
+		t.Errorf("expected humanized headers in table output, got: %s", termOut)
+	}
+	if !strings.Contains(termOut, "1,234") || !strings.Contains(termOut, "812ms") || !strings.Contains(termOut, expectedTime) {
+		t.Errorf("expected normalized cell values in table output, got: %s", termOut)
 	}
 
 	var mdBuf bytes.Buffer
 	PrintGenericMarkdown(&mdBuf, res)
-	if !strings.Contains(mdBuf.String(), "| ColA | ColB |") {
-		t.Errorf("expected generic markdown output, got: %s", mdBuf.String())
+	mdOut := mdBuf.String()
+	if !strings.Contains(mdOut, "| Total Calls | Time | Query Duration (ms) |") {
+		t.Errorf("expected humanized markdown header row, got: %s", mdOut)
 	}
+	if !strings.Contains(mdOut, "| 1,234 | "+expectedTime+" | 812ms |") {
+		t.Errorf("expected normalized markdown row, got: %s", mdOut)
+	}
+}
+
+func parseTimeForTest(t *testing.T, raw string) string {
+	t.Helper()
+	ts, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("test fixture timestamp invalid: %v", err)
+	}
+	return ts.Local().Format("2006-01-02 15:04:05")
 }
 
 func TestSnapshotReporters(t *testing.T) {
@@ -147,6 +165,9 @@ func TestSlowLogsReporters(t *testing.T) {
 	var tableBuf bytes.Buffer
 	PrintSlowLogsTable(&tableBuf, logs)
 	outTable := tableBuf.String()
+	if !strings.Contains(outTable, "Rows Examined") || !strings.Contains(outTable, "Rows Returned") {
+		t.Errorf("expected clarified slow log headers, got:\n%s", outTable)
+	}
 	if !strings.Contains(outTable, "14.52s") || !strings.Contains(outTable, "1,250,000") || !strings.Contains(outTable, "large_table") {
 		t.Errorf("expected formatted table output, got:\n%s", outTable)
 	}
@@ -154,7 +175,7 @@ func TestSlowLogsReporters(t *testing.T) {
 	var mdBuf bytes.Buffer
 	PrintSlowLogsMarkdown(&mdBuf, logs)
 	outMd := mdBuf.String()
-	if !strings.Contains(outMd, "14.52s") || !strings.Contains(outMd, "1,250,000") || !strings.Contains(outMd, "large_table") {
-		t.Errorf("expected formatted markdown output, got:\n%s", outMd)
+	if !strings.Contains(outMd, "Rows Examined") || !strings.Contains(outMd, "Rows Returned") {
+		t.Errorf("expected clarified slow log markdown headers, got:\n%s", outMd)
 	}
 }

@@ -48,6 +48,7 @@ type AzureClient interface {
 	QueryLatencyBreakdown(ctx context.Context, start, end time.Time, topN int) ([]model.LatencyBreakdown, error)
 	QueryDeprecations(ctx context.Context, start, end time.Time, topN int) ([]model.DeprecationSummary, error)
 	QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogEntry, error)
+	QueryMySQLSlowLogsGrouped(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogGroup, error)
 	QueryWindowMetrics(ctx context.Context, start, end time.Time, topN int) (model.WindowMetrics, error)
 	GetProfile() config.Profile
 }
@@ -674,6 +675,20 @@ func (c *AzCliClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Ti
 	return parseSlowLogsTable(&res.Tables[0]), nil
 }
 
+// QueryMySQLSlowLogsGrouped aggregates slow query logs by normalized SQL
+// fingerprint: execution count, duration statistics, and rows examined
+func (c *AzCliClient) QueryMySQLSlowLogsGrouped(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogGroup, error) {
+	tq := kql.BuildMySQLSlowLogsGroupedQuery(start, end, dbName, topN)
+	res, err := c.executeKQL(ctx, tq)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Tables) == 0 {
+		return nil, nil
+	}
+	return parseSlowLogsGroupTable(&res.Tables[0]), nil
+}
+
 func parseSlowLogsTable(t *AzQueryTable) []model.SlowLogEntry {
 	if len(t.Rows) == 0 {
 		return nil
@@ -730,6 +745,62 @@ func parseSlowLogsTable(t *AzQueryTable) []model.SlowLogEntry {
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+// parseSlowLogsGroupTable parses slow log rows aggregated by SQL fingerprint
+func parseSlowLogsGroupTable(t *AzQueryTable) []model.SlowLogGroup {
+	if len(t.Rows) == 0 {
+		return nil
+	}
+	colMap := make(map[string]int, len(t.Columns))
+	for i, col := range t.Columns {
+		colMap[strings.ToLower(col.Name)] = i
+	}
+
+	getIdx := func(names ...string) int {
+		for _, n := range names {
+			if idx, ok := colMap[strings.ToLower(n)]; ok {
+				return idx
+			}
+		}
+		return -1
+	}
+
+	idxFingerprint := getIdx("sqlfingerprint")
+	idxExecutions := getIdx("executions")
+	idxAvgMs := getIdx("avgms")
+	idxMaxMs := getIdx("maxms")
+	idxTotalMs := getIdx("totalms")
+	idxRows := getIdx("avgrowsexamined")
+	idxLastSeen := getIdx("lastseen")
+
+	groups := make([]model.SlowLogGroup, 0, len(t.Rows))
+	for _, row := range t.Rows {
+		group := model.SlowLogGroup{}
+		if idxFingerprint >= 0 && idxFingerprint < len(row) && row[idxFingerprint] != nil {
+			group.Fingerprint = fmt.Sprintf("%v", row[idxFingerprint])
+		}
+		if idxExecutions >= 0 && idxExecutions < len(row) {
+			group.Executions = toInt64(row[idxExecutions])
+		}
+		if idxAvgMs >= 0 && idxAvgMs < len(row) {
+			group.AvgMs = toFloat(row[idxAvgMs])
+		}
+		if idxMaxMs >= 0 && idxMaxMs < len(row) {
+			group.MaxMs = toFloat(row[idxMaxMs])
+		}
+		if idxTotalMs >= 0 && idxTotalMs < len(row) {
+			group.TotalMs = toFloat(row[idxTotalMs])
+		}
+		if idxRows >= 0 && idxRows < len(row) {
+			group.AvgRowsExamined = toFloat(row[idxRows])
+		}
+		if idxLastSeen >= 0 && idxLastSeen < len(row) {
+			group.LastSeen = parseTime(row[idxLastSeen])
+		}
+		groups = append(groups, group)
+	}
+	return groups
 }
 
 // Table parsing helpers shared by single-query and batched flows

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/denjamio/azlens/pkg/azure"
@@ -19,11 +20,24 @@ var (
 	configPathFlag string
 	profileFlag    string
 	outputFlag     string
+	colorModeFlag  string
 	mockFlag       bool
 	printQueryFlag bool
 	roleFlag       []string
 	podFlag        []string
 )
+
+// applyColorMode resolves the --color policy for this run. The default 'auto'
+// keeps the fatih/color default behavior: colored output only when stdout is a
+// terminal, honoring the NO_COLOR environment variable.
+func applyColorMode(mode string) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "always":
+		color.NoColor = false
+	case "never":
+		color.NoColor = true
+	}
+}
 
 // defaultQueryTimeout is the default per-query budget; override with --query-timeout
 const defaultQueryTimeout = 45 * time.Second
@@ -110,6 +124,8 @@ Application Insights, and Log Analytics to deliver actionable telemetry insights
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		applyColorMode(colorModeFlag)
+
 		// Only commands that actually interact with config or telemetry need config loading
 		if !requiresConfig(cmd) {
 			return nil
@@ -200,6 +216,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&configPathFlag, "config", "c", "", "Path to azlens configuration file")
 	RootCmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Profile to use (defined in azlens.yaml)")
 	RootCmd.PersistentFlags().StringVarP(&outputFlag, "output", "o", config.DefaultOutput, "Output format (table, markdown, json)")
+	RootCmd.PersistentFlags().StringVar(&colorModeFlag, "color", "auto", "Colorize output (auto, always, never)")
 	RootCmd.PersistentFlags().BoolVar(&mockFlag, "mock", false, "Use mock/simulated telemetry data (no Azure connection needed)")
 	RootCmd.PersistentFlags().BoolVarP(&printQueryFlag, "print-query", "q", false, "Print generated KQL query statements before executing")
 	RootCmd.PersistentFlags().StringArrayVar(&roleFlag, "role", nil, "Override target.roles (App Insights cloud_RoleName) for this run; repeatable or comma-separated")
@@ -217,6 +234,10 @@ func init() {
 
 	_ = RootCmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "markdown", "json"}, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	_ = RootCmd.RegisterFlagCompletionFunc("color", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"auto", "always", "never"}, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	// --role / --pod complete from the config file first (instant), falling

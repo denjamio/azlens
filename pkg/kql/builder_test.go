@@ -211,6 +211,43 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 	}
 }
 
+func TestBuildMySqlSlowLogsGroupedQuery(t *testing.T) {
+	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
+
+	tq := BuildMySQLSlowLogsGroupedQuery(start, end, "backend_ror", 15)
+	if tq.Backend != BackendLogAnalytics {
+		t.Errorf("expected BackendLogAnalytics, got: %s", tq.Backend)
+	}
+	q := tq.Query
+	if !strings.Contains(q, "where Db =~ 'backend_ror'") {
+		t.Errorf("expected exact Db filter in query, got: %s", q)
+	}
+	if !strings.Contains(q, `replace_regex(F0, @"'[^']*'", @"'?'")`) {
+		t.Errorf("expected quoted string literal masking, got: %s", q)
+	}
+	if !strings.Contains(q, `replace_regex(F2, @"-?\b\d+(\.\d+)?\b", @"?")`) {
+		t.Errorf("expected numeric literal masking, got: %s", q)
+	}
+	if !strings.Contains(q, "summarize") || !strings.Contains(q, "Executions = count()") {
+		t.Errorf("expected per-fingerprint aggregation, got: %s", q)
+	}
+	for _, metric := range []string{"AvgMs = round(avg(QueryDurationMs), 1)", "MaxMs = max(QueryDurationMs)", "TotalMs = round(sum(QueryDurationMs), 1)", "AvgRowsExamined"} {
+		if !strings.Contains(q, metric) {
+			t.Errorf("expected %q aggregation, got: %s", metric, q)
+		}
+	}
+	if !strings.Contains(q, "order by TotalMs desc") {
+		t.Errorf("expected ordering by total accumulated duration, got: %s", q)
+	}
+	if !strings.Contains(q, "take 15") {
+		t.Errorf("expected take limit, got: %s", q)
+	}
+	if strings.Contains(q, "string(null)") {
+		t.Errorf("query contains invalid KQL syntax string(null), got: %s", q)
+	}
+}
+
 func TestBuildDeprecationsQuery(t *testing.T) {
 	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)

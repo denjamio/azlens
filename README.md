@@ -126,6 +126,12 @@ azlens top queries --type all -o markdown
 azlens top slow-logs 2h
 azlens top slow-logs 2h -o markdown
 
+# Slow logs grouped by normalized SQL fingerprint: execution count,
+# avg/max/total duration, and rows examined per query shape (literals
+# masked, ordered by total accumulated duration — highest impact first)
+azlens top slow-logs 2h --grouped
+azlens top slow-logs 2h --grouped -o markdown
+
 # Grouped exceptions and HTTP 5xx errors
 azlens top errors 1h
 
@@ -155,6 +161,16 @@ AzLens uses sensible defaults out of the box:
 | :--- | :--- | :--- |
 | **`azlens top`** (`endpoints`, `queries`, `slow-logs`, `n-plus-one`, `breakdown`, `errors`, `deprecations`) | Last hour | Positional duration (e.g. `30m`, `2h`) or `defaults.window` |
 | **`azlens deploy-check`** (baseline vs post-deploy) | Last hour vs the hour before it | Positional duration or `defaults.since`; center on a deploy time with `--at` |
+
+### 🎨 Terminal Output & Colors
+
+Tables are rendered with a width-aware engine: they adapt to your terminal (shrinking flexible text columns instead of overflowing on narrow screens), right-align numeric columns, humanize generic headers (`TotalCalls` → `Total Calls`, `QueryDurationMs` → `Query Duration (ms)`), and colorize results by severity (error rates, latency deltas, slow-query durations). When output is piped or redirected, colors turn off automatically and no truncation is applied.
+
+```bash
+azlens top endpoints 1h --color auto    # default: color only on a TTY (honors NO_COLOR)
+azlens top slow-logs 2h --color always  # force ANSI colors (e.g. when piping through less -R)
+azlens deploy-check 2h --color never    # plain output for logs/CI
+```
 
 ---
 

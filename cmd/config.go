@@ -6,11 +6,11 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/denjamio/azlens/pkg/config"
+	"github.com/denjamio/azlens/pkg/reporter"
 )
 
 var configCmd = &cobra.Command{
@@ -24,9 +24,8 @@ var configListCmd = &cobra.Command{
 	Short: "List all configured project profiles",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rt := runtimeFrom(cmd)
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Active", "Profile", "App Insights", "Workspace", "Role"})
-		table.SetBorder(true)
+		table := reporter.NewTable(os.Stdout, []string{"Active", "Profile", "App Insights", "Workspace", "Role"},
+			[]int{reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft, reporter.AlignLeft})
 
 		for _, key := range rt.Config.AvailableProfiles() {
 			prof, err := rt.Config.GetProfile(key)

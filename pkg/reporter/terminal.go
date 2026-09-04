@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/olekukonko/tablewriter"
 
 	"github.com/denjamio/azlens/pkg/model"
 )
@@ -48,20 +47,25 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 	}
 
 	// 2. High-Level Metrics Table
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Metric", "Baseline", "Post-Deploy", "Delta", "Status"})
-	table.SetBorder(true)
-	table.SetAutoWrapText(false)
+	table := NewTable(w, []string{"Metric", "Baseline", "Post-Deploy", "Delta", "Status"},
+		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignLeft})
+	table.SetCellColor(func(row, col int, cell string) *color.Color {
+		if row >= len(report.SummaryDeltas) {
+			return nil
+		}
+		if col == 3 || col == 4 {
+			return severityColor(report.SummaryDeltas[row].Severity)
+		}
+		return nil
+	})
 
 	for _, d := range report.SummaryDeltas {
-		statusStr := formatStatus(d.Severity)
-		deltaStr := fmt.Sprintf("%+.2f%s (%+.1f%%)", d.Delta, d.Unit, d.Percentage)
 		table.Append([]string{
 			d.MetricName,
-			fmt.Sprintf("%.2f%s", d.Baseline, d.Unit),
-			fmt.Sprintf("%.2f%s", d.Current, d.Unit),
-			deltaStr,
-			statusStr,
+			formatMetricAmount(d.Baseline, d.Unit),
+			formatMetricAmount(d.Current, d.Unit),
+			formatMetricDelta(d),
+			formatStatus(d.Severity),
 		})
 	}
 	table.Render()
@@ -70,15 +74,27 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 	// 3. Endpoint Breakdown
 	if len(report.EndpointDeltas) > 0 {
 		colorCyan.Fprintf(w, "📌 Per-Endpoint Latency & Error Rate Diff:\n")
-		epTable := tablewriter.NewWriter(w)
-		epTable.SetHeader([]string{"Endpoint", "Base P95", "Post P95", "P95 Δ%", "Base Err%", "Post Err%", "Status"})
-		epTable.SetBorder(true)
+		epTable := NewTable(w, []string{"Endpoint", "Base P95", "Post P95", "P95 Δ%", "Base Err%", "Post Err%", "Status"},
+			[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignLeft})
+		epTable.SetCellColor(func(row, col int, cell string) *color.Color {
+			if row >= len(report.EndpointDeltas) {
+				return nil
+			}
+			ep := report.EndpointDeltas[row]
+			switch col {
+			case 3:
+				return deltaPctColor(ep.P95DeltaPct)
+			case 6:
+				return severityColor(ep.Severity)
+			}
+			return nil
+		})
 
 		for _, ep := range report.EndpointDeltas {
 			epTable.Append([]string{
 				ep.Name,
-				fmt.Sprintf("%.1fms", ep.Baseline.Latency.P95),
-				fmt.Sprintf("%.1fms", ep.Current.Latency.P95),
+				formatLatencyHuman(ep.Baseline.Latency.P95),
+				formatLatencyHuman(ep.Current.Latency.P95),
 				fmt.Sprintf("%+.1f%%", ep.P95DeltaPct),
 				fmt.Sprintf("%.2f%%", ep.Baseline.ErrorRate),
 				fmt.Sprintf("%.2f%%", ep.Current.ErrorRate),
@@ -92,17 +108,25 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 	// 4. Regressed Dependencies (Slow Queries)
 	if len(report.RegressedDeps) > 0 {
 		colorYellow.Fprintf(w, "⚠️  Regressed Dependencies / Slow Queries:\n")
-		depTable := tablewriter.NewWriter(w)
-		depTable.SetHeader([]string{"Type", "Target", "Operation / Query", "Base P95", "Post P95", "Δ%"})
-		depTable.SetBorder(true)
+		depTable := NewTable(w, []string{"Type", "Target", "Operation / Query", "Base P95", "Post P95", "Δ%"},
+			[]int{AlignLeft, AlignLeft, AlignLeft, AlignRight, AlignRight, AlignRight})
+		depTable.SetCellColor(func(row, col int, cell string) *color.Color {
+			if row >= len(report.RegressedDeps) {
+				return nil
+			}
+			if col == 5 {
+				return deltaPctColor(report.RegressedDeps[row].P95DeltaPct)
+			}
+			return nil
+		})
 
 		for _, dep := range report.RegressedDeps {
 			depTable.Append([]string{
 				dep.Type,
-				dep.Target,
-				dep.Name,
-				fmt.Sprintf("%.1fms", dep.Baseline.Latency.P95),
-				fmt.Sprintf("%.1fms", dep.Current.Latency.P95),
+				truncate(dep.Target, 24),
+				truncate(dep.Name, 40),
+				formatLatencyHuman(dep.Baseline.Latency.P95),
+				formatLatencyHuman(dep.Current.Latency.P95),
 				fmt.Sprintf("%+.1f%%", dep.P95DeltaPct),
 			})
 		}
@@ -113,9 +137,17 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 	// 5. N+1 SQL Regressions
 	if len(report.FanoutDeltas) > 0 {
 		colorRed.Fprintf(w, "🔍 N+1 SQL Regressions Detected Post-Deploy:\n")
-		fanoutTable := tablewriter.NewWriter(w)
-		fanoutTable.SetHeader([]string{"Endpoint", "Baseline SQL Calls/Req", "Post-Deploy SQL Calls/Req", "Spike Δ%"})
-		fanoutTable.SetBorder(true)
+		fanoutTable := NewTable(w, []string{"Endpoint", "Baseline SQL Calls/Req", "Post-Deploy SQL Calls/Req", "Spike Δ%"},
+			[]int{AlignLeft, AlignRight, AlignRight, AlignRight})
+		fanoutTable.SetCellColor(func(row, col int, cell string) *color.Color {
+			if row >= len(report.FanoutDeltas) {
+				return nil
+			}
+			if col == 3 {
+				return bandColor(report.FanoutDeltas[row].DeltaPct, 40, 100)
+			}
+			return nil
+		})
 		for _, f := range report.FanoutDeltas {
 			fanoutTable.Append([]string{
 				f.Endpoint,
@@ -132,16 +164,19 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 	if len(report.NewErrors) > 0 {
 		colorRed.Fprintf(w, "🚨 New Exceptions & Errors Detected Post-Deploy:\n")
 		for i, err := range report.NewErrors {
-			colorRed.Fprintf(w, " [%d] %s (Count: %d)\n", i+1, err.Type, err.Count)
-			colorGray.Fprintf(w, "     Message: %s\n", err.Message)
+			colorRed.Fprintf(w, " [%d] %s (Count: %s)\n", i+1, err.Type, formatNumber(err.Count))
+			colorGray.Fprintf(w, "     Message: %s\n", truncate(err.Message, 120))
 			if len(err.AffectedPaths) > 0 {
-				colorGray.Fprintf(w, "     Endpoints: %v\n", err.AffectedPaths)
+				colorGray.Fprintf(w, "     Endpoints: %s\n", strings.Join(err.AffectedPaths, ", "))
+			}
+			if target, ok := err.InstrumentationTarget(); ok {
+				colorCyan.Fprintf(w, "     ℹ️  %s\n", instrumentationNoiseHint(target))
 			}
 		}
 		fmt.Fprintln(w)
 	}
 
-	// 6. Intelligent Root Cause Correlation Hints
+	// 7. Intelligent Root Cause Correlation Hints
 	if len(report.RootCauseHints) > 0 {
 		colorCyan.Fprintf(w, "💡 Intelligent Root-Cause & Correlation Insights:\n")
 		for i, hint := range report.RootCauseHints {
@@ -149,6 +184,41 @@ func PrintDiffTerminal(w io.Writer, report model.DiffReport) {
 		}
 		fmt.Fprintln(w)
 	}
+}
+
+// formatMetricAmount renders a summary metric value in its natural unit:
+// latencies humanized ("180ms"), request counts separated ("45,200 reqs")
+func formatMetricAmount(v float64, unit string) string {
+	switch unit {
+	case "ms":
+		return formatLatencyHuman(v)
+	case "reqs":
+		return formatNumber(int64(v)) + " reqs"
+	case "%":
+		return fmt.Sprintf("%.2f%%", v)
+	default:
+		return fmt.Sprintf("%.2f%s", v, unit)
+	}
+}
+
+// formatMetricDelta renders a summary delta with signed human units: "+12ms (+6.7%)"
+func formatMetricDelta(d model.MetricDelta) string {
+	sign := "+"
+	abs := d.Delta
+	if d.Delta < 0 {
+		sign = "-"
+		abs = -d.Delta
+	}
+	var amount string
+	switch d.Unit {
+	case "ms":
+		amount = sign + formatLatencyHuman(abs)
+	case "reqs":
+		amount = sign + formatNumber(int64(abs)) + " reqs"
+	default:
+		amount = fmt.Sprintf("%s%.2f%s", sign, abs, d.Unit)
+	}
+	return fmt.Sprintf("%s (%+.1f%%)", amount, d.Percentage)
 }
 
 // PrintRequestsTable renders list of request metrics
@@ -160,20 +230,25 @@ func PrintRequestsTable(w io.Writer, requests []model.RequestMetric) {
 		colorGreen.Fprintln(w, "✓ No slow endpoints recorded matching active scope in this time window.")
 		return
 	}
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Endpoint", "Calls", "Err%", "Avg", "P50", "P90", "P95", "P99"})
-	table.SetBorder(true)
+	table := NewTable(w, []string{"Endpoint", "Calls", "Err%", "Avg", "P50", "P90", "P95", "P99"},
+		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
+	table.SetCellColor(func(row, col int, cell string) *color.Color {
+		if col == 2 && row < len(requests) {
+			return bandColor(requests[row].ErrorRate, 1.0, 5.0)
+		}
+		return nil
+	})
 
 	for _, r := range requests {
 		table.Append([]string{
-			r.Name,
-			fmt.Sprintf("%d", r.TotalCalls),
+			truncate(r.Name, 45),
+			formatNumber(r.TotalCalls),
 			fmt.Sprintf("%.2f%%", r.ErrorRate),
-			fmt.Sprintf("%.1fms", r.Latency.Avg),
-			fmt.Sprintf("%.1fms", r.Latency.P50),
-			fmt.Sprintf("%.1fms", r.Latency.P90),
-			fmt.Sprintf("%.1fms", r.Latency.P95),
-			fmt.Sprintf("%.1fms", r.Latency.P99),
+			formatLatencyHuman(r.Latency.Avg),
+			formatLatencyHuman(r.Latency.P50),
+			formatLatencyHuman(r.Latency.P90),
+			formatLatencyHuman(r.Latency.P95),
+			formatLatencyHuman(r.Latency.P99),
 		})
 	}
 	table.Render()
@@ -188,26 +263,31 @@ func PrintDependenciesTable(w io.Writer, deps []model.DependencyMetric) {
 		colorGreen.Fprintln(w, "✓ No slow queries or dependencies recorded in this time window.")
 		return
 	}
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Type", "Target", "Query / Command", "Calls", "Err%", "Avg", "P95", "P99"})
-	table.SetBorder(true)
+	table := NewTable(w, []string{"Type", "Target", "Query / Command", "Calls", "Err%", "Avg", "P95", "P99"},
+		[]int{AlignLeft, AlignLeft, AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
+	table.SetCellColor(func(row, col int, cell string) *color.Color {
+		if col == 4 && row < len(deps) {
+			return bandColor(deps[row].ErrorRate, 1.0, 5.0)
+		}
+		return nil
+	})
 
 	for _, d := range deps {
 		table.Append([]string{
 			d.Type,
-			d.Target,
-			truncate(d.Name, 60),
-			fmt.Sprintf("%d", d.TotalCalls),
+			truncate(d.Target, 20),
+			truncate(d.Name, 50),
+			formatNumber(d.TotalCalls),
 			fmt.Sprintf("%.2f%%", d.ErrorRate),
-			fmt.Sprintf("%.1fms", d.Latency.Avg),
-			fmt.Sprintf("%.1fms", d.Latency.P95),
-			fmt.Sprintf("%.1fms", d.Latency.P99),
+			formatLatencyHuman(d.Latency.Avg),
+			formatLatencyHuman(d.Latency.P95),
+			formatLatencyHuman(d.Latency.P99),
 		})
 	}
 	table.Render()
 }
 
-// PrintErrorsTable renders list of error summaries
+// PrintErrorsTable renders list of error summaries, annotating auto-instrumentation noise
 func PrintErrorsTable(w io.Writer, errors []model.ErrorSummary) {
 	if w == nil {
 		w = os.Stdout
@@ -217,16 +297,24 @@ func PrintErrorsTable(w io.Writer, errors []model.ErrorSummary) {
 		return
 	}
 	for i, e := range errors {
-		colorRed.Fprintf(w, "[%d] %s (Count: %d)\n", i+1, e.Type, e.Count)
-		fmt.Fprintf(w, "    Message: %s\n", e.Message)
+		colorRed.Fprintf(w, "[%d] %s (Count: %s)\n", i+1, e.Type, formatNumber(e.Count))
+		fmt.Fprintf(w, "    Message:   %s\n", truncate(e.Message, 120))
 		if len(e.AffectedPaths) > 0 {
-			colorGray.Fprintf(w, "    Endpoints: %v\n", e.AffectedPaths)
+			colorGray.Fprintf(w, "    Endpoints: %s\n", strings.Join(e.AffectedPaths, ", "))
+		}
+		if !e.LastSeen.IsZero() {
+			colorGray.Fprintf(w, "    Last Seen: %s\n", e.LastSeen.Local().Format("2006-01-02 15:04:05"))
+		}
+		if target, ok := e.InstrumentationTarget(); ok {
+			colorCyan.Fprintf(w, "    ℹ️  %s\n", instrumentationNoiseHint(target))
 		}
 		fmt.Fprintln(w)
 	}
 }
 
-// PrintGenericTable renders arbitrary tabular query results
+// PrintGenericTable renders arbitrary tabular query results with humanized
+// headers and normalized cell values (local timestamps, separated numbers,
+// human durations, joined arrays)
 func PrintGenericTable(w io.Writer, res model.GenericQueryResult) {
 	if w == nil {
 		w = os.Stdout
@@ -236,29 +324,24 @@ func PrintGenericTable(w io.Writer, res model.GenericQueryResult) {
 		return
 	}
 
-	table := tablewriter.NewWriter(w)
-	table.SetHeader(res.Columns)
-	table.SetBorder(true)
-	table.SetAutoWrapText(true)
+	headers := make([]string, len(res.Columns))
+	for i, c := range res.Columns {
+		headers[i] = humanizeHeader(c)
+	}
+	table := NewTable(w, headers, nil).SetCellCap(100)
 
 	for _, row := range res.Rows {
-		rowStrs := make([]string, len(row))
-		for i, v := range row {
-			rowStrs[i] = truncate(fmt.Sprintf("%v", v), 70)
+		cells := make([]string, len(headers))
+		for i := range headers {
+			var v interface{}
+			if i < len(row) {
+				v = row[i]
+			}
+			cells[i] = normalizeCell(res.Columns[i], v)
 		}
-		table.Append(rowStrs)
+		table.Append(cells)
 	}
 	table.Render()
-}
-
-func truncate(s string, maxLen int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\r", "")
-	s = strings.TrimSpace(s)
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // PrintFanoutTable renders N+1 and SQL fanout metrics
@@ -270,18 +353,23 @@ func PrintFanoutTable(w io.Writer, fanout []model.FanoutMetric) {
 		colorGreen.Fprintln(w, "✓ No N+1 queries detected matching active scope in this time window.")
 		return
 	}
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Endpoint", "Requests", "Avg SQL Calls", "Max SQL Calls", "Avg SQL Ms", "Avg Total Ms"})
-	table.SetBorder(true)
+	table := NewTable(w, []string{"Endpoint", "Requests", "Avg SQL Calls", "Max SQL Calls", "Avg SQL", "Avg Total"},
+		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
+	table.SetCellColor(func(row, col int, cell string) *color.Color {
+		if col == 3 && row < len(fanout) {
+			return bandColor(float64(fanout[row].MaxSQLCalls), 5, 15)
+		}
+		return nil
+	})
 
 	for _, f := range fanout {
 		table.Append([]string{
-			f.Endpoint,
-			fmt.Sprintf("%d", f.TotalRequests),
+			truncate(f.Endpoint, 45),
+			formatNumber(f.TotalRequests),
 			fmt.Sprintf("%.1f", f.AvgSQLCalls),
-			fmt.Sprintf("%d", f.MaxSQLCalls),
-			fmt.Sprintf("%.1fms", f.AvgSQLDurationMs),
-			fmt.Sprintf("%.1fms", f.AvgEndpointDurationMs),
+			formatNumber(f.MaxSQLCalls),
+			formatLatencyHuman(f.AvgSQLDurationMs),
+			formatLatencyHuman(f.AvgEndpointDurationMs),
 		})
 	}
 	table.Render()
@@ -296,14 +384,13 @@ func PrintLatencyBreakdownTable(w io.Writer, attrs []model.LatencyBreakdown) {
 		colorYellow.Fprintln(w, "ℹ️  No request/dependency correlation data recorded in this time window.")
 		return
 	}
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Endpoint", "Avg Total", "% Database", "% Ext APIs", "% Cache", "% App Code"})
-	table.SetBorder(true)
+	table := NewTable(w, []string{"Endpoint", "Avg Total", "% Database", "% Ext APIs", "% Cache", "% App Code"},
+		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight})
 
 	for _, a := range attrs {
 		table.Append([]string{
-			a.Endpoint,
-			fmt.Sprintf("%.1fms", a.AvgDurationMs),
+			truncate(a.Endpoint, 45),
+			formatLatencyHuman(a.AvgDurationMs),
 			fmt.Sprintf("%.1f%%", a.PctDatabase),
 			fmt.Sprintf("%.1f%%", a.PctExternalAPI),
 			fmt.Sprintf("%.1f%%", a.PctCache),
@@ -311,19 +398,6 @@ func PrintLatencyBreakdownTable(w io.Writer, attrs []model.LatencyBreakdown) {
 		})
 	}
 	table.Render()
-}
-
-func formatStatus(sev model.RegressionSeverity) string {
-	switch sev {
-	case model.SeverityCritical:
-		return "CRITICAL"
-	case model.SeverityWarning:
-		return "WARNING"
-	case model.SeverityImprove:
-		return "IMPROVED"
-	default:
-		return "OK"
-	}
 }
 
 // PrintDeprecationsTable renders grouped framework and library deprecation warnings
@@ -335,23 +409,21 @@ func PrintDeprecationsTable(w io.Writer, deps []model.DeprecationSummary) {
 		colorGreen.Fprintln(w, "🎉 No framework or library deprecations detected in this time window!")
 		return
 	}
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Deprecation Warning", "Count", "Last Seen", "Affected Endpoints"})
-	table.SetBorder(true)
-	table.SetAutoWrapText(true)
+	table := NewTable(w, []string{"Deprecation Warning", "Count", "Last Seen", "Affected Endpoints"},
+		[]int{AlignLeft, AlignRight, AlignLeft, AlignLeft}).SetCellCap(75)
 
 	for _, d := range deps {
 		lastSeenStr := "-"
 		if !d.LastSeen.IsZero() {
-			lastSeenStr = d.LastSeen.Format("2006-01-02 15:04")
+			lastSeenStr = d.LastSeen.Local().Format("2006-01-02 15:04")
 		}
 		eps := "-"
 		if len(d.AffectedEndpoints) > 0 {
 			eps = truncate(strings.Join(d.AffectedEndpoints, ", "), 30)
 		}
 		table.Append([]string{
-			truncate(d.Message, 75),
-			fmt.Sprintf("%d", d.Count),
+			d.Message,
+			formatNumber(d.Count),
 			lastSeenStr,
 			eps,
 		})
@@ -368,10 +440,19 @@ func PrintSlowLogsTable(w io.Writer, logs []model.SlowLogEntry) {
 		colorGreen.Fprintln(w, "✓ No slow queries recorded in this time window.")
 		return
 	}
-	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"Timestamp", "Duration", "Examined", "Sent", "SQL Query"})
-	table.SetBorder(true)
-	table.SetAutoWrapText(true)
+	table := NewTable(w, []string{"Timestamp", "Duration", "Rows Examined", "Rows Returned", "SQL Query"},
+		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignLeft}).SetCellCap(80)
+	table.SetCellColor(func(row, col int, cell string) *color.Color {
+		if col != 1 || row >= len(logs) {
+			return nil
+		}
+		l := logs[row]
+		ms := l.DurationMs
+		if ms <= 0 {
+			ms = l.DurationSec * 1000.0
+		}
+		return bandColor(ms, 1000, 5000)
+	})
 
 	for _, l := range logs {
 		tsStr := "-"
@@ -383,10 +464,81 @@ func PrintSlowLogsTable(w io.Writer, logs []model.SlowLogEntry) {
 			formatDurationHuman(l.DurationSec, l.DurationMs),
 			formatNumber(l.RowsExamined),
 			formatNumber(l.RowsSent),
-			truncate(l.SQLText, 80),
+			l.SQLText,
 		})
 	}
 	table.Render()
+}
+
+// instrumentationNoiseHint explains errors emitted by the auto-instrumentation
+// SDK itself so they are not mistaken for application exceptions
+func instrumentationNoiseHint(target string) string {
+	if target == "" {
+		target = "the target framework"
+	}
+	return fmt.Sprintf("Instrumentation noise: raised by the auto-instrumentation SDK itself while hooking '%s' — "+
+		"the module failed to import in the runtime image (verify the instrumentation package is installed and importable), "+
+		"not an error from your API code", target)
+}
+
+// PrintSlowLogsGroupTable renders slow query logs aggregated by normalized SQL
+// fingerprint: execution count, duration statistics, and rows examined,
+// ordered by total accumulated duration (highest overall impact first)
+func PrintSlowLogsGroupTable(w io.Writer, groups []model.SlowLogGroup) {
+	if w == nil {
+		w = os.Stdout
+	}
+	if len(groups) == 0 {
+		colorGreen.Fprintln(w, "✓ No slow queries recorded in this time window.")
+		return
+	}
+	table := NewTable(w, []string{"SQL Fingerprint", "Executions", "Avg", "Max", "Total Time", "Rows Examined (avg)", "Last Seen"},
+		[]int{AlignLeft, AlignRight, AlignRight, AlignRight, AlignRight, AlignRight, AlignLeft}).SetCellCap(80)
+	table.SetCellColor(func(row, col int, cell string) *color.Color {
+		if row >= len(groups) {
+			return nil
+		}
+		g := groups[row]
+		switch col {
+		case 1:
+			return bandColor(float64(g.Executions), 10, 50)
+		case 2:
+			return bandColor(g.AvgMs, 1000, 5000)
+		case 3:
+			return bandColor(g.TotalMs, 10000, 60000)
+		}
+		return nil
+	})
+
+	for _, g := range groups {
+		lastSeen := "-"
+		if !g.LastSeen.IsZero() {
+			lastSeen = g.LastSeen.Local().Format("2006-01-02 15:04:05")
+		}
+		table.Append([]string{
+			g.Fingerprint,
+			formatNumber(g.Executions),
+			formatLatencyHuman(g.AvgMs),
+			formatLatencyHuman(g.MaxMs),
+			formatLatencyHuman(g.TotalMs),
+			formatNumber(int64(g.AvgRowsExamined)),
+			lastSeen,
+		})
+	}
+	table.Render()
+}
+
+func formatStatus(sev model.RegressionSeverity) string {
+	switch sev {
+	case model.SeverityCritical:
+		return "CRITICAL"
+	case model.SeverityWarning:
+		return "WARNING"
+	case model.SeverityImprove:
+		return "IMPROVED"
+	default:
+		return "OK"
+	}
 }
 
 func formatNumber(n int64) string {
@@ -412,17 +564,4 @@ func formatNumber(n int64) string {
 		}
 	}
 	return string(out)
-}
-
-func formatDurationHuman(durSec, durMs float64) string {
-	if durSec >= 1.0 {
-		return fmt.Sprintf("%.2fs", durSec)
-	}
-	if durMs > 0 {
-		return fmt.Sprintf("%.1fms", durMs)
-	}
-	if durSec > 0 {
-		return fmt.Sprintf("%.1fms", durSec*1000.0)
-	}
-	return "0ms"
 }

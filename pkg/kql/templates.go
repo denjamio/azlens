@@ -77,6 +77,41 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
 }
 
+// BuildMySQLSlowLogsGroupedQuery builds KQL query aggregating MySQL Flexible
+// Server slow query logs by a normalized SQL fingerprint (quoted literals and
+// numbers masked, whitespace collapsed), reporting execution count, duration
+// statistics, and rows examined per query shape, ordered by total accumulated
+// duration descending (highest overall impact first).
+func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN int) TargetQuery {
+	dbFilter := ""
+	if dbName != "" {
+		dbFilter = fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
+	}
+	if topN <= 0 {
+		topN = 15
+	}
+
+	query := fmt.Sprintf(`MySqlSlowLogs
+| where TimeGenerated between (datetime('%s') .. datetime('%s'))%s
+| extend F0 = tostring(SqlText)
+| extend F1 = replace_regex(F0, @"'[^']*'", @"'?'")
+| extend F2 = replace_regex(F1, @'"[^"]*"', @'"?"')
+| extend SqlFingerprint = replace_regex(replace_regex(F2, @"-?\b\d+(\.\d+)?\b", @"?"), @"\s+", " ")
+| summarize
+    Executions = count(),
+    AvgMs = round(avg(QueryDurationMs), 1),
+    MaxMs = max(QueryDurationMs),
+    TotalMs = round(sum(QueryDurationMs), 1),
+    AvgRowsExamined = round(avg(todouble(RowsExamined)), 0),
+    LastSeen = max(TimeGenerated)
+  by SqlFingerprint
+| project SqlFingerprint, Executions, AvgMs, MaxMs, TotalMs, AvgRowsExamined, LastSeen
+| order by TotalMs desc
+| take %d`, FormatTime(start), FormatTime(end), dbFilter, topN)
+
+	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
+}
+
 // BuildFanoutSummaryQuery builds KQL query for SQL fan-out & N+1 detection
 func BuildFanoutSummaryQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
 	b := mustBuilder("requests")
