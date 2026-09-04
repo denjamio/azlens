@@ -304,8 +304,10 @@ func (c *AzCliClient) runAzQuery(ctx context.Context, args []string) (*AzQueryRe
 // runAzQueryOnce performs a single az CLI invocation and parses the JSON output
 func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQueryResult, error) {
 	// Suppress az warnings/telemetry notices on stderr so they cannot pollute
-	// the JSON output (stderr and stdout are captured together)
-	cmdArgs := append([]string{"--only-show-errors"}, args...)
+	// the JSON output (stderr and stdout are captured together).
+	// Global flags like --only-show-errors must be appended after subcommands so
+	// Azure CLI / Knack can properly resolve extension command groups (e.g. monitor log-analytics).
+	cmdArgs := append(append([]string{}, args...), "--only-show-errors")
 
 	cmd := exec.CommandContext(ctx, "az", cmdArgs...)
 	out, err := cmd.CombinedOutput()
@@ -317,7 +319,7 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 			strings.Contains(outStr, "misspelled") ||
 			strings.Contains(outStr, "not recognized by the system") {
 			if ext := azExtensionForArgs(args); ext != "" {
-				return nil, fmt.Errorf("azure cli command not recognized: 'az %s %s' is provided by the '%s' extension, which is not installed.\n💡 Hint: Run 'az extension add --name %s' and retry", args[0], args[1], ext, ext)
+				return nil, fmt.Errorf("azure cli command not recognized (output: %s): 'az %s %s' is provided by the '%s' extension, which is not installed.\n💡 Hint: Run 'az extension add --name %s' and retry", outStr, args[0], args[1], ext, ext)
 			}
 			return nil, fmt.Errorf("azure cli command not recognized: %s\n💡 Hint: Update the Azure CLI with 'az upgrade' — this command group does not exist in the installed version", outStr)
 		}

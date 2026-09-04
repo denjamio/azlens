@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-09-04
+
+### Fixed
+
+- **Azure CLI query and extension flag order**: Moved `--only-show-errors` to the end of command arguments in `runAzQueryOnce` and `missingAzExtensions`. Placing global flags ahead of extension command groups (`az --only-show-errors monitor log-analytics query`) causes the Azure CLI / Knack argument parser to fail with `'log-analytics' is misspelled or not recognized by the system`, which previously resulted in false-positive "extension not installed" errors even when the extension was already present.
+- **Improved error diagnostics**: Included raw Azure CLI stderr/stdout output in extension discovery errors for faster troubleshooting.
+
 ## [0.4.2] - 2026-09-04
 
 ### Fixed

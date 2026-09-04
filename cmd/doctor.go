@@ -40,7 +40,7 @@ var azRequiredExtensions = []struct {
 // missingAzExtensions returns the azlens-required extensions not installed in the az CLI.
 // 'az extension list' is a local, unauthenticated operation.
 func missingAzExtensions() ([]string, error) {
-	out, err := exec.Command("az", "--only-show-errors", "extension", "list", "-o", "json").Output()
+	out, err := exec.Command("az", "extension", "list", "--only-show-errors", "-o", "json").Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed listing az extensions: %w", err)
 	}
