@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -356,4 +357,72 @@ func PrintDeprecationsTable(w io.Writer, deps []model.DeprecationSummary) {
 		})
 	}
 	table.Render()
+}
+
+// PrintSlowLogsTable renders list of MySQL slow query logs
+func PrintSlowLogsTable(w io.Writer, logs []model.SlowLogEntry) {
+	if w == nil {
+		w = os.Stdout
+	}
+	if len(logs) == 0 {
+		colorGreen.Fprintln(w, "✓ No slow queries recorded in this time window.")
+		return
+	}
+	table := tablewriter.NewWriter(w)
+	table.SetHeader([]string{"Timestamp", "Duration", "Examined", "Sent", "SQL Query"})
+	table.SetBorder(true)
+	table.SetAutoWrapText(true)
+
+	for _, l := range logs {
+		tsStr := "-"
+		if !l.Timestamp.IsZero() {
+			tsStr = l.Timestamp.Local().Format("2006-01-02 15:04:05")
+		}
+		table.Append([]string{
+			tsStr,
+			formatDurationHuman(l.DurationSec, l.DurationMs),
+			formatNumber(l.RowsExamined),
+			formatNumber(l.RowsSent),
+			truncate(l.SQLText, 80),
+		})
+	}
+	table.Render()
+}
+
+func formatNumber(n int64) string {
+	if n < 0 {
+		return "-" + formatNumber(-n)
+	}
+	in := strconv.FormatInt(n, 10)
+	if len(in) <= 3 {
+		return in
+	}
+	var out []byte
+	rem := len(in) % 3
+	if rem > 0 {
+		out = append(out, in[:rem]...)
+		if len(in) > rem {
+			out = append(out, ',')
+		}
+	}
+	for i := rem; i < len(in); i += 3 {
+		out = append(out, in[i:i+3]...)
+		if i+3 < len(in) {
+			out = append(out, ',')
+		}
+	}
+	return string(out)
+}
+
+func formatDurationHuman(durSec, durMs float64) string {
+	if durSec >= 1.0 {
+		return fmt.Sprintf("%.2fs", durSec)
+	}
+	if durMs > 0 {
+		return fmt.Sprintf("%.1fms", durMs)
+	}
+	if durSec > 0 {
+		return fmt.Sprintf("%.1fms", durSec*1000.0)
+	}
+	return "0ms"
 }

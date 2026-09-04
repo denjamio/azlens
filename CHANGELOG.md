@@ -5,6 +5,18 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.11] - 2026-09-04
+
+### Added
+
+- **First-class slow logs model & reporters**: Introduced `model.SlowLogEntry` with typed duration, row metrics, and SQL text. Added dedicated `reporter.PrintSlowLogsTable` and `reporter.PrintSlowLogsMarkdown` for `azlens top slow-logs`.
+- **Key MySQL performance indicators (`RowsExamined` & `RowsSent`)**: `azlens top slow-logs` now queries and reports `RowsExamined` (scanned rows, essential for finding missing indexes and table scans) alongside `RowsSent` (returned rows) with thousands-separator formatting.
+- **Normalized human-readable duration**: Slow log durations are normalized and formatted intuitively (e.g. `14.52s`, `850ms`) rather than displaying raw milliseconds.
+
+### Fixed
+
+- **Eliminated spurious `batch result table "overall" not found` warnings**: Removed fragile `| as <name>` KQL table renaming and matching. Azure Monitor KQL returns batch statement results in strictly guaranteed positional order (`PrimaryResult`, `PrimaryResult_1`, etc.); `QueryWindowMetrics` now directly maps tables by position without false warning noise.
+
 ## [0.4.10] - 2026-09-04
 
 ### Changed

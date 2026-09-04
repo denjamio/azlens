@@ -437,16 +437,18 @@ func (m *MockClient) QueryWindowMetrics(ctx context.Context, start, end time.Tim
 	}, nil
 }
 
-func (m *MockClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) (model.GenericQueryResult, error) {
+func (m *MockClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogEntry, error) {
 	q := kql.BuildMySQLSlowLogsQuery(start, end, dbName, topN)
 	m.logQuery(q)
-	return model.GenericQueryResult{
-		Columns: []string{"TimeGenerated", "QueryDurationMs", "SqlText"},
-		Rows: [][]interface{}{
-			{"2026-09-02T20:15:22Z", 3840.5, "SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = 'pending' FOR UPDATE"},
-			{"2026-09-02T20:12:05Z", 2150.0, "SELECT count(*) FROM audit_logs WHERE created_at < NOW() - INTERVAL 90 DAY"},
-			{"2026-09-02T20:08:44Z", 1890.2, "UPDATE inventory SET reserved_qty = reserved_qty + 1 WHERE sku = 'PROD-9981'"},
-			{"2026-09-02T20:01:10Z", 1420.8, "SELECT * FROM users u LEFT JOIN payment_methods p ON u.id = p.user_id WHERE u.email = 'customer@test.com'"},
-		},
+	t1, _ := time.Parse(time.RFC3339, "2026-09-02T20:15:22Z")
+	t2, _ := time.Parse(time.RFC3339, "2026-09-02T20:12:05Z")
+	t3, _ := time.Parse(time.RFC3339, "2026-09-02T20:08:44Z")
+	t4, _ := time.Parse(time.RFC3339, "2026-09-02T20:01:10Z")
+
+	return []model.SlowLogEntry{
+		{Timestamp: t1, DurationSec: 3.84, DurationMs: 3840.5, RowsExamined: 1250400, RowsSent: 12, SQLText: "SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = 'pending' FOR UPDATE"},
+		{Timestamp: t2, DurationSec: 2.15, DurationMs: 2150.0, RowsExamined: 850000, RowsSent: 1, SQLText: "SELECT count(*) FROM audit_logs WHERE created_at < NOW() - INTERVAL 90 DAY"},
+		{Timestamp: t3, DurationSec: 1.89, DurationMs: 1890.2, RowsExamined: 42000, RowsSent: 1, SQLText: "UPDATE inventory SET reserved_qty = reserved_qty + 1 WHERE sku = 'PROD-9981'"},
+		{Timestamp: t4, DurationSec: 1.42, DurationMs: 1420.8, RowsExamined: 25000, RowsSent: 5, SQLText: "SELECT * FROM users u LEFT JOIN payment_methods p ON u.id = p.user_id WHERE u.email = 'customer@test.com'"},
 	}, nil
 }

@@ -134,10 +134,20 @@ type DependencyDiff struct {
 	Severity    RegressionSeverity `json:"severity"`
 }
 
-// GenericQueryResult holds columns and rows for arbitrary KQL queries (e.g. MySqlSlowLogs)
+// GenericQueryResult holds columns and rows for arbitrary KQL queries
 type GenericQueryResult struct {
 	Columns []string        `json:"columns"`
 	Rows    [][]interface{} `json:"rows"`
+}
+
+// SlowLogEntry represents a parsed MySQL engine slow query log entry
+type SlowLogEntry struct {
+	Timestamp    time.Time `json:"timestamp"`
+	DurationSec  float64   `json:"duration_s"`
+	DurationMs   float64   `json:"duration_ms"`
+	RowsExamined int64     `json:"rows_examined"`
+	RowsSent     int64     `json:"rows_sent"`
+	SQLText      string    `json:"sql_text"`
 }
 
 // FanoutMetric measures N+1 and database fan-out per endpoint

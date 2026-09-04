@@ -130,3 +130,31 @@ func TestSnapshotReporters(t *testing.T) {
 		t.Errorf("expected deprecation in table, got: %s", deprecationTable.String())
 	}
 }
+
+func TestSlowLogsReporters(t *testing.T) {
+	ts, _ := time.Parse(time.RFC3339, "2026-09-04T10:15:30Z")
+	logs := []model.SlowLogEntry{
+		{
+			Timestamp:    ts,
+			DurationSec:  14.52,
+			DurationMs:   14520.0,
+			RowsExamined: 1250000,
+			RowsSent:     10,
+			SQLText:      "SELECT * FROM large_table WHERE unindexed = 1",
+		},
+	}
+
+	var tableBuf bytes.Buffer
+	PrintSlowLogsTable(&tableBuf, logs)
+	outTable := tableBuf.String()
+	if !strings.Contains(outTable, "14.52s") || !strings.Contains(outTable, "1,250,000") || !strings.Contains(outTable, "large_table") {
+		t.Errorf("expected formatted table output, got:\n%s", outTable)
+	}
+
+	var mdBuf bytes.Buffer
+	PrintSlowLogsMarkdown(&mdBuf, logs)
+	outMd := mdBuf.String()
+	if !strings.Contains(outMd, "14.52s") || !strings.Contains(outMd, "1,250,000") || !strings.Contains(outMd, "large_table") {
+		t.Errorf("expected formatted markdown output, got:\n%s", outMd)
+	}
+}

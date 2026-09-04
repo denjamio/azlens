@@ -264,3 +264,30 @@ func PrintDeprecationsMarkdown(w io.Writer, deps []model.DeprecationSummary) {
 		fmt.Fprintf(w, "| **%d** | %s | %s | %s |\n", d.Count, lastSeenStr, cleanMsg, eps)
 	}
 }
+
+// PrintSlowLogsMarkdown renders list of MySQL slow query logs in Markdown
+func PrintSlowLogsMarkdown(w io.Writer, logs []model.SlowLogEntry) {
+	if w == nil {
+		w = os.Stdout
+	}
+	if len(logs) == 0 {
+		fmt.Fprintln(w, "*No slow queries recorded in this time window.*")
+		return
+	}
+
+	fmt.Fprintln(w, "### 🐢 MySQL Slow Query Logs")
+	fmt.Fprintln(w, "| Timestamp | Duration | Rows Examined | Rows Sent | SQL Query |")
+	fmt.Fprintln(w, "| :--- | :--- | :--- | :--- | :--- |")
+
+	for _, l := range logs {
+		tsStr := "-"
+		if !l.Timestamp.IsZero() {
+			tsStr = l.Timestamp.UTC().Format("2006-01-02 15:04:05 UTC")
+		}
+		cleanSQL := strings.ReplaceAll(l.SQLText, "|", "\\|")
+		cleanSQL = strings.ReplaceAll(cleanSQL, "\n", " ")
+		cleanSQL = truncate(cleanSQL, 100)
+		fmt.Fprintf(w, "| `%s` | **%.2fs** | %s | %s | `%s` |\n",
+			tsStr, l.DurationSec, formatNumber(l.RowsExamined), formatNumber(l.RowsSent), cleanSQL)
+	}
+}

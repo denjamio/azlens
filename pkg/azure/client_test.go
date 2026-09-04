@@ -64,8 +64,8 @@ func TestMockClientOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed querying mysql slow logs: %v", err)
 	}
-	if len(mysqlLogs.Columns) == 0 || len(mysqlLogs.Rows) == 0 {
-		t.Errorf("expected mysql slow logs rows and columns")
+	if len(mysqlLogs) == 0 {
+		t.Errorf("expected mysql slow logs entries")
 	}
 }
 

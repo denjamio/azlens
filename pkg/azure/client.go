@@ -47,7 +47,7 @@ type AzureClient interface {
 	QueryFanout(ctx context.Context, start, end time.Time, topN int) ([]model.FanoutMetric, error)
 	QueryLatencyBreakdown(ctx context.Context, start, end time.Time, topN int) ([]model.LatencyBreakdown, error)
 	QueryDeprecations(ctx context.Context, start, end time.Time, topN int) ([]model.DeprecationSummary, error)
-	QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) (model.GenericQueryResult, error)
+	QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogEntry, error)
 	QueryWindowMetrics(ctx context.Context, start, end time.Time, topN int) (model.WindowMetrics, error)
 	GetProfile() config.Profile
 }
@@ -513,44 +513,16 @@ func (c *AzCliClient) QueryRequestsSummary(ctx context.Context, start, end time.
 	return parseOverallRequestTable(&res.Tables[0], p.Name), nil
 }
 
-func (c *AzCliClient) queryTarget(ctx context.Context, tq kql.TargetQuery) (model.GenericQueryResult, error) {
-	res, err := c.executeKQL(ctx, tq)
-	if err != nil {
-		return model.GenericQueryResult{}, err
-	}
-	if len(res.Tables) == 0 {
-		return model.GenericQueryResult{}, nil
-	}
-	t := res.Tables[0]
-	cols := make([]string, len(t.Columns))
-	for i, col := range t.Columns {
-		cols[i] = col.Name
-	}
-	return model.GenericQueryResult{
-		Columns: cols,
-		Rows:    t.Rows,
-	}, nil
-}
-
 // QueryWindowMetrics fetches all telemetry for one time window in a single batched
 // KQL request (overall, endpoints, dependencies, exceptions, fan-out), which keeps
 // az CLI process overhead to one spawn per window
 func (c *AzCliClient) QueryWindowMetrics(ctx context.Context, start, end time.Time, topN int) (model.WindowMetrics, error) {
 	p := c.opts.Profile
 	qOverall := kql.BuildRequestsSummaryQuery(start, end, p.Target)
-	qOverall.Query += "\n| as overall"
-
 	qEndpoints := kql.BuildEndpointsSummaryQuery(start, end, p.Target, topN)
-	qEndpoints.Query += "\n| as endpoints"
-
 	qDeps := kql.BuildSlowDependenciesQuery(start, end, p.Target, "", topN)
-	qDeps.Query += "\n| as dependencies"
-
 	qExceptions := kql.BuildExceptionsSummaryQuery(start, end, p.Target, topN)
-	qExceptions.Query += "\n| as exceptions"
-
 	qFanout := kql.BuildFanoutSummaryQuery(start, end, p.Target, topN)
-	qFanout.Query += "\n| as fanout"
 
 	tables, err := c.executeKQLBatch(ctx, []kql.TargetQuery{
 		qOverall,
@@ -563,29 +535,16 @@ func (c *AzCliClient) QueryWindowMetrics(ctx context.Context, start, end time.Ti
 		return model.WindowMetrics{}, err
 	}
 
-	tableMap := make(map[string]*AzQueryTable, len(tables))
-	for i := range tables {
-		tableMap[strings.ToLower(tables[i].Name)] = &tables[i]
-	}
-
-	findTable := func(name string, fallbackIdx int) *AzQueryTable {
-		if t, ok := tableMap[strings.ToLower(name)]; ok {
-			return t
-		}
-		if fallbackIdx >= 0 && fallbackIdx < len(tables) {
-			fmt.Fprintf(os.Stderr, "⚠️  Warning: batch result table %q not found; using positional table %d (columns may be misaligned)\n", name, fallbackIdx)
-			return &tables[fallbackIdx]
-		}
-		fmt.Fprintf(os.Stderr, "⚠️  Warning: batch result table %q not found and no positional fallback available; returning empty table\n", name)
-		return &AzQueryTable{}
+	if len(tables) < 5 {
+		return model.WindowMetrics{}, fmt.Errorf("expected 5 tables from batched query, got %d", len(tables))
 	}
 
 	return model.WindowMetrics{
-		Overall:   parseOverallRequestTable(findTable("overall", 0), p.Name),
-		Endpoints: parseEndpointsTable(findTable("endpoints", 1)),
-		Deps:      parseDepsTable(findTable("dependencies", 2)),
-		Errors:    parseExceptionsTable(findTable("exceptions", 3)),
-		Fanout:    parseFanoutTable(findTable("fanout", 4)),
+		Overall:   parseOverallRequestTable(&tables[0], p.Name),
+		Endpoints: parseEndpointsTable(&tables[1]),
+		Deps:      parseDepsTable(&tables[2]),
+		Errors:    parseExceptionsTable(&tables[3]),
+		Fanout:    parseFanoutTable(&tables[4]),
 	}, nil
 }
 
@@ -703,9 +662,74 @@ func (c *AzCliClient) QueryDeprecations(ctx context.Context, start, end time.Tim
 	return results, nil
 }
 
-func (c *AzCliClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) (model.GenericQueryResult, error) {
+func (c *AzCliClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogEntry, error) {
 	tq := kql.BuildMySQLSlowLogsQuery(start, end, dbName, topN)
-	return c.queryTarget(ctx, tq)
+	res, err := c.executeKQL(ctx, tq)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Tables) == 0 {
+		return nil, nil
+	}
+	return parseSlowLogsTable(&res.Tables[0]), nil
+}
+
+func parseSlowLogsTable(t *AzQueryTable) []model.SlowLogEntry {
+	if len(t.Rows) == 0 {
+		return nil
+	}
+	colMap := make(map[string]int, len(t.Columns))
+	for i, col := range t.Columns {
+		colMap[strings.ToLower(col.Name)] = i
+	}
+
+	getIdx := func(names ...string) int {
+		for _, n := range names {
+			if idx, ok := colMap[strings.ToLower(n)]; ok {
+				return idx
+			}
+		}
+		return -1
+	}
+
+	idxTime := getIdx("timegenerated", "timestamp")
+	idxDurS := getIdx("duration_s")
+	idxDurMs := getIdx("querydurationms", "duration_ms")
+	idxExamined := getIdx("rowsexamined", "rows_examined")
+	idxSent := getIdx("rowssent", "rows_sent")
+	idxSQL := getIdx("sqltext", "sql_text")
+
+	entries := make([]model.SlowLogEntry, 0, len(t.Rows))
+	for _, row := range t.Rows {
+		entry := model.SlowLogEntry{}
+		if idxTime >= 0 && idxTime < len(row) && row[idxTime] != nil {
+			str := fmt.Sprintf("%v", row[idxTime])
+			if ts, err := time.Parse(time.RFC3339Nano, str); err == nil {
+				entry.Timestamp = ts
+			} else if ts, err := time.Parse(time.RFC3339, str); err == nil {
+				entry.Timestamp = ts
+			}
+		}
+		if idxDurMs >= 0 && idxDurMs < len(row) && row[idxDurMs] != nil {
+			entry.DurationMs = toFloat(row[idxDurMs])
+		}
+		if idxDurS >= 0 && idxDurS < len(row) && row[idxDurS] != nil {
+			entry.DurationSec = toFloat(row[idxDurS])
+		} else if entry.DurationMs > 0 {
+			entry.DurationSec = entry.DurationMs / 1000.0
+		}
+		if idxExamined >= 0 && idxExamined < len(row) && row[idxExamined] != nil {
+			entry.RowsExamined = toInt64(row[idxExamined])
+		}
+		if idxSent >= 0 && idxSent < len(row) && row[idxSent] != nil {
+			entry.RowsSent = toInt64(row[idxSent])
+		}
+		if idxSQL >= 0 && idxSQL < len(row) && row[idxSQL] != nil {
+			entry.SQLText = fmt.Sprintf("%v", row[idxSQL])
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 // Table parsing helpers shared by single-query and batched flows
