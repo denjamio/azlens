@@ -45,7 +45,7 @@ type AzureClient interface {
 	QueryFanout(ctx context.Context, start, end time.Time, topN int) ([]model.FanoutMetric, error)
 	QueryLatencyBreakdown(ctx context.Context, start, end time.Time, topN int) ([]model.LatencyBreakdown, error)
 	QueryDeprecations(ctx context.Context, start, end time.Time, topN int) ([]model.DeprecationSummary, error)
-	QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, slowest bool, topN int) (model.GenericQueryResult, error)
+	QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) (model.GenericQueryResult, error)
 	QueryWindowMetrics(ctx context.Context, start, end time.Time, topN int) (model.WindowMetrics, error)
 	GetProfile() config.Profile
 }
@@ -151,6 +151,9 @@ func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string
 	case kql.BackendAppInsights:
 		if p.Target.Insights.Name != "" {
 			args = []string{"monitor", "app-insights", "query", "--app", p.Target.Insights.Name, "--analytics-query", tq.Query, "-o", "json"}
+			if p.Target.Insights.ResourceGroup != "" {
+				args = append(args, "--resource-group", p.Target.Insights.ResourceGroup)
+			}
 			targetSub = p.Target.Insights.SubscriptionID
 			targetDirectory = p.Target.Insights.DirectoryID
 		} else if p.Target.Logs.WorkspaceID != "" {
@@ -330,7 +333,7 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription_id' and 'logs.subscription_id' (plus 'directory_id') in azlens.yaml")
 		}
 		if strings.Contains(outStr, "ResourceNotFound") || strings.Contains(outStr, "not found") {
-			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: Verify 'insights.name', 'logs.workspace_id', or cross-directory subscriptions in azlens.yaml", outStr)
+			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: For App Insights, verify 'insights.name' in azlens.yaml — if using a component name, specify 'insights.resource_group' (or use the App ID GUID from portal API Access, or full resource ID). For workspace-based App Insights, leave 'insights.name' empty to query 'logs.workspace_id' directly", outStr)
 		}
 		return nil, fmt.Errorf("azure cli query failed: %w (output: %s)", err, outStr)
 	}
@@ -608,8 +611,8 @@ func (c *AzCliClient) QueryDeprecations(ctx context.Context, start, end time.Tim
 	return results, nil
 }
 
-func (c *AzCliClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, slowest bool, topN int) (model.GenericQueryResult, error) {
-	tq := kql.BuildMySQLSlowLogsQuery(start, end, dbName, slowest, topN)
+func (c *AzCliClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) (model.GenericQueryResult, error) {
+	tq := kql.BuildMySQLSlowLogsQuery(start, end, dbName, topN)
 	return c.queryTarget(ctx, tq)
 }
 

@@ -5,6 +5,15 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-09-04
+
+### Fixed
+
+- **MySQL slow query logs filter**: Removed non-existent column `DatabaseName_s` from `MySqlSlowLogs` query filter in Log Analytics; the query now strictly checks `Db =~ '<name>'`.
+- **Inherently ordered `top slow-logs`**: Removed the redundant `--slowest` flag. `azlens top slow-logs` now inherently orders query results by execution duration descending (`QueryDurationMs desc`), naturally presenting the slowest queries first.
+- **Application Insights `resource_group` support**: Added `resource_group` to `insights` target configuration (`target.insights.resource_group` and `shared.insights.resource_group`). Azure CLI requires `--resource-group` when looking up Application Insights by component name rather than App ID GUID.
+- **Clarified App Insights resolution guidance**: Improved actionable error messages when an App Insights component is not found, providing instructions for using App ID GUID, Resource ID, `insights.resource_group`, or workspace fallback.
+
 ## [0.4.3] - 2026-09-04
 
 ### Fixed

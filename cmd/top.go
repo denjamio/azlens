@@ -17,7 +17,6 @@ import (
 var (
 	topLimit   int
 	topDepType string
-	topSlowest bool
 )
 
 // resolveTopLimit resolves the row limit: CLI flag > config defaults > system default
@@ -46,7 +45,7 @@ Examples:
 
   # Show slow database engine logs
   azlens top slow-logs 2h
-  azlens top slow-logs 2h --slowest -o markdown
+  azlens top slow-logs 2h -o markdown
 
   # Detect N+1 queries across endpoints
   azlens top n-plus-one 1h
@@ -134,7 +133,7 @@ var topSlowLogsCmd = &cobra.Command{
 		limit := resolveTopLimit(cmd)
 		return runTopQuery(cmd, args, "slow query logs",
 			func(ctx context.Context, start, end time.Time) (model.GenericQueryResult, error) {
-				return runtimeFrom(cmd).Client.QueryMySQLSlowLogs(ctx, start, end, runtimeFrom(cmd).Profile.Target.Logs.Database, topSlowest, limit)
+				return runtimeFrom(cmd).Client.QueryMySQLSlowLogs(ctx, start, end, runtimeFrom(cmd).Profile.Target.Logs.Database, limit)
 			},
 			reporter.PrintGenericTable, reporter.PrintGenericMarkdown)
 	},
@@ -200,7 +199,6 @@ func init() {
 	topCmd.PersistentFlags().IntVarP(&topLimit, "limit", "n", config.DefaultLimit, "Number of items to return")
 
 	topQueriesCmd.Flags().StringVarP(&topDepType, "type", "t", "all", "Dependency type filter ('SQL', 'HTTP', 'Redis', 'Cosmos', 'all')")
-	topSlowLogsCmd.Flags().BoolVar(&topSlowest, "slowest", false, "Show individual worst executions instead of aggregate fingerprint")
 
 	_ = topQueriesCmd.RegisterFlagCompletionFunc("type", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"SQL", "HTTP", "Redis", "Cosmos", "all"}, cobra.ShellCompDirectiveNoFileComp

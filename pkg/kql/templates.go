@@ -56,39 +56,24 @@ func BuildExceptionsSummaryQuery(start, end time.Time, target config.TargetConfi
 		BuildExceptionsSummary()
 }
 
-// BuildMySQLSlowLogsQuery builds KQL query for MySQL engine slow query logs from Log Analytics
-func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, slowest bool, topN int) TargetQuery {
+// BuildMySQLSlowLogsQuery builds KQL query for MySQL engine slow query logs from Log Analytics,
+// ordered by execution duration descending (slowest queries first).
+func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) TargetQuery {
 	dbFilter := ""
 	if dbName != "" {
-		dbFilter = fmt.Sprintf("\n| where Db =~ '%s' or DatabaseName_s =~ '%s'", sanitize(dbName), sanitize(dbName))
+		dbFilter = fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
 	}
 	if topN <= 0 {
 		topN = 15
 	}
 
-	var query string
-	if slowest {
-		query = fmt.Sprintf(`MySqlSlowLogs
+	query := fmt.Sprintf(`MySqlSlowLogs
 | where TimeGenerated between (datetime('%s') .. datetime('%s'))%s
 | extend QueryDurationMs = toint(coalesce(QueryTime_s, 0.0) * 1000.0)
 | extend SqlText = substring(coalesce(Query_s, SqlText_s, SqlText, ""), 0, 300)
 | project TimeGenerated, QueryDurationMs, SqlText
 | order by QueryDurationMs desc
 | take %d`, FormatTime(start), FormatTime(end), dbFilter, topN)
-	} else {
-		query = fmt.Sprintf(`MySqlSlowLogs
-| where TimeGenerated between (datetime('%s') .. datetime('%s'))%s
-| extend QueryDurationMs = toint(coalesce(QueryTime_s, 0.0) * 1000.0)
-| extend SqlText = substring(coalesce(Query_s, SqlText_s, SqlText, ""), 0, 300)
-| summarize
-    Executions = count(),
-    TotalDurationMs = sum(QueryDurationMs),
-    AvgDurationMs = round(avg(QueryDurationMs), 1),
-    MaxDurationMs = max(QueryDurationMs)
-by SqlText
-| order by TotalDurationMs desc
-| take %d`, FormatTime(start), FormatTime(end), dbFilter, topN)
-	}
 
 	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
 }

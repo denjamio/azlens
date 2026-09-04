@@ -60,7 +60,7 @@ func TestMockClientOperations(t *testing.T) {
 	}
 
 	// 5. MySQL Slow Logs
-	mysqlLogs, err := client.QueryMySQLSlowLogs(ctx, start, end, "backend_ror", false, 10)
+	mysqlLogs, err := client.QueryMySQLSlowLogs(ctx, start, end, "backend_ror", 10)
 	if err != nil {
 		t.Fatalf("failed querying mysql slow logs: %v", err)
 	}

@@ -44,7 +44,7 @@ func TestMissingExtensionErrorGuidesWithHint(t *testing.T) {
 				},
 			},
 			run: func(c *AzCliClient, ctx context.Context) error {
-				_, err := c.QueryMySQLSlowLogs(ctx, time.Now().Add(-time.Hour), time.Now(), "db", false, 5)
+				_, err := c.QueryMySQLSlowLogs(ctx, time.Now().Add(-time.Hour), time.Now(), "db", 5)
 				return err
 			},
 			wantHint: "az extension add --name log-analytics",
@@ -94,7 +94,7 @@ func TestMissingExtensionFailsFastWithoutRetry(t *testing.T) {
 			Logs: config.LogsConfig{WorkspaceID: "ws-guid"},
 		},
 	}}}
-	_, err := client.QueryMySQLSlowLogs(context.Background(), time.Now().Add(-time.Hour), time.Now(), "db", false, 5)
+	_, err := client.QueryMySQLSlowLogs(context.Background(), time.Now().Add(-time.Hour), time.Now(), "db", 5)
 	if err == nil {
 		t.Fatalf("expected missing-extension error, got nil")
 	}

@@ -437,27 +437,16 @@ func (m *MockClient) QueryWindowMetrics(ctx context.Context, start, end time.Tim
 	}, nil
 }
 
-func (m *MockClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, slowest bool, topN int) (model.GenericQueryResult, error) {
-	q := kql.BuildMySQLSlowLogsQuery(start, end, dbName, slowest, topN)
+func (m *MockClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) (model.GenericQueryResult, error) {
+	q := kql.BuildMySQLSlowLogsQuery(start, end, dbName, topN)
 	m.logQuery(q)
-	if slowest {
-		return model.GenericQueryResult{
-			Columns: []string{"TimeGenerated", "QueryDurationMs", "SqlText"},
-			Rows: [][]interface{}{
-				{"2026-09-02T20:15:22Z", 3840.5, "SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = 'pending' FOR UPDATE"},
-				{"2026-09-02T20:12:05Z", 2150.0, "SELECT count(*) FROM audit_logs WHERE created_at < NOW() - INTERVAL 90 DAY"},
-				{"2026-09-02T20:08:44Z", 1890.2, "UPDATE inventory SET reserved_qty = reserved_qty + 1 WHERE sku = 'PROD-9981'"},
-				{"2026-09-02T20:01:10Z", 1420.8, "SELECT * FROM users u LEFT JOIN payment_methods p ON u.id = p.user_id WHERE u.email = 'customer@test.com'"},
-			},
-		}, nil
-	}
 	return model.GenericQueryResult{
-		Columns: []string{"SqlText", "Executions", "TotalDurationMs", "AvgDurationMs", "MaxDurationMs"},
+		Columns: []string{"TimeGenerated", "QueryDurationMs", "SqlText"},
 		Rows: [][]interface{}{
-			{"SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = 'pending'", 1420, 245800.0, 173.1, 3840.5},
-			{"SELECT count(*) FROM audit_logs WHERE created_at < NOW() - INTERVAL 90 DAY", 48, 103200.0, 2150.0, 2900.0},
-			{"SELECT * FROM users u LEFT JOIN payment_methods p ON u.id = p.user_id WHERE u.id = ?", 18450, 94250.0, 5.1, 840.0},
-			{"UPDATE inventory SET reserved_qty = reserved_qty + 1 WHERE sku = ?", 3100, 48200.0, 15.5, 1890.2},
+			{"2026-09-02T20:15:22Z", 3840.5, "SELECT * FROM orders o JOIN order_items i ON o.id = i.order_id WHERE o.status = 'pending' FOR UPDATE"},
+			{"2026-09-02T20:12:05Z", 2150.0, "SELECT count(*) FROM audit_logs WHERE created_at < NOW() - INTERVAL 90 DAY"},
+			{"2026-09-02T20:08:44Z", 1890.2, "UPDATE inventory SET reserved_qty = reserved_qty + 1 WHERE sku = 'PROD-9981'"},
+			{"2026-09-02T20:01:10Z", 1420.8, "SELECT * FROM users u LEFT JOIN payment_methods p ON u.id = p.user_id WHERE u.email = 'customer@test.com'"},
 		},
 	}, nil
 }

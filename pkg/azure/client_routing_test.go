@@ -70,7 +70,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	end := now
 
 	// 1. Log Analytics table query sets context and routes to workspace with logs subscription
-	if _, err := client.QueryMySQLSlowLogs(ctx, start, end, "testdb", false, 5); err != nil {
+	if _, err := client.QueryMySQLSlowLogs(ctx, start, end, "testdb", 5); err != nil {
 		t.Fatalf("failed querying log analytics: %v", err)
 	}
 	cap := readCapture(t, capture)

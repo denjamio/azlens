@@ -20,6 +20,7 @@ defaults:
 # az resolves the directory (tenant) of each query from its subscription.
 shared:
   insights:
+    resource_group: "rg-shared-prod"                         # Resource group hosting App Insights (required when using component name)
     directory_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" # Entra directory hosting App Insights (drives 'az login --tenant' and per-query token routing)
     subscription_id: "11111111-aaaa-bbbb-cccc-111111111111" # Subscription hosting App Insights (routes the query)
   logs:

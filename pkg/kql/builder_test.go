@@ -183,19 +183,19 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
 
-	tq1 := BuildMySQLSlowLogsQuery(start, end, "backend_ror", false, 15)
-	if tq1.Backend != BackendLogAnalytics {
-		t.Errorf("expected BackendLogAnalytics, got: %s", tq1.Backend)
+	tq := BuildMySQLSlowLogsQuery(start, end, "backend_ror", 15)
+	if tq.Backend != BackendLogAnalytics {
+		t.Errorf("expected BackendLogAnalytics, got: %s", tq.Backend)
 	}
-	q1 := tq1.Query
-	if !strings.Contains(q1, "backend_ror") || !strings.Contains(q1, "summarize") {
-		t.Errorf("expected aggregate slow logs query, got: %s", q1)
+	q := tq.Query
+	if !strings.Contains(q, "where Db =~ 'backend_ror'") {
+		t.Errorf("expected exact Db filter in query, got: %s", q)
 	}
-
-	tq2 := BuildMySQLSlowLogsQuery(start, end, "backend_ror", true, 20)
-	q2 := tq2.Query
-	if !strings.Contains(q2, "backend_ror") || !strings.Contains(q2, "project TimeGenerated") {
-		t.Errorf("expected individual slowest executions query, got: %s", q2)
+	if strings.Contains(q, "DatabaseName_s") {
+		t.Errorf("query should not contain non-existent DatabaseName_s, got: %s", q)
+	}
+	if !strings.Contains(q, "order by QueryDurationMs desc") {
+		t.Errorf("expected slowest queries ordering, got: %s", q)
 	}
 }
 

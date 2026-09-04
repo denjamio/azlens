@@ -34,7 +34,8 @@ type Defaults struct {
 
 // InsightsConfig holds configuration for Application Insights (mapping only, no scalar)
 type InsightsConfig struct {
-	Name           string `yaml:"name,omitempty" json:"name,omitempty"`                       // Resource name or App ID
+	Name           string `yaml:"name,omitempty" json:"name,omitempty"`                       // Resource name, App ID (GUID), or full resource ID
+	ResourceGroup  string `yaml:"resource_group,omitempty" json:"resource_group,omitempty"`   // Resource group containing Application Insights (required when using component name)
 	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`       // Entra directory ID hosting App Insights — drives 'az login --tenant' and AZURE_TENANT_ID per query
 	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"` // Subscription ID hosting Application Insights (routes the query)
 }
@@ -131,6 +132,9 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 	merged := shared
 	if override.Insights.Name != "" {
 		merged.Insights.Name = override.Insights.Name
+	}
+	if override.Insights.ResourceGroup != "" {
+		merged.Insights.ResourceGroup = override.Insights.ResourceGroup
 	}
 	if override.Insights.DirectoryID != "" {
 		merged.Insights.DirectoryID = override.Insights.DirectoryID
@@ -368,6 +372,7 @@ defaults:
 # (tokens stay entirely inside the az CLI — nothing is stored by azlens).
 shared:
   insights:
+    resource_group: ""  # Resource group hosting App Insights (required when using component name)
     directory_id: ""    # Entra directory ID hosting App Insights (drives 'az login --tenant' and per-query token routing)
     subscription_id: "" # Subscription ID hosting App Insights (routes the query)
   logs:

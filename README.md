@@ -124,7 +124,7 @@ azlens top queries --type all -o markdown
 
 # MySQL engine slow query logs (MySqlSlowLogs table in Log Analytics)
 azlens top slow-logs 2h
-azlens top slow-logs 2h --slowest -o markdown
+azlens top slow-logs 2h -o markdown
 
 # Grouped exceptions and HTTP 5xx errors
 azlens top errors 1h
@@ -357,7 +357,7 @@ az login --tenant <directory-id>
 | `azure authentication failed: session expired or not logged in` | `az` session expired or directory never authenticated | Re-run the command — azlens launches `az login --tenant <directory_id>` for you; or run `azlens doctor` for per-subscription coverage |
 | `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory not yet authenticated in your az session | On a terminal azlens launches the login automatically; otherwise run `az login --tenant <directory_id>` printed in the hint |
 | `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription_id` / `target.logs.subscription_id` (+ `directory_id`) in `azlens.yaml`; `az login --tenant` for the other directory |
-| `azure resource not found` | Wrong `target.insights.name` or `target.logs.workspace_id` | `target.logs.workspace_id` must be the **Customer ID (GUID)**, not the workspace name; `target.insights.name` is the resource name (or App ID) |
+| `azure resource not found` | Wrong `target.insights.name`, missing `resource_group`, or wrong `logs.workspace_id` | `target.logs.workspace_id` must be the **Customer ID (GUID)**; `target.insights.name` can be the App ID (GUID from portal API Access), full resource ID, or component name with `target.insights.resource_group` (or omit for workspace-based App Insights) |
 | 403 / authorization errors on queries | Your identity lacks Reader roles on the resource | One-time, admin-only: ask the directory admin to grant **Monitoring Reader** (App Insights) / **Log Analytics Reader** (workspace) to the identity shown by `azlens doctor` |
 | Empty tables for `top queries` | `--type` value not matching your dependency `type` | Use `SQL`, `HTTP`, `Redis`, `Cosmos`, or `all` (case-insensitive) |
 | `MySqlSlowLogs` returns nothing | MySQL Flexible Server diagnostic settings not enabled | Enable the `MySqlSlowLogs` diagnostic category on the MySQL server; also set `target.logs.database` to filter |
