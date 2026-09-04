@@ -197,6 +197,12 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 	if !strings.Contains(q, "order by QueryDurationMs desc") {
 		t.Errorf("expected slowest queries ordering, got: %s", q)
 	}
+	if !strings.Contains(q, "column_ifexists('QueryDurationMs'") {
+		t.Errorf("expected safe lookup for QueryDurationMs column, got: %s", q)
+	}
+	if !strings.Contains(q, "column_ifexists('SqlText'") {
+		t.Errorf("expected safe lookup for SqlText column, got: %s", q)
+	}
 }
 
 func TestBuildDeprecationsQuery(t *testing.T) {

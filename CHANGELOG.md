@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-09-04
+
+### Fixed
+
+- **Dynamic schema resilience for MySQL slow logs (`QueryDurationMs`)**: Resolved query failures in Azure Log Analytics environments using resource-specific schemas. The query now uses safe `column_ifexists()` lookups for `QueryDurationMs`, `query_duration_ms`, `query_time_d`, and `QueryTime_s`, ensuring compatibility across both modern MySQL Flexible Server and legacy AzureDiagnostics schemas without failing on non-existent columns.
+- **Safe SQL text resolution**: Wrapped `SqlText`, `sql_text_s`, `SqlText_s`, `Query_s`, and `Message` in `column_ifexists()` to prevent scalar expression resolution errors.
+
 ## [0.4.4] - 2026-09-04
 
 ### Fixed
