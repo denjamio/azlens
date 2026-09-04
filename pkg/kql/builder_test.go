@@ -200,11 +200,11 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 	if !strings.Contains(q, "order by QueryDurationMs desc") {
 		t.Errorf("expected slowest queries ordering, got: %s", q)
 	}
-	if !strings.Contains(q, "column_ifexists('QueryDurationMs'") {
-		t.Errorf("expected safe lookup for QueryDurationMs column, got: %s", q)
+	if !strings.Contains(q, "QueryDurationMs") {
+		t.Errorf("expected QueryDurationMs column, got: %s", q)
 	}
-	if !strings.Contains(q, "column_ifexists('SqlText'") {
-		t.Errorf("expected safe lookup for SqlText column, got: %s", q)
+	if !strings.Contains(q, "SqlText") {
+		t.Errorf("expected SqlText column, got: %s", q)
 	}
 	if strings.Contains(q, "string(null)") {
 		t.Errorf("query contains invalid KQL syntax string(null), got: %s", q)

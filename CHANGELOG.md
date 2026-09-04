@@ -5,6 +5,12 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.10] - 2026-09-04
+
+### Changed
+
+- **Modern MySQL Flexible Server slow logs schema**: Streamlined `BuildMySQLSlowLogsQuery` to exclusively target the modern Azure MySQL Flexible Server `MySqlSlowLogs` schema (`TimeGenerated`, `QueryDurationMs`, `SqlText`, `Db`), dropping legacy Single Server fallbacks (`AzureDiagnostics`, `query_time_d`, `QueryTime_s`, `sql_text_s`, etc.) for optimal KQL compilation and query performance.
+
 ## [0.4.9] - 2026-09-04
 
 ### Fixed
