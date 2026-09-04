@@ -25,7 +25,11 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Pinned to the same minor validated locally (2.13.x): the config
+          # file (.golangci.yml) uses the v2 schema, and 'latest' resolves
+          # flakily to v1.64.8, which cannot parse it (config verify fails
+          # before linting)
+          version: v2.13
 
   test:
     name: Test & Build
