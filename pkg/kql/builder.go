@@ -286,9 +286,14 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 // BuildFanoutSummary measures N+1 and SQL fan-out by crossing requests with dependencies
 func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 	base := b.buildBaseClauses()
+	depTimeFilter := ""
+	if !b.startTime.IsZero() && !b.endTime.IsZero() {
+		depTimeFilter = fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
+			FormatTime(b.startTime), FormatTime(b.endTime))
+	}
 	q := base + fmt.Sprintf(`| where success == true
 | join kind=inner (
-    dependencies
+    dependencies%s
     | where type in ('SQL', 'mysql', 'PostgreSQL', 'Azure SQL', 'SqlServer')
     | summarize SqlCalls = count(), SqlDuration = sum(duration) by operation_Id
 ) on operation_Id
@@ -302,15 +307,20 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 | where AvgSqlCalls > 1.0
 | project name, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
 | order by AvgSqlCalls desc
-| take %d`, b.limit)
+| take %d`, depTimeFilter, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
 // BuildLatencyBreakdown breaks down request time across dependencies and app compute
 func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 	base := b.buildBaseClauses()
+	depTimeFilter := ""
+	if !b.startTime.IsZero() && !b.endTime.IsZero() {
+		depTimeFilter = fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
+			FormatTime(b.startTime), FormatTime(b.endTime))
+	}
 	q := base + fmt.Sprintf(`| join kind=leftouter (
-    dependencies
+    dependencies%s
     | summarize 
         SqlTime = sumif(duration, type in ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer')),
         RedisTime = sumif(duration, type has 'redis'),
@@ -327,7 +337,7 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
   by name
 | project name, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctAppCode
 | order by AvgTotalMs desc
-| take %d`, b.limit)
+| take %d`, depTimeFilter, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 

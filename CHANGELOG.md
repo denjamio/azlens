@@ -5,6 +5,12 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] - 2026-09-04
+
+### Optimized
+
+- **Partition-pruned subqueries in joins (`top n-plus-one` and `top breakdown`)**: Injected timestamp partition filters (`where timestamp between (...)`) into inner `dependencies` join subqueries. Ensures Azure Monitor prunes partitions across both legs of the join, significantly reducing scanned data volume, query execution time, and Azure query consumption on high-throughput services.
+
 ## [0.4.7] - 2026-09-04
 
 ### Fixed
