@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.12] - 2026-09-04
+
+### Fixed
+
+- **Resolved "invalid properties" in `top breakdown`**: Fixed KQL BadArgumentError in `BuildLatencyBreakdown`. Kusto does not permit arithmetic between aggregation functions inside `summarize` (e.g. `round(100.0 * avg(SqlTime) / avg(duration), 1)`). Separated scalar aggregation (`AvgTotal`, `AvgSql`, `AvgHttp`, `AvgRedis`, `AvgApp`) into `summarize` and subsequent percentage calculations into `extend`.
+- **Eliminated App Insights telemetry starvation from `logs.namespace`**: Removed inadvertent `logs.namespace` filter from Application Insights base clauses (`requests`, `dependencies`, `exceptions`). In standard App Insights SDKs, telemetry items do not carry Kubernetes namespace in `customDimensions`, causing queries to match 0 rows across all timeframes. Application Insights custom dimensions can still be explicitly targeted via `custom_dimensions`.
+
 ## [0.4.11] - 2026-09-04
 
 ### Added

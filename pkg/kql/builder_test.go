@@ -89,9 +89,9 @@ func TestSanitizeNeutralizesKQLInjection(t *testing.T) {
 		time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC),
 		time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC),
 		config.TargetConfig{
-			Roles: config.StringList{malicious},
-			Pods:  config.StringList{`pod\' -x`},
-			Logs:  config.LogsConfig{Namespace: "ns' drop table --"},
+			Roles:            config.StringList{malicious},
+			Pods:             config.StringList{`pod\' -x`},
+			CustomDimensions: map[string]string{"env": "ns' drop table --"},
 		},
 	)
 
@@ -102,7 +102,7 @@ func TestSanitizeNeutralizesKQLInjection(t *testing.T) {
 		t.Errorf("query contains unescaped injection payload:\n%s", q)
 	}
 	if strings.Contains(q, "ns' drop") {
-		t.Errorf("namespace injection not neutralized:\n%s", q)
+		t.Errorf("custom dimension injection not neutralized:\n%s", q)
 	}
 	if strings.Contains(q, ";") {
 		t.Errorf("statement separator ';' must be stripped from sanitized values:\n%s", q)

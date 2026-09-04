@@ -162,13 +162,7 @@ func (b *QueryBuilder) buildBaseClauses() string {
 		}
 	}
 
-	// 7. Kubernetes Namespace scope
-	if b.target.Logs.Namespace != "" {
-		sb.WriteString(fmt.Sprintf("| where tostring(customDimensions['Kubernetes.Namespace']) =~ '%s' or tostring(customDimensions['namespace']) =~ '%s'\n",
-			sanitize(b.target.Logs.Namespace), sanitize(b.target.Logs.Namespace)))
-	}
-
-	// 8. Custom Dimensions key-value scoping
+	// 7. Custom Dimensions key-value scoping
 	for k, v := range b.target.CustomDimensions {
 		if k != "" && v != "" {
 			sb.WriteString(fmt.Sprintf("| where tostring(customDimensions['%s']) =~ '%s'\n", sanitize(k), sanitize(v)))
@@ -327,14 +321,20 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
         HttpExtTime = sumif(duration, type == 'HTTP')
       by operation_Id
 ) on operation_Id
-| extend AppComputeTime = duration - coalesce(SqlTime + RedisTime + HttpExtTime, 0)
+| extend AppComputeTime = duration - (coalesce(SqlTime, 0.0) + coalesce(RedisTime, 0.0) + coalesce(HttpExtTime, 0.0))
 | summarize 
-    AvgTotalMs = round(avg(duration), 1),
-    PctDatabase = round(100.0 * avg(SqlTime) / avg(duration), 1),
-    PctExternalApi = round(100.0 * avg(HttpExtTime) / avg(duration), 1),
-    PctCache = round(100.0 * avg(RedisTime) / avg(duration), 1),
-    PctAppCode = round(100.0 * avg(AppComputeTime) / avg(duration), 1)
+    AvgTotal = avg(duration),
+    AvgSql = avg(coalesce(SqlTime, 0.0)),
+    AvgHttp = avg(coalesce(HttpExtTime, 0.0)),
+    AvgRedis = avg(coalesce(RedisTime, 0.0)),
+    AvgApp = avg(coalesce(AppComputeTime, 0.0))
   by name
+| extend 
+    AvgTotalMs = round(AvgTotal, 1),
+    PctDatabase = iff(AvgTotal > 0, round(100.0 * AvgSql / AvgTotal, 1), 0.0),
+    PctExternalApi = iff(AvgTotal > 0, round(100.0 * AvgHttp / AvgTotal, 1), 0.0),
+    PctCache = iff(AvgTotal > 0, round(100.0 * AvgRedis / AvgTotal, 1), 0.0),
+    PctAppCode = iff(AvgTotal > 0, round(100.0 * AvgApp / AvgTotal, 1), 0.0)
 | project name, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctAppCode
 | order by AvgTotalMs desc
 | take %d`, depTimeFilter, b.limit)
