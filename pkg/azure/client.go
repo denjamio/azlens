@@ -3,6 +3,7 @@
 package azure
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,14 +60,17 @@ type ClientOptions struct {
 	OnAuthRequired func(tenant string) error
 }
 
+// AzTableColumn defines column metadata in a query result table
+type AzTableColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // AzQueryTable is a single result table returned by the query API
 type AzQueryTable struct {
-	Name    string `json:"name"`
-	Columns []struct {
-		Name string `json:"name"`
-		Type string `json:"type"`
-	} `json:"columns"`
-	Rows [][]interface{} `json:"rows"`
+	Name    string          `json:"name"`
+	Columns []AzTableColumn `json:"columns"`
+	Rows    [][]interface{} `json:"rows"`
 }
 
 // AzQueryResult is the JSON output structure returned by az monitor ... query
@@ -338,12 +343,99 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 		return nil, fmt.Errorf("azure cli query failed: %w (output: %s)", err, outStr)
 	}
 
-	var res AzQueryResult
-	if err := json.Unmarshal(out, &res); err != nil {
-		return nil, fmt.Errorf("failed to parse az cli json output: %w", err)
+	return parseAzQueryOutput(out)
+}
+
+// parseAzQueryOutput parses Azure CLI JSON output into an AzQueryResult.
+// It flexibly handles:
+// 1. Standard object: {"tables": [...]}
+// 2. Direct array of tables: [{"name": "...", "columns": [...], "rows": [...]}]
+// 3. Array of key-value maps: [{"col1": val1, ...}]
+// 4. Empty array: []
+func parseAzQueryOutput(out []byte) (*AzQueryResult, error) {
+	trimmed := bytes.TrimSpace(out)
+	if len(trimmed) == 0 {
+		return &AzQueryResult{Tables: []AzQueryTable{}}, nil
 	}
 
-	return &res, nil
+	// 1. Standard object: {"tables": [...]}
+	var res AzQueryResult
+	if err := json.Unmarshal(trimmed, &res); err == nil && res.Tables != nil {
+		return &res, nil
+	}
+
+	// 2. Direct array of tables: [{"name": "...", "columns": [...], "rows": [...]}] or []
+	var tables []AzQueryTable
+	if err := json.Unmarshal(trimmed, &tables); err == nil {
+		if len(tables) == 0 {
+			return &AzQueryResult{Tables: tables}, nil
+		}
+		hasTableStructure := false
+		for _, t := range tables {
+			if len(t.Columns) > 0 || len(t.Rows) > 0 {
+				hasTableStructure = true
+				break
+			}
+		}
+		if hasTableStructure {
+			return &AzQueryResult{Tables: tables}, nil
+		}
+	}
+
+	// 3. Array of key-value maps: [{"col1": val1, ...}]
+	var records []map[string]interface{}
+	if err := json.Unmarshal(trimmed, &records); err == nil {
+		if len(records) == 0 {
+			return &AzQueryResult{Tables: []AzQueryTable{}}, nil
+		}
+
+		var colNames []string
+		seen := make(map[string]bool)
+		for _, rec := range records {
+			for k := range rec {
+				if !seen[k] {
+					seen[k] = true
+					colNames = append(colNames, k)
+				}
+			}
+		}
+		sort.Strings(colNames)
+
+		cols := make([]AzTableColumn, len(colNames))
+		for i, col := range colNames {
+			cols[i] = AzTableColumn{Name: col, Type: "dynamic"}
+		}
+
+		rows := make([][]interface{}, len(records))
+		for rIdx, rec := range records {
+			row := make([]interface{}, len(colNames))
+			for cIdx, col := range colNames {
+				row[cIdx] = rec[col]
+			}
+			rows[rIdx] = row
+		}
+
+		return &AzQueryResult{
+			Tables: []AzQueryTable{
+				{
+					Name:    "PrimaryResult",
+					Columns: cols,
+					Rows:    rows,
+				},
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse az cli json output: %s", truncateOutput(string(trimmed), 150))
+}
+
+func truncateOutput(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	if len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return s
 }
 
 func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQueryResult, error) {

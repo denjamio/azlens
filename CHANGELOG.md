@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.9] - 2026-09-04
+
+### Fixed
+
+- **Azure CLI JSON array unmarshaling**: Resolved `failed to parse az cli json output: cannot unmarshal array into Go value of type azure.AzQueryResult`. Added flexible multi-format output parsing in `parseAzQueryOutput` supporting standard `{"tables": [...]}`, direct table arrays `[{"name": "...", "columns": [...], "rows": [...]}]`, empty arrays `[]`, and key-value record maps `[{"col": val}]`.
+- **Informative query error reporting**: Truncates and presents raw CLI output in error diagnostics when JSON responses cannot be unmarshaled.
+
 ## [0.4.8] - 2026-09-04
 
 ### Optimized
