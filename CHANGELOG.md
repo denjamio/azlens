@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-09-04
+
+### Fixed
+
+- **CI & Linter Gates**: Fixed 20 `golangci-lint` issues (`errcheck`, `gofmt`, `staticcheck`, and `unused`) in new operational packages.
+- **README Architecture Flowchart**: Fixed GitHub Mermaid parser failure by replacing unclosed HTML tags and formatting line breaks with `<br/>`.
+
 ## [1.0.0] - 2026-09-04
 
 ### Added
@@ -341,5 +348,6 @@ hardening and are not part of the public 0.1.0 surface:
   `workspace`, `workspace_id`, `role`, `namespace`, `db`, `pod_name`, ...) in favor
   of the nested `insights` / `logs` blocks.
 
+[1.0.1]: https://github.com/denjamio/azlens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/denjamio/azlens/releases/tag/v1.0.0
 [0.1.0]: https://github.com/denjamio/azlens/releases/tag/v0.1.0
