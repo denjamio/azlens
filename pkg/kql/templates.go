@@ -73,17 +73,15 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
     toint(column_ifexists('QueryDurationMs', real(null))),
     toint(column_ifexists('query_duration_ms', real(null))),
     toint(column_ifexists('query_time_d', real(null)) * 1000.0),
-    toint(todouble(column_ifexists('QueryTime_s', string(null))) * 1000.0),
+    toint(todouble(column_ifexists('QueryTime_s', "")) * 1000.0),
     0
 )
-| extend SqlText = substring(coalesce(
-    column_ifexists('SqlText', string(null)),
-    column_ifexists('sql_text_s', string(null)),
-    column_ifexists('SqlText_s', string(null)),
-    column_ifexists('Query_s', string(null)),
-    column_ifexists('Message', string(null)),
-    ""
-), 0, 300)
+| extend RawSql = iff(isnotempty(column_ifexists('SqlText', "")), column_ifexists('SqlText', ""),
+                  iff(isnotempty(column_ifexists('sql_text_s', "")), column_ifexists('sql_text_s', ""),
+                  iff(isnotempty(column_ifexists('SqlText_s', "")), column_ifexists('SqlText_s', ""),
+                  iff(isnotempty(column_ifexists('Query_s', "")), column_ifexists('Query_s', ""),
+                  column_ifexists('Message', "")))))
+| extend SqlText = substring(RawSql, 0, 300)
 | project TimeGenerated, QueryDurationMs, SqlText
 | order by QueryDurationMs desc
 | take %d`, FormatTime(start), FormatTime(end), dbFilter, topN)

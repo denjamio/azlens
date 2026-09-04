@@ -203,6 +203,9 @@ func TestBuildMySqlSlowLogsQuery(t *testing.T) {
 	if !strings.Contains(q, "column_ifexists('SqlText'") {
 		t.Errorf("expected safe lookup for SqlText column, got: %s", q)
 	}
+	if strings.Contains(q, "string(null)") {
+		t.Errorf("query contains invalid KQL syntax string(null), got: %s", q)
+	}
 }
 
 func TestBuildDeprecationsQuery(t *testing.T) {

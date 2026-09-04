@@ -5,6 +5,12 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - 2026-09-04
+
+### Fixed
+
+- **KQL parser syntax error on `string(null)`**: Fixed `cannot parse string on line [8, 50]` syntax error in `BuildMySQLSlowLogsQuery`. KQL string scalar type does not have a `string(null)` literal; string columns now use valid empty string `""` as `column_ifexists` default and a robust `iff(isnotempty(...))` cascade for SQL query text resolution.
+
 ## [0.4.5] - 2026-09-04
 
 ### Fixed
