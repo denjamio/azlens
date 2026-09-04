@@ -25,7 +25,7 @@ type backendSession struct {
 // subscriptionAccessible reports whether the subscription can be activated in the
 // user's az session. azlens never stores or refreshes tokens: session and token
 // management remain entirely inside the az CLI.
-func subscriptionAccessible(ctx context.Context, subscriptionID, tenantID string) (bool, error) {
+func subscriptionAccessible(ctx context.Context, subscriptionID, _ string) (bool, error) {
 	subscriptionID = strings.TrimSpace(subscriptionID)
 	if subscriptionID == "" {
 		return true, nil
@@ -33,10 +33,7 @@ func subscriptionAccessible(ctx context.Context, subscriptionID, tenantID string
 	ctx, cancel := context.WithTimeout(ctx, subscriptionCheckTimeout)
 	defer cancel()
 
-	args := []string{"--only-show-errors", "account", "set", "--subscription", subscriptionID}
-	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
-		args = append(args, "--tenant", tenantID)
-	}
+	args := []string{"account", "set", "--subscription", subscriptionID, "--only-show-errors"}
 	cmd := exec.CommandContext(ctx, "az", args...)
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError

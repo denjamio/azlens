@@ -244,24 +244,21 @@ func (c *AzCliClient) ensureActiveSubscription(ctx context.Context, subID, tenan
 		return nil
 	}
 
-	args := []string{"--only-show-errors", "account", "set", "--subscription", subID}
-	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
-		args = append(args, "--tenant", tenantID)
-	}
+	args := []string{"account", "set", "--subscription", subID, "--only-show-errors"}
 
 	cmd := exec.CommandContext(ctx, "az", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outStr := strings.TrimSpace(string(out))
-		if c.opts.OnAuthRequired != nil && (strings.Contains(outStr, "login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "not found") || strings.Contains(outStr, "SubscriptionNotFound")) {
+		if c.opts.OnAuthRequired != nil && (strings.Contains(outStr, "login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "not found") || strings.Contains(outStr, "SubscriptionNotFound") || strings.Contains(outStr, "doesn't exist") || strings.Contains(outStr, "does not exist")) {
 			if loginErr := c.opts.OnAuthRequired(tenantID); loginErr == nil {
 				cmdRetry := exec.CommandContext(ctx, "az", args...)
-				if retryOut, retryErr := cmdRetry.CombinedOutput(); retryErr == nil {
+				retryOut, retryErr := cmdRetry.CombinedOutput()
+				if retryErr == nil {
 					c.activeSubscription = subID
 					return nil
-				} else {
-					outStr = strings.TrimSpace(string(retryOut))
 				}
+				outStr = strings.TrimSpace(string(retryOut))
 			}
 		}
 		if tenantID != "" {

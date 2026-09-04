@@ -23,22 +23,18 @@ func fakeAzAccountShow(t *testing.T, allowedSubs []string) string {
 		cases += "    " + s + ") echo " + s + "; exit 0 ;;\n"
 	}
 	script := "#!/bin/sh\n" +
-		"if [ \"$2\" = \"account\" ] && [ \"$3\" = \"list\" ]; then\n" +
+		"case \"$*\" in\n" +
+		"  *\"account list\"*)\n" +
 		listEcho +
-		"  exit 0\n" +
-		"fi\n" +
-		"if [ \"$2\" = \"account\" ] && [ \"$3\" = \"set\" ]; then\n" +
-		"  case \"$5\" in\n" +
-		cases +
-		"    *) echo SubscriptionNotFound >&2; exit 1 ;;\n" +
-		"  esac\n" +
-		"fi\n" +
-		"if [ \"$2\" = \"account\" ] && [ \"$3\" = \"show\" ] && [ \"$4\" = \"--subscription\" ]; then\n" +
-		"  case \"$5\" in\n" +
-		cases +
-		"    *) echo SubscriptionNotFound >&2; exit 1 ;;\n" +
-		"  esac\n" +
-		"fi\n" +
+		"    exit 0 ;;\n" +
+		"  *\"account set\"*|*\"account show\"*)\n" +
+		"    for s in " + strings.Join(allowedSubs, " ") + "; do\n" +
+		"      case \"$*\" in\n" +
+		"        *\"$s\"*) echo \"$s\"; exit 0 ;;\n" +
+		"      esac\n" +
+		"    done\n" +
+		"    echo SubscriptionNotFound >&2; exit 1 ;;\n" +
+		"esac\n" +
 		"echo \"unexpected az invocation: $@\" >&2; exit 42\n"
 	path := filepath.Join(dir, "az")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {

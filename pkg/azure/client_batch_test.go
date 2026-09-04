@@ -96,7 +96,7 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 	if invocations := strings.Count(cap, "=== INVOCATION ==="); invocations != 1 {
 		t.Errorf("expected exactly one az query invocation, got %d:\n%s", invocations, cap)
 	}
-	if !strings.Contains(cap, "account set --subscription sub-insights --tenant dir-insights") {
+	if !strings.Contains(cap, "account set --subscription sub-insights --only-show-errors") {
 		t.Errorf("expected account set context switch in captured args:\n%s", cap)
 	}
 	if !strings.Contains(cap, ";") {

@@ -75,7 +75,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	}
 	cap := readCapture(t, capture)
 	for _, want := range []string{
-		"account set --subscription sub-logs --tenant dir-logs",
+		"account set --subscription sub-logs --only-show-errors",
 		"monitor log-analytics query",
 		"--workspace 33333333-hhhh-iiii-jjjj-333333333333",
 		"--subscription sub-logs",
@@ -92,7 +92,7 @@ func TestExecuteKQLRoutingMultiSubscription(t *testing.T) {
 	}
 	cap = readCapture(t, capture)
 	for _, want := range []string{
-		"account set --subscription sub-insights --tenant dir-insights",
+		"account set --subscription sub-insights --only-show-errors",
 		"monitor app-insights query",
 		"--app app-shared-pro",
 		"--subscription sub-insights",

@@ -5,11 +5,19 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-09-04
+
+### Fixed
+
+- **Azure CLI `account set` syntax and flag order**: Corrected argument ordering to `account set --subscription <id> --only-show-errors`. Placing `--only-show-errors` before positional command tokens caused Azure CLI / knack argument parser to fail with `'set' is misspelled or not recognized by the system`.
+- **Removed unsupported `--tenant` argument**: Removed `--tenant` from `az account set` invocations. In Azure CLI, `az account set` only accepts `--subscription` / `-s` (tenant mapping is automatically resolved by Azure CLI from the subscription ID).
+- **Expanded auth error detection**: Added detection for `"doesn't exist"` / `"does not exist"` error outputs from Azure CLI when a subscription is hosted in a tenant the user has not yet authenticated to, triggering seamless on-demand `az login --tenant <id>` fallback.
+
 ## [0.4.1] - 2026-09-04
 
 ### Fixed
 
-- **Multi-tenant login loop**: Removed `ensureSubscriptionSessions` from pre-flight diagnostics in `PersistentPreRunE`. Each query backend now independently manages and switches its own subscription and tenant context just-in-time (`az account set --subscription <id> [--tenant <tenant>]`), resolving the infinite login loop across separate Entra directories.
+- **Multi-tenant login loop**: Removed `ensureSubscriptionSessions` from pre-flight diagnostics in `PersistentPreRunE`. Each query backend now independently manages and switches its own subscription and tenant context just-in-time (`az account set --subscription <id>`), resolving the infinite login loop across separate Entra directories.
 - **On-demand auth handling**: Integrated JIT interactive login fallback directly into client context switching when `account set` requires directory authentication.
 
 ## [0.4.0] - 2026-09-04
