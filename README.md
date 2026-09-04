@@ -35,37 +35,41 @@ flowchart LR
     C --> G
 ```
 
-1. **`azlens deploy-check`** (*Post-Deploy Regression Quality Gate*): Compare pre- vs post-deploy telemetry (latency percentiles $P_{50}, P_{75}, P_{90}, P_{95}, P_{99}$, error rates, N+1 SQL queries, new unindexed database calls, and newly introduced exceptions).
-2. **`azlens top [endpoints|queries|n-plus-one|breakdown|errors|deprecations]`** (*Live Triage Snapshot*): Instantly surface the slowest API endpoints, heavy database queries, error signatures, or framework deprecation warnings.
-3. **`azlens doctor`** (*Environment Diagnostics*): Verify Azure CLI installation, active login status, and profile configuration validity.
+1. **`azlens deploy-check`** (*Post-Deploy Regression Quality Gate*): Compare pre- vs post-deploy telemetry (latency percentiles P50-P99, error rates, N+1 SQL queries, and newly introduced exceptions).
+2. **`azlens top [endpoints|queries|slow-logs|n-plus-one|breakdown|errors|deprecations]`** (*Live Triage Snapshot*): Instantly surface the slowest API endpoints, heavy database queries, database engine slow logs, error signatures, or framework deprecation warnings.
+3. **`azlens doctor`** (*Environment Diagnostics*): Verify the Azure CLI installation, required az extensions, per-subscription session coverage, and profile configuration validity.
 4. **`azlens config [list|show|init]`** (*Profile & Defaults Manager*): Inspect configured environments and generate starter configuration files.
 
 ---
 
-## 📋 Production Commands & Usage
+## 📋 Commands & Usage
 
 ### 1. Pre- vs Post-Deploy Regressions (`azlens deploy-check`)
 Compare metrics between two time windows to automatically detect latency regressions, N+1 SQL queries, new unindexed queries, and error spikes:
 
 ```bash
-# Direct positional duration: compare last 1h vs previous 1h
-azlens deploy-check 1h
-
-# Check the last 30 minutes vs previous 30 minutes
+# Compare the last 30 minutes vs the previous 30 minutes
 azlens deploy-check 30m
 
-# Target a specific profile and output as Markdown (ideal for GitHub/GitLab PR comments)
+# Center the comparison on a deploy time: 30m before vs 30m after 14:30
+azlens deploy-check 30m --at 14:30
+
+# Deploy that completed 20 minutes ago
+azlens deploy-check 30m --at -20m
+
+# Target a specific profile and output as Markdown (ideal for PR comments)
 azlens deploy-check 30m -p prod -o markdown
 
 # Offline demo mode (no Azure connection needed)
 azlens deploy-check --mock
 ```
 
-**CI Quality Gate:** `deploy-check` is pipeline-aware through exit codes — `0` when no critical regressions are detected, `1` on error, and `2` when critical regressions are found (after the report is printed). Example GitHub Actions step:
+**CI Quality Gate:** `deploy-check` is pipeline-aware through exit codes — `0` when no critical regressions are detected, `1` on error, and `2` when critical regressions are found (after the report is printed). Example GitHub Actions step (note `pipefail`: without it, `tee` would swallow the exit code):
 
 ```yaml
 - name: Deploy regression quality gate
-  run: azlens deploy-check 30m -p prod -o markdown | tee deploy-report.md
+  shell: bash
+  run: set -o pipefail; azlens deploy-check 30m -p prod -o markdown | tee deploy-report.md
 ```
 
 **Terminal Output Preview:**
@@ -118,7 +122,7 @@ azlens top breakdown -o markdown
 azlens top queries 2h --type SQL
 azlens top queries --type all -o markdown
 
-# Deep dive into true Database Engine slow queries (MySQL MySqlSlowLogs in Log Analytics)
+# MySQL engine slow query logs (MySqlSlowLogs table in Log Analytics)
 azlens top slow-logs 2h
 azlens top slow-logs 2h --slowest -o markdown
 
@@ -147,18 +151,16 @@ azlens top deprecations -o markdown
 
 AzLens uses sensible defaults out of the box:
 
-| Command | Default Time Window | Override (Positional) |
+| Command | Default Time Window | Override |
 | :--- | :--- | :--- |
-| **`azlens top`** (`endpoints`, `queries`, `n-plus-one`, `breakdown`, `errors`, `deprecations`) | **Last 1h** (`now - 1h .. now`) | `[duration]` (e.g. `30m`, `2h`) |
-| **`azlens deploy-check`** (Pre vs Post Deploy) | **Post:** Last 1h (`1h..now`)<br>**Baseline:** Previous 1h (`2h..1h`) | `[duration]` (e.g. `30m`, `2h`) |
+| **`azlens top`** (`endpoints`, `queries`, `slow-logs`, `n-plus-one`, `breakdown`, `errors`, `deprecations`) | Last hour | Positional duration (e.g. `30m`, `2h`) or `defaults.window` |
+| **`azlens deploy-check`** (baseline vs post-deploy) | Last hour vs the hour before it | Positional duration or `defaults.since`; center on a deploy time with `--at` |
 
 ---
 
 ## ⚙️ Configuration & Project Scoping (`azlens.yaml`)
 
-Following **Convention over Configuration**, the config file is the **single source of truth**: Azure targets, subscriptions, scopes, thresholds, and operational defaults all live in `azlens.yaml`. The CLI surface stays minimal (`-p` to switch profiles, `-o` to change output format, positional durations, and `-c` to point at an explicit config file — which must exist, there is no silent fallback).
-
-Following the same principle, AzLens works out of the box even without any configuration file (using built-in defaults).
+Following **Convention over Configuration**, the config file is the **single source of truth** for Azure targets, scopes, thresholds, and operational defaults — and AzLens still works out of the box without one (built-in defaults). The CLI surface stays minimal (`-p` to switch profiles, `-o` to change output format, positional durations, and `-c` to point at an explicit config file — which must exist, there is no silent fallback).
 
 To configure project-specific scopes, Azure IDs, and operational defaults, create **`azlens.yaml`** in your project root (clear naming, no leading dot — meant to be **committed** and shared by the team):
 
@@ -213,14 +215,7 @@ profiles:
         name: "app-shared-prod"  # Resource name from the portal URL (or App ID GUID)
       logs:
         workspace_id: "33333333-hhhh-iiii-jjjj-333333333333" # Log Analytics workspace Customer ID GUID
-
-    # Quality gate thresholds (optional, defaults: 15% warn / 30% crit, 5 min samples)
-    thresholds:
-      p95_latency_warn_pct: 15.0
-      p95_latency_crit_pct: 30.0
-      error_rate_warn_delta: 1.0
-      error_rate_crit_delta: 3.0
-      min_sample_calls: 5        # Ignore noise on endpoints with fewer calls than this
+    # prod inherits the shared thresholds — declare nothing here
 
   staging:
     name: "Staging Environment"
@@ -234,12 +229,12 @@ profiles:
     defaults:
       window: "30m"
       since: "15m"
+    # Looser quality gate for staging: overrides only what differs
     thresholds:
       p95_latency_warn_pct: 25.0
       p95_latency_crit_pct: 50.0
       error_rate_warn_delta: 2.0
       error_rate_crit_delta: 5.0
-      min_sample_calls: 5
 
   dev:
     name: "Development Environment"
@@ -333,16 +328,7 @@ azlens version
 
 ---
 
-## 🔐 Required Azure Permissions (RBAC)
-
-AzLens runs read-only telemetry queries through the authenticated Azure CLI (`az`), so the signed-in identity (user or service principal) needs **Reader-class roles** — no write permissions are ever requested:
-
-| Target | Required Role | Scope |
-| :--- | :--- | :--- |
-| Application Insights | **Monitoring Reader** | The App Insights resource (or its resource group) |
-| Log Analytics workspace | **Log Analytics Reader** | The workspace resource (or its resource group) |
-
-### Multi-Directory Setups (`directory_id`) & Sessions
+## 🔐 Multi-Directory Setups (`directory_id`) & Sessions
 
 For cross-directory setups (App Insights in directory A, Log Analytics in directory B), configure each backend's `directory_id` (and its `subscription_id`) once in `shared`. azlens then handles the rest using the fully documented `AZURE_CONFIG_DIR` isolation mechanism — your main az profile (`~/.azure`) is never touched:
 
@@ -355,21 +341,13 @@ For cross-directory setups (App Insights in directory A, Log Analytics in direct
 
 azlens never stores or refreshes tokens; session management stays entirely inside the az CLI. To make the direct login flow permanent for all your az usage: `az config set core.login_experience_v2=off`.
 
-On a fresh machine, the first run of `azlens top` / `deploy-check` walks you through one login per directory (or run them yourself):
+On a fresh machine, the first run of `azlens top` / `deploy-check` walks you through one login per directory — it launches and prints the exact command, e.g.:
 
 ```bash
-az login --tenant <directory-A>   # hosts App Insights
-az login --tenant <directory-B>   # hosts Log Analytics
+AZURE_CONFIG_DIR=~/.config/azlens/azure/<directory-id> az login --tenant <directory-id>
 ```
 
 After that, every query is routed statelessly: its own isolated profile for the identity, its own `--subscription` for the resource.
-
-Grant access with:
-
-```bash
-az role assignment create --assignee <user-or-sp> --role "Monitoring Reader" --scope <app-insights-resource-id>
-az role assignment create --assignee <user-or-sp> --role "Log Analytics Reader" --scope <workspace-resource-id>
-```
 
 > **Note on query cost:** AzLens queries scan the Log Analytics / App Insights tables you point them at. Large time windows (e.g. `deploy-check 24h`) and workspaces on pay-as-you-go plans incur real query costs; prefer the smallest window that answers your question.
 
@@ -380,13 +358,13 @@ az role assignment create --assignee <user-or-sp> --role "Log Analytics Reader" 
 | Symptom | Likely Cause | Fix |
 | :--- | :--- | :--- |
 | `'log-analytics' is mispelled or not recognized by the system` (same for `app-insights`) | The az CLI **extension** providing the query command is not installed | `az extension add --name log-analytics` and/or `az extension add --name application-insights` (azlens pre-flight and `doctor` detect this and print the same hint) |
-| `azure authentication failed: session expired or not logged in` | `az` session expired or wrong tenant | `az login` (add `--tenant <tenant-id>` for cross-directory setups) |
-| `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory you have not authenticated | On a terminal azlens launches `az login` automatically; otherwise run `az login --tenant <tenant-id>` for the directory hosting that subscription |
+| `azure authentication failed: session expired or not logged in` | `az` session expired or directory never authenticated | Re-run the command — azlens launches `az login --tenant <directory_id>` for you; or run `azlens doctor` for per-subscription coverage |
+| `subscription(s) not in the active az session: <id>` | A configured subscription belongs to a directory not yet authenticated in its az profile | On a terminal azlens launches the login automatically; otherwise run the exact `AZURE_CONFIG_DIR=... az login --tenant ...` command printed in the hint |
 | `azure subscription not found in active account` | Target lives in another subscription/tenant | Set `target.insights.subscription_id` / `target.logs.subscription_id` (+ `directory_id`) in `azlens.yaml`; `az login --tenant` for the other directory |
 | `azure resource not found` | Wrong `target.insights.name` or `target.logs.workspace_id` | `target.logs.workspace_id` must be the **Customer ID (GUID)**, not the workspace name; `target.insights.name` is the resource name (or App ID) |
-| 403 / authorization errors on first run | Missing RBAC roles | See [Required Azure Permissions](#-required-azure-permissions-rbac) above |
+| 403 / authorization errors on queries | Your identity lacks Reader roles on the resource | One-time, admin-only: ask the directory admin to grant **Monitoring Reader** (App Insights) / **Log Analytics Reader** (workspace) to the identity shown by `azlens doctor` |
 | Empty tables for `top queries` | `--type` value not matching your dependency `type` | Use `SQL`, `HTTP`, `Redis`, `Cosmos`, or `all` (case-insensitive) |
-| `MySqlSlowLogs` returns nothing | MySQL Flexible Server diagnostic settings not enabled | Enable the `MySqlSlowLogs` diagnostic category on the MySQL server; also set `target.database` to filter |
+| `MySqlSlowLogs` returns nothing | MySQL Flexible Server diagnostic settings not enabled | Enable the `MySqlSlowLogs` diagnostic category on the MySQL server; also set `target.logs.database` to filter |
 | Queries return telemetry from all microservices | `target.roles` not set | Set `cloud_RoleName` isolation via `target.roles` (AzLens warns about this at startup) |
 
 ---
@@ -399,5 +377,5 @@ az role assignment create --assignee <user-or-sp> --role "Log Analytics Reader" 
 4. **Token-Indexed Search**: Uses KQL `has` / `has_any` to leverage Azure's inverted term indexes, performing up to 10x faster than full string scans.
 5. **Multi-Percentile Efficiency**: Uses native KQL `percentiles(duration, 50, 75, 90, 95, 99)` for fast single-pass evaluation.
 6. **Universal Formatting**: First-class support for Terminal Tables with smart truncation, GitHub/GitLab Markdown, and raw JSON across every single command.
-7. **Strict Parameter Sanitization**: Enforces safe KQL identifier sanitization to guarantee query safety.
+7. **Strict Parameter Sanitization**: Escapes quotes, strips newlines and statement separators, and enforces a table-name whitelist to keep generated KQL safe.
 
