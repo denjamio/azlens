@@ -70,8 +70,7 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 
 	query := fmt.Sprintf(`MySqlSlowLogs
 | where TimeGenerated between (datetime('%s') .. datetime('%s'))%s
-| extend Duration_s = round(toreal(QueryDurationMs) / 1000.0, 3)
-| project TimeGenerated, Duration_s, QueryDurationMs, RowsExamined, RowsSent, SqlText
+| project TimeGenerated, QueryDurationMs, RowsExamined, RowsSent, SqlText
 | top %d by QueryDurationMs desc`, FormatTime(start), FormatTime(end), dbFilter, topN)
 
 	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
