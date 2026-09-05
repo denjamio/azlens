@@ -227,9 +227,9 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
     MinDuration = min(duration),
     MaxDuration = max(duration),
     P = percentiles(duration, 50, 75, 90, 95, 99)
-  by name
+  by Endpoint = name
 | extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
-| project name, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate
+| project Endpoint, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate
 | top %d by P95 desc`, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
@@ -265,9 +265,9 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
     MinDuration = min(duration),
     MaxDuration = max(duration),
     P = percentiles(duration, 50, 90, 95, 99)
-  by type, target, name
+  by Type = type, Target = target, Dependency = name
 | extend P50 = todouble(P[0]), P90 = todouble(P[1]), P95 = todouble(P[2]), P99 = todouble(P[3]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
-| project type, target, name, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate
+| project Type, Target, Dependency, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate
 | top %d by P95 desc`, b.limit))
 
 	return TargetQuery{Query: sb.String(), Backend: b.backend}
@@ -311,8 +311,8 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
     FirstSeen = min(timestamp),
     LastSeen = max(timestamp),
     AffectedPaths = make_set(operation_Name, 10)
-  by type
-| project type, Message = SampleMessage, Count, FirstSeen, LastSeen, AffectedPaths
+  by Type = type
+| project Type, Message = SampleMessage, Count, FirstSeen, LastSeen, AffectedPaths
 | top %d by Count desc`, exceptionsBase, requestsBase, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
@@ -340,9 +340,9 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
     MaxSqlCalls = max(SqlCalls),
     AvgSQLDuration = round(avg(SqlDuration), 1),
     AvgEndpointDuration = round(avg(duration), 1)
-  by name
+  by Endpoint = name
 | where AvgSqlCalls > 1.0
-| project name, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
+| project Endpoint, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
 | top %d by AvgSqlCalls desc`, depTimeFilter, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }

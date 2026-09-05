@@ -166,7 +166,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
     FirstSeen = min(timestamp),
     LastSeen = max(timestamp),
     AffectedEndpoints = make_set(operation_Name, 5)
-  by CleanMessage = substring(message, 0, 200)
+  by Deprecation = substring(message, 0, 200)
 | top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter,
 		FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, topN)
 

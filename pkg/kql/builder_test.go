@@ -345,8 +345,8 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	if !strings.Contains(q, "SampleMessage = any(RawMsg)") {
 		t.Errorf("expected native sample message extraction in exceptions query, got: %s", q)
 	}
-	if !strings.Contains(q, "by type") {
-		t.Errorf("expected grouping by structured type, got: %s", q)
+	if !strings.Contains(q, "by Type = type") {
+		t.Errorf("expected grouping by structured Type, got: %s", q)
 	}
 	// Both union branches must be partition-pruned by the same time window
 	if got := strings.Count(q, "timestamp between (datetime("); got != 2 {
