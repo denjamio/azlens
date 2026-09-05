@@ -3,16 +3,13 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/denjamio/azlens/pkg/analysis"
 	"github.com/denjamio/azlens/pkg/analysis/detectors"
-	"github.com/denjamio/azlens/pkg/azure"
 	"github.com/denjamio/azlens/pkg/domain"
-	"github.com/denjamio/azlens/pkg/model"
 	"github.com/denjamio/azlens/pkg/reporter"
 	"github.com/denjamio/azlens/pkg/telemetry"
 )
@@ -49,8 +46,6 @@ Exit codes:
 		}
 
 		var (
-			baseStart time.Time
-			baseEnd   time.Time
 			currStart time.Time
 			currEnd   time.Time
 			timeLabel string
@@ -61,8 +56,6 @@ Exit codes:
 			if err != nil {
 				return err
 			}
-			baseEnd = deployTime
-			baseStart = deployTime.Add(-dur)
 			currStart = deployTime
 			currEnd = deployTime.Add(dur)
 			if currEnd.After(now) {
@@ -72,100 +65,32 @@ Exit codes:
 		} else {
 			currEnd = now
 			currStart = now.Add(-dur)
-			baseEnd = currStart
-			baseStart = currStart.Add(-dur)
 			timeLabel = currStart.Format("15:04")
 		}
 
-		// Fetch baseline and post-deploy telemetry in parallel
-		fetchCtx, cancelFetch := context.WithCancel(ctx)
-		defer cancelFetch()
-
-		var (
-			wg      sync.WaitGroup
-			baseWM  model.WindowMetrics
-			currWM  model.WindowMetrics
-			baseErr error
-			currErr error
-		)
-
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			baseCtx := azure.WithBaseline(fetchCtx)
-			baseWM, baseErr = rt.Client.QueryWindowMetrics(baseCtx, baseStart, baseEnd, 30)
-			if baseErr != nil {
-				cancelFetch()
-			}
-		}()
-
-		go func() {
-			defer wg.Done()
-			currWM, currErr = rt.Client.QueryWindowMetrics(fetchCtx, currStart, currEnd, 30)
-			if currErr != nil {
-				cancelFetch()
-			}
-		}()
-		wg.Wait()
-
-		if currErr != nil {
-			return fmt.Errorf("telemetry query failed: %w", currErr)
+		builder := telemetry.NewSnapshotBuilder(rt.Client)
+		snapshot, err := builder.BuildSnapshot(ctx, rt.ProfileName, rt.Profile, currStart, currEnd, fmt.Sprintf("deploy at %s", timeLabel))
+		if err != nil && snapshot == nil {
+			return err
 		}
 
-		// Build domain Snapshot
-		snapshot := domain.NewSnapshot(
-			domain.ProfileContext{
-				Name:        rt.ProfileName,
-				DisplayName: rt.Profile.Name,
-			},
-			domain.Scope{
-				Service:  rt.Profile.Target.Service,
-				Role:     rt.Profile.Target.RoleName,
-				Pod:      rt.Profile.Target.Pod,
-				Database: rt.Profile.Target.Logs.Database,
-			},
-			domain.WindowContext{
-				Label:    fmt.Sprintf("deploy at %s", timeLabel),
-				Duration: dur.Round(time.Minute).String(),
-				Start:    currStart,
-				End:      currEnd,
-			},
-		)
-
-		telemetry.PopulateSnapshotMetrics(snapshot, &baseWM, &currWM)
-
-		// Scenario J: Insufficient baseline period
+		// Scenario J: Insufficient baseline period or failed baseline query
 		minRequiredCalls := rt.Profile.Thresholds.MinSampleCalls
 		if minRequiredCalls <= 0 {
 			minRequiredCalls = 10
 		}
-		if baseErr != nil || baseWM.Overall.TotalCalls < minRequiredCalls {
+		insufficientBaseline := snapshot.BaselineOverall == nil || snapshot.BaselineOverall.TotalCalls < minRequiredCalls || snapshot.QueryErrors[domain.CapabilityRequests] != nil
+		if insufficientBaseline {
 			snapshot.CapabilityStates[domain.CapabilityRequests] = domain.CapabilityStateUnavailable
 		}
 
 		// Analyze
-		detCfg := detectors.DefaultConfig()
-		if rt.Profile.Thresholds.LatencyWarnPct > 0 {
-			detCfg.LatencyWarnPct = rt.Profile.Thresholds.LatencyWarnPct
-		}
-		if rt.Profile.Thresholds.LatencyCritPct > 0 {
-			detCfg.LatencyCritPct = rt.Profile.Thresholds.LatencyCritPct
-		}
-		if rt.Profile.Thresholds.ErrorRateWarnDelta > 0 {
-			detCfg.ErrorRateWarnDelta = rt.Profile.Thresholds.ErrorRateWarnDelta
-		}
-		if rt.Profile.Thresholds.ErrorRateCritDelta > 0 {
-			detCfg.ErrorRateCritDelta = rt.Profile.Thresholds.ErrorRateCritDelta
-		}
-		if rt.Profile.Thresholds.MinSampleCalls > 0 {
-			detCfg.MinSampleCalls = rt.Profile.Thresholds.MinSampleCalls
-		}
-
+		detCfg := detectors.ConfigFromThresholds(rt.Profile.Thresholds)
 		engine := analysis.NewEngine(detCfg)
 		res := engine.Analyze(snapshot)
 
 		// If baseline was insufficient, mark unknown explicitly (Scenario J)
-		if baseErr != nil || baseWM.Overall.TotalCalls < minRequiredCalls {
+		if insufficientBaseline {
 			res.State = domain.HealthStateUnknown
 			res.StatusMessage = "Baseline period has insufficient samples to determine safety."
 		}

@@ -4,6 +4,7 @@ package detectors
 import (
 	"time"
 
+	"github.com/denjamio/azlens/pkg/config"
 	"github.com/denjamio/azlens/pkg/domain"
 )
 
@@ -40,6 +41,28 @@ func DefaultConfig() Config {
 		MinSampleCalls:     10,
 		StaleDuration:      15 * time.Minute,
 	}
+}
+
+// ConfigFromThresholds maps ProfileThresholds to detector Config,
+// ensuring a single source of truth across root, deploy, and explain commands.
+func ConfigFromThresholds(t config.ProfileThresholds) Config {
+	cfg := DefaultConfig()
+	if t.LatencyWarnPct > 0 {
+		cfg.LatencyWarnPct = t.LatencyWarnPct
+	}
+	if t.LatencyCritPct > 0 {
+		cfg.LatencyCritPct = t.LatencyCritPct
+	}
+	if t.ErrorRateWarnDelta > 0 {
+		cfg.ErrorRateWarnDelta = t.ErrorRateWarnDelta
+	}
+	if t.ErrorRateCritDelta > 0 {
+		cfg.ErrorRateCritDelta = t.ErrorRateCritDelta
+	}
+	if t.MinSampleCalls > 0 {
+		cfg.MinSampleCalls = t.MinSampleCalls
+	}
+	return cfg
 }
 
 // Registry manages the active detector suite.

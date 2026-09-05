@@ -48,6 +48,18 @@ shared:
     checkout:
       role_name: checkout-service
       database: checkout_db
+      dependencies:
+        sql_types: ["SQL", "Azure Database for MySQL"]
+        http_types: ["HTTP", "Web"]
+        cache_types: ["Redis"]
+        ignored_targets: ["telemetry-collector.internal", "audit-service"]
+      exceptions:
+        ignored_types: ["TaskCanceledException", "OperationCanceledException"]
+        ignored_messages: ["context canceled", "Client.Timeout exceeded"]
+      endpoints:
+        ignored_endpoints: ["GET /internal/health", "POST /ping"]
+        ignored_user_agents: ["AlwaysOn", "HealthCheck"]
+        ignore_default_probes: true
     orders:
       role_name: order-service
       database: orders_db

@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-// TimeWindow defines a start and end time for metrics collection
-type TimeWindow struct {
-	Start time.Time `json:"start"`
-	End   time.Time `json:"end"`
-	Label string    `json:"label,omitempty"`
-}
 
 // LatencyPercentiles contains calculated percentiles in milliseconds
 type LatencyPercentiles struct {
@@ -114,58 +108,14 @@ type MetricDelta struct {
 }
 
 // WindowMetrics bundles all telemetry queried for a single time window
-// (fetched in one batched KQL request: overall, endpoints, dependencies, errors, fan-out)
+// (fetched in one batched KQL request: overall, endpoints, dependencies, errors, fan-out, n+1)
 type WindowMetrics struct {
 	Overall   RequestMetric
 	Endpoints []RequestMetric
 	Deps      []DependencyMetric
 	Errors    []ErrorSummary
 	Fanout    []FanoutMetric
-}
-
-// DiffReport holds full pre-vs-post deploy regression analysis
-type DiffReport struct {
-	AppName         string             `json:"app_name"`
-	BaselineWindow  TimeWindow         `json:"baseline_window"`
-	CurrentWindow   TimeWindow         `json:"current_window"`
-	OverallVerdict  RegressionSeverity `json:"overall_verdict"`
-	SummaryDeltas   []MetricDelta      `json:"summary_deltas"`
-	EndpointDeltas  []EndpointDiff     `json:"endpoint_deltas"`
-	NewErrors       []ErrorSummary     `json:"new_errors"`
-	RegressedDeps   []DependencyDiff   `json:"regressed_deps"`
-	NewDependencies []DependencyMetric `json:"new_dependencies,omitempty"`
-	FanoutDeltas    []FanoutDiff       `json:"fanout_deltas,omitempty"`
-	RootCauseHints  []string           `json:"root_cause_hints,omitempty"`
-}
-
-// FanoutDiff compares SQL fan-out / N+1 metrics before and after deploy
-type FanoutDiff struct {
-	Endpoint      string             `json:"endpoint"`
-	BaselineCalls float64            `json:"baseline_calls"`
-	CurrentCalls  float64            `json:"current_calls"`
-	DeltaPct      float64            `json:"delta_pct"`
-	Severity      RegressionSeverity `json:"severity"`
-}
-
-// EndpointDiff compares a single endpoint before and after
-type EndpointDiff struct {
-	Name        string             `json:"name"`
-	Baseline    RequestMetric      `json:"baseline"`
-	Current     RequestMetric      `json:"current"`
-	P95DeltaPct float64            `json:"p95_delta_pct"`
-	ErrDeltaPct float64            `json:"err_delta_pct"`
-	Severity    RegressionSeverity `json:"severity"`
-}
-
-// DependencyDiff compares a dependency before and after
-type DependencyDiff struct {
-	Name        string             `json:"name"`
-	Type        string             `json:"type"`
-	Target      string             `json:"target"`
-	Baseline    DependencyMetric   `json:"baseline"`
-	Current     DependencyMetric   `json:"current"`
-	P95DeltaPct float64            `json:"p95_delta_pct"`
-	Severity    RegressionSeverity `json:"severity"`
+	NPlusOne  []NPlusOneCandidate
 }
 
 // GenericQueryResult holds columns and rows for arbitrary KQL queries

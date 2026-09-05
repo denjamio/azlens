@@ -308,7 +308,7 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 		if strings.Contains(outStr, "The subscription of") || strings.Contains(outStr, "SubscriptionNotFound") {
 			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription_id' and 'logs.subscription_id' (plus 'directory_id') in azlens.yaml")
 		}
-		if strings.Contains(outStr, "ResourceNotFound") || strings.Contains(outStr, "not found") {
+		if strings.Contains(outStr, "ResourceNotFound") || strings.Contains(outStr, "ResourceGroupNotFound") || strings.Contains(outStr, "resource not found") || strings.Contains(outStr, "could not be found") || strings.Contains(outStr, "was not found") {
 			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: For App Insights, verify 'insights.name' in azlens.yaml — if using a component name, specify 'insights.resource_group' (or use the App ID GUID from portal API Access, or full resource ID). For workspace-based App Insights, leave 'insights.name' empty to query 'logs.workspace_id' directly", outStr)
 		}
 		return nil, fmt.Errorf("azure cli query failed: %w (output: %s)", err, outStr)
@@ -498,7 +498,7 @@ func (c *AzCliClient) QueryRequestsSummary(ctx context.Context, start, end time.
 }
 
 // QueryWindowMetrics fetches all telemetry for one time window in a single batched
-// KQL request (overall, endpoints, dependencies, exceptions, fan-out), which keeps
+// KQL request (overall, endpoints, dependencies, exceptions, fan-out, n+1), which keeps
 // az CLI process overhead to one spawn per window
 func (c *AzCliClient) QueryWindowMetrics(ctx context.Context, start, end time.Time, topN int) (model.WindowMetrics, error) {
 	p := c.opts.Profile
@@ -507,6 +507,7 @@ func (c *AzCliClient) QueryWindowMetrics(ctx context.Context, start, end time.Ti
 	qDeps := kql.BuildSlowDependenciesQuery(start, end, p.Target, "", topN)
 	qExceptions := kql.BuildExceptionsSummaryQuery(start, end, p.Target, topN)
 	qFanout := kql.BuildFanoutSummaryQuery(start, end, p.Target, topN)
+	qNPlusOne := kql.BuildNPlusOneCandidateQuery(start, end, p.Target, topN)
 
 	tables, err := c.executeKQLBatch(ctx, []kql.TargetQuery{
 		qOverall,
@@ -514,22 +515,27 @@ func (c *AzCliClient) QueryWindowMetrics(ctx context.Context, start, end time.Ti
 		qDeps,
 		qExceptions,
 		qFanout,
+		qNPlusOne,
 	})
 	if err != nil {
 		return model.WindowMetrics{}, err
 	}
 
 	if len(tables) < 5 {
-		return model.WindowMetrics{}, fmt.Errorf("expected 5 tables from batched query, got %d", len(tables))
+		return model.WindowMetrics{}, fmt.Errorf("expected at least 5 tables from batched query, got %d", len(tables))
 	}
 
-	return model.WindowMetrics{
+	wm := model.WindowMetrics{
 		Overall:   parseOverallRequestTable(&tables[0], p.Name),
 		Endpoints: parseEndpointsTable(&tables[1]),
 		Deps:      parseDepsTable(&tables[2]),
 		Errors:    parseExceptionsTable(&tables[3]),
 		Fanout:    parseFanoutTable(&tables[4]),
-	}, nil
+	}
+	if len(tables) >= 6 {
+		wm.NPlusOne = parseNPlusOneTable(&tables[5])
+	}
+	return wm, nil
 }
 
 func (c *AzCliClient) QueryEndpoints(ctx context.Context, start, end time.Time, topN int) ([]model.RequestMetric, error) {

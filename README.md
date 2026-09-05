@@ -188,7 +188,7 @@ azlens doctor
 
 Reports status across the 5 genuine APM capabilities:
 - `requests` (Application Insights requests & latency percentiles)
-- `dependencies` (SQL, Redis, Cosmos DB, and HTTP calls)
+- `dependencies` (SQL, Redis/Cache, HTTP calls, and configurable data stores)
 - `exceptions` (Application error signatures and 5xx spikes)
 - `availability` (Synthetic availability probe health)
 - `database_slow_logs` (Engine slow query logs in Log Analytics)
@@ -272,6 +272,18 @@ shared:
     checkout:
       role_name: checkout-service
       database: checkout_db
+      dependencies:
+        sql_types: ["SQL", "Azure Database for MySQL"]
+        http_types: ["HTTP", "Web"]
+        cache_types: ["Redis"]
+        ignored_targets: ["telemetry-collector.internal", "audit-service"]
+      exceptions:
+        ignored_types: ["TaskCanceledException", "OperationCanceledException"]
+        ignored_messages: ["context canceled", "Client.Timeout exceeded"]
+      endpoints:
+        ignored_endpoints: ["GET /internal/health", "POST /ping"]
+        ignored_user_agents: ["AlwaysOn", "HealthCheck"]
+        ignore_default_probes: true
     orders:
       role_name: order-service
       database: orders_db
@@ -338,3 +350,18 @@ AzLens integrates directly with the official Azure CLI (`az`):
 3. **Partition Pruning**: Pushes time-range boundaries to root subqueries to avoid scanning full tables.
 4. **Token Indexing**: Uses KQL `has` / `has_any` to exploit Azure's inverted term index.
 5. **Strict Sanitization**: Neutralizes quote injection, escapes statement separators, and validates table whitelist.
+6. **Dynamic In-Engine Filtering**: Pushes configured service filters (`dependencies`, `exceptions`, `endpoints`) directly into KQL predicates, pruning irrelevant records at the database level and keeping network payloads minimal.
+
+### Dynamic Service Filtering
+Services can fine-tune what enters telemetry evaluation:
+- **`dependencies`**:
+  - `sql_types`, `http_types`, `cache_types`: Override default dependency classifications with custom taxonomy.
+  - `ignored_targets`: Exclude internal services or high-frequency telemetry forwarders from dependency regression analysis.
+- **`exceptions`**:
+  - `ignored_types`: Suppress expected exception class signatures (e.g. `TaskCanceledException`).
+  - `ignored_messages`: Filter noisy exception patterns (e.g. `context canceled`).
+- **`endpoints`**:
+  - `ignored_endpoints`: Exclude internal routes (`/internal/health`) from API latency and error rate percentiles.
+  - `ignored_user_agents`: Drop custom scraper or load balancer probes (`GoogleHC`, `kube-probe`).
+  - `ignore_default_probes`: Set to `false` to disable built-in health probe filters.
+

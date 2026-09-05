@@ -607,14 +607,5 @@ func formatContextBanner(prof domain.ProfileContext, scope domain.ScopeContext, 
 }
 
 func cleanSubject(raw string) string {
-	s := strings.TrimSpace(raw)
-	parts := strings.Fields(s)
-	if len(parts) >= 2 {
-		s = parts[1]
-	}
-	s = strings.TrimPrefix(s, "/")
-	if s == "" {
-		return raw
-	}
-	return s
+	return domain.CleanSubject(raw)
 }

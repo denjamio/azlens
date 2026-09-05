@@ -265,17 +265,7 @@ func formatDurationMs(ms float64) string {
 }
 
 func cleanSubject(raw string) string {
-	s := strings.TrimSpace(raw)
-	// Strip HTTP methods e.g. "POST /checkout" -> "checkout"
-	parts := strings.Fields(s)
-	if len(parts) >= 2 {
-		s = parts[1]
-	}
-	s = strings.TrimPrefix(s, "/")
-	if s == "" {
-		return raw
-	}
-	return s
+	return domain.CleanSubject(raw)
 }
 
 // buildEndpointProblem constructs a Problem for a degraded service or endpoint.

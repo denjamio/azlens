@@ -22,7 +22,8 @@ func fakeAzBatchScript(t *testing.T, capturePath string) string {
 		`{"name":"PrimaryResult","columns":[{"name":"c0","type":"string"}],"rows":[["GET /x",1000,5,40,20,150,50,70,90,120,250,0.5]]},` +
 		`{"name":"PrimaryResult","columns":[{"name":"c0","type":"string"}],"rows":[["SQL","db.host","SELECT 1",500,1,120,60,400,80,150,200,300,0.2]]},` +
 		`{"name":"PrimaryResult","columns":[{"name":"c0","type":"string"}],"rows":[["System.Err","boom",7,"2026-09-03T10:00:00Z","2026-09-03T11:00:00Z"]]},` +
-		`{"name":"PrimaryResult","columns":[{"name":"c0","type":"real"}],"rows":[["GET /x",1000,42.5,128,185.0,320.0]]}` +
+		`{"name":"PrimaryResult","columns":[{"name":"c0","type":"real"}],"rows":[["GET /x",1000,42.5,128,185.0,320.0]]},` +
+		`{"name":"PrimaryResult","columns":[{"name":"endpoint","type":"string"},{"name":"totalrequests","type":"int"},{"name":"avgsqlcalls","type":"real"},{"name":"maxsqlcalls","type":"int"},{"name":"avgrepeatedcalls","type":"real"},{"name":"maxrepeatedshape","type":"int"},{"name":"avgrepeatedratio","type":"real"},{"name":"samplerepeatedshape","type":"string"},{"name":"avgrepeatedduration","type":"real"},{"name":"avgendpointduration","type":"real"}],"rows":[["GET /x",1000,15.5,50,12.0,40,0.8,"SELECT * FROM items WHERE id = ?",45.0,120.0]]}` +
 		`]}`
 	script := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
@@ -44,7 +45,7 @@ func fakeAzBatchScript(t *testing.T, capturePath string) string {
 }
 
 // TestQueryWindowMetricsBatched verifies that the full window telemetry is fetched
-// with a SINGLE az invocation (5 statements batched) and parsed into the right metrics
+// with a SINGLE az invocation (6 statements batched) and parsed into the right metrics
 func TestQueryWindowMetricsBatched(t *testing.T) {
 	prof := config.Profile{
 		Name: "Batch Test",
@@ -90,6 +91,10 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 	// 5. Fan-out parsed from table 5
 	if len(wm.Fanout) != 1 || wm.Fanout[0].AvgSQLCalls != 42.5 || wm.Fanout[0].MaxSQLCalls != 128 {
 		t.Errorf("fanout mismatch: %+v", wm.Fanout)
+	}
+	// 6. N+1 candidates parsed from table 6
+	if len(wm.NPlusOne) != 1 || wm.NPlusOne[0].Endpoint != "GET /x" || wm.NPlusOne[0].MaxRepeatedShape != 40 {
+		t.Errorf("n+1 mismatch: %+v", wm.NPlusOne)
 	}
 
 	// 6. Single az batch query invocation with semicolon-separated statements and correct routing

@@ -6,8 +6,24 @@
 package domain
 
 import (
+	"strings"
 	"time"
 )
+
+// CleanSubject strips HTTP method prefixes and leading slashes from subjects
+// e.g. "POST /checkout" -> "checkout", "/api/v1/orders" -> "api/v1/orders"
+func CleanSubject(raw string) string {
+	s := strings.TrimSpace(raw)
+	parts := strings.Fields(s)
+	if len(parts) >= 2 {
+		s = parts[1]
+	}
+	s = strings.TrimPrefix(s, "/")
+	if s == "" {
+		return raw
+	}
+	return s
+}
 
 // HealthState represents the environment health state.
 // AzLens has exactly three health states in v0.1 (Section 7).

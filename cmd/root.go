@@ -137,22 +137,7 @@ into clear, actionable stories with supporting evidence and next actions.`,
 			return err
 		}
 
-		detCfg := detectors.DefaultConfig()
-		if rt.Profile.Thresholds.LatencyWarnPct > 0 {
-			detCfg.LatencyWarnPct = rt.Profile.Thresholds.LatencyWarnPct
-		}
-		if rt.Profile.Thresholds.LatencyCritPct > 0 {
-			detCfg.LatencyCritPct = rt.Profile.Thresholds.LatencyCritPct
-		}
-		if rt.Profile.Thresholds.ErrorRateWarnDelta > 0 {
-			detCfg.ErrorRateWarnDelta = rt.Profile.Thresholds.ErrorRateWarnDelta
-		}
-		if rt.Profile.Thresholds.ErrorRateCritDelta > 0 {
-			detCfg.ErrorRateCritDelta = rt.Profile.Thresholds.ErrorRateCritDelta
-		}
-		if rt.Profile.Thresholds.MinSampleCalls > 0 {
-			detCfg.MinSampleCalls = rt.Profile.Thresholds.MinSampleCalls
-		}
+		detCfg := detectors.ConfigFromThresholds(rt.Profile.Thresholds)
 
 		engine := analysis.NewEngine(detCfg)
 		res := engine.Analyze(snapshot)
@@ -215,7 +200,7 @@ into clear, actionable stories with supporting evidence and next actions.`,
 		}
 		prof.Target.Service = targetService
 
-		// Resolve role_name and database strictly from declared service
+		// Resolve role_name, database, and dynamic filtering criteria strictly from declared service
 		prof.Target.Logs.Database = ""
 		if targetService != "" {
 			if sDef, ok := prof.Target.Services[targetService]; ok {
@@ -225,6 +210,9 @@ into clear, actionable stories with supporting evidence and next actions.`,
 				}
 				prof.Target.RoleName = role
 				prof.Target.Logs.Database = sDef.Database
+				prof.Target.Dependencies = config.MergeDependencies(prof.Target.Dependencies, sDef.Dependencies)
+				prof.Target.Exceptions = config.MergeExceptions(prof.Target.Exceptions, sDef.Exceptions)
+				prof.Target.Endpoints = config.MergeEndpoints(prof.Target.Endpoints, sDef.Endpoints)
 			} else {
 				prof.Target.RoleName = targetService
 			}

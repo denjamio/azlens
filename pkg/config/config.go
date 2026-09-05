@@ -54,14 +54,105 @@ type LogsConfig struct {
 // override the shared configuration.
 func BoolPtr(b bool) *bool { return &b }
 
+// DependenciesConfig configures dependency types and noise exclusion filters.
+type DependenciesConfig struct {
+	SQLTypes       []string `yaml:"sql_types,omitempty" json:"sql_types,omitempty"`
+	HTTPTypes      []string `yaml:"http_types,omitempty" json:"http_types,omitempty"`
+	CacheTypes     []string `yaml:"cache_types,omitempty" json:"cache_types,omitempty"`
+	IgnoredTargets []string `yaml:"ignored_targets,omitempty" json:"ignored_targets,omitempty"`
+}
+
+// ExceptionsConfig configures exception types and patterns to exclude at KQL query time.
+type ExceptionsConfig struct {
+	IgnoredTypes    []string `yaml:"ignored_types,omitempty" json:"ignored_types,omitempty"`
+	IgnoredMessages []string `yaml:"ignored_messages,omitempty" json:"ignored_messages,omitempty"`
+}
+
+// EndpointsConfig configures endpoint paths and user agents to exclude from request percentiles.
+type EndpointsConfig struct {
+	IgnoredEndpoints    []string `yaml:"ignored_endpoints,omitempty" json:"ignored_endpoints,omitempty"`
+	IgnoredUserAgents   []string `yaml:"ignored_user_agents,omitempty" json:"ignored_user_agents,omitempty"`
+	IgnoreDefaultProbes *bool    `yaml:"ignore_default_probes,omitempty" json:"ignore_default_probes,omitempty"`
+}
+
+// mergeStringSlices merges two string slices into a deduplicated list preserving order.
+func mergeStringSlices(base, overrides []string) []string {
+	if len(base) == 0 && len(overrides) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(base)+len(overrides))
+	var result []string
+	for _, s := range base {
+		s = strings.TrimSpace(s)
+		if s != "" && !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	for _, s := range overrides {
+		s = strings.TrimSpace(s)
+		if s != "" && !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// MergeDependencies combines base and override dependency filters.
+func MergeDependencies(base, override DependenciesConfig) DependenciesConfig {
+	res := base
+	if len(override.SQLTypes) > 0 {
+		res.SQLTypes = override.SQLTypes
+	}
+	if len(override.HTTPTypes) > 0 {
+		res.HTTPTypes = override.HTTPTypes
+	}
+	if len(override.CacheTypes) > 0 {
+		res.CacheTypes = override.CacheTypes
+	}
+	if len(override.IgnoredTargets) > 0 {
+		res.IgnoredTargets = mergeStringSlices(base.IgnoredTargets, override.IgnoredTargets)
+	}
+	return res
+}
+
+// MergeExceptions combines base and override exception filters.
+func MergeExceptions(base, override ExceptionsConfig) ExceptionsConfig {
+	return ExceptionsConfig{
+		IgnoredTypes:    mergeStringSlices(base.IgnoredTypes, override.IgnoredTypes),
+		IgnoredMessages: mergeStringSlices(base.IgnoredMessages, override.IgnoredMessages),
+	}
+}
+
+// MergeEndpoints combines base and override endpoint filters.
+func MergeEndpoints(base, override EndpointsConfig) EndpointsConfig {
+	res := EndpointsConfig{
+		IgnoredEndpoints:  mergeStringSlices(base.IgnoredEndpoints, override.IgnoredEndpoints),
+		IgnoredUserAgents: mergeStringSlices(base.IgnoredUserAgents, override.IgnoredUserAgents),
+	}
+	if override.IgnoreDefaultProbes != nil {
+		res.IgnoreDefaultProbes = override.IgnoreDefaultProbes
+	} else {
+		res.IgnoreDefaultProbes = base.IgnoreDefaultProbes
+	}
+	return res
+}
+
 // ServiceDef maps a service name to its Application Insights and database targeting dimensions:
 // - role_name: exact cloud_RoleName in Application Insights
 // - pod: cloud_RoleInstance token base (pod name without deployment hash)
 // - database: target database name for database slow logs (Db in MySqlSlowLogs)
+// - dependencies: custom dependency types and ignored targets
+// - exceptions: custom exception types and messages to exclude
+// - endpoints: custom endpoints and probes to exclude
 type ServiceDef struct {
-	RoleName string `yaml:"role_name,omitempty" json:"role_name,omitempty"`
-	Pod      string `yaml:"pod,omitempty" json:"pod,omitempty"`
-	Database string `yaml:"database,omitempty" json:"database,omitempty"`
+	RoleName     string             `yaml:"role_name,omitempty" json:"role_name,omitempty"`
+	Pod          string             `yaml:"pod,omitempty" json:"pod,omitempty"`
+	Database     string             `yaml:"database,omitempty" json:"database,omitempty"`
+	Dependencies DependenciesConfig `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	Exceptions   ExceptionsConfig   `yaml:"exceptions,omitempty" json:"exceptions,omitempty"`
+	Endpoints    EndpointsConfig    `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 }
 
 // TargetConfig encapsulates telemetry destination and filter criteria.
@@ -75,6 +166,9 @@ type ServiceDef struct {
 //   - logs.database     -> Db (MySqlSlowLogs in Log Analytics; mandatory tenant filter)
 //   - resource_id       -> _ResourceId (Log Analytics multi-resource workspaces)
 //   - custom_dimensions -> customDimensions['<key>'] =~ '<value>'
+//   - dependencies      -> dynamic dependency type and target filters
+//   - exceptions        -> dynamic exception type and message exclusion filters
+//   - endpoints         -> dynamic endpoint and probe exclusion filters
 type TargetConfig struct {
 	Insights         InsightsConfig        `yaml:"insights,omitempty" json:"insights,omitempty"`
 	Logs             LogsConfig            `yaml:"logs,omitempty" json:"logs,omitempty"`
@@ -84,6 +178,9 @@ type TargetConfig struct {
 	Pod              string                `yaml:"pod,omitempty" json:"pod,omitempty"`
 	ResourceID       string                `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`
 	CustomDimensions map[string]string     `yaml:"custom_dimensions,omitempty" json:"custom_dimensions,omitempty"`
+	Dependencies     DependenciesConfig    `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	Exceptions       ExceptionsConfig      `yaml:"exceptions,omitempty" json:"exceptions,omitempty"`
+	Endpoints        EndpointsConfig       `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 }
 
 // MergeTarget combines shared and profile-specific target configs: the profile
@@ -147,7 +244,9 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 		}
 		merged.CustomDimensions = dims
 	}
-
+	merged.Dependencies = MergeDependencies(shared.Dependencies, override.Dependencies)
+	merged.Exceptions = MergeExceptions(shared.Exceptions, override.Exceptions)
+	merged.Endpoints = MergeEndpoints(shared.Endpoints, override.Endpoints)
 	return merged
 }
 
@@ -467,7 +566,6 @@ func LoadConfig(explicitPath string) (*Config, error) {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "⚠️  Warning: no configuration file found (azlens.yaml or ~/.config/azlens/azlens.yaml); using default placeholder config. Run 'azlens config init' to create one.")
 	return DefaultConfig(), nil
 }
 

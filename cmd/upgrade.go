@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -274,6 +275,27 @@ func fileSHA256(path string) (string, error) {
 }
 
 func extractBinary(assetPath, assetName string, destFile *os.File) error {
+	if strings.HasSuffix(assetName, ".zip") {
+		zr, err := zip.OpenReader(assetPath)
+		if err != nil {
+			return err
+		}
+		defer zr.Close()
+		for _, f := range zr.File {
+			baseName := filepath.Base(f.Name)
+			if baseName == "azlens" || baseName == "azlens.exe" {
+				rc, err := f.Open()
+				if err != nil {
+					return err
+				}
+				defer rc.Close()
+				_, err = io.Copy(destFile, rc)
+				return err
+			}
+		}
+		return fmt.Errorf("azlens binary not found inside zip archive")
+	}
+
 	if !strings.HasSuffix(assetName, ".tar.gz") && !strings.HasSuffix(assetName, ".tgz") {
 		src, err := os.Open(assetPath)
 		if err != nil {
@@ -306,7 +328,8 @@ func extractBinary(assetPath, assetName string, destFile *os.File) error {
 			return err
 		}
 
-		if hdr.Name == "azlens" || strings.HasSuffix(hdr.Name, "/azlens") {
+		baseName := filepath.Base(hdr.Name)
+		if baseName == "azlens" || baseName == "azlens.exe" {
 			_, err = io.Copy(destFile, tr)
 			return err
 		}

@@ -11,8 +11,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mattn/go-runewidth"
-
-	"github.com/denjamio/azlens/pkg/model"
 )
 
 // Column alignment semantics for the modern table renderer
@@ -367,20 +365,6 @@ func deltaPctColor(pct float64) *color.Color {
 	case pct >= RegressionWarnPct:
 		return colorYellow
 	case pct <= RegressionImprovePct:
-		return colorGreen
-	default:
-		return nil
-	}
-}
-
-// severityColor maps a regression severity to its status color
-func severityColor(sev model.RegressionSeverity) *color.Color {
-	switch sev {
-	case model.SeverityCritical:
-		return colorRed
-	case model.SeverityWarning:
-		return colorYellow
-	case model.SeverityImprove, model.SeverityNone:
 		return colorGreen
 	default:
 		return nil

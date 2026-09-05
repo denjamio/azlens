@@ -27,7 +27,7 @@ const (
 // Latency bands in milliseconds, per telemetry class.
 // API/gRPC endpoints: <300ms fast, >=1s crosses the universal "1-second rule".
 // DB statements: <100ms healthy, >=1s is MySQL long_query_time territory.
-// Cache round-trips (Redis/Memcached): sub-millisecond ideal; >5ms review.
+// Cache round-trips (Redis): sub-millisecond ideal; >5ms review.
 const (
 	APILatencyWarnMs   = 300.0
 	APILatencyCritMs   = 1000.0
@@ -96,9 +96,9 @@ func nPlusOneColor(calls float64) *color.Color {
 // get their own reference values instead of one arbitrary compromise
 func latencyColorForDepType(depType string, ms float64) *color.Color {
 	switch strings.ToLower(strings.TrimSpace(depType)) {
-	case "redis", "azure redis", "memcached":
+	case "redis", "azure redis":
 		return cacheLatencyColor(ms)
-	case "sql", "azure sql", "sqlserver", "sql server", "postgresql", "postgres", "mysql", "azure documentdb", "cosmos", "cosmosdb":
+	case "sql", "azure sql", "postgresql", "postgres", "mysql":
 		return dbLatencyColor(ms)
 	default:
 		return apiLatencyColor(ms)

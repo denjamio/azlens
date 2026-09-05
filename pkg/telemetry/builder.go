@@ -112,19 +112,30 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	var pBase *model.WindowMetrics
 	if baseErr == nil {
 		pBase = &baseWM
+	} else {
+		snapshot.QueryErrors[domain.CapabilityRequests] = baseErr
+		snapshot.CapabilityStates[domain.CapabilityRequests] = domain.CapabilityStateUnavailable
 	}
 	PopulateSnapshotMetrics(snapshot, pBase, &currWM)
 
 	// Set freshness
-	now := time.Now()
 	if currWM.Overall.TotalCalls > 0 {
-		snapshot.Freshness.RequestsLastSeen = &now
+		reqLast := end
+		for _, e := range currWM.Errors {
+			if e.LastSeen.After(reqLast) {
+				reqLast = e.LastSeen
+			}
+		}
+		snapshot.Freshness.RequestsLastSeen = &reqLast
 	}
 
 	// If slow logs are configured, fetch them
 	if prof.Target.Logs.Database != "" {
 		slowGroups, err := b.client.QueryMySQLSlowLogsGrouped(ctx, start, end, prof.Target.Logs.Database, 15)
-		if err == nil {
+		if err != nil {
+			snapshot.QueryErrors[domain.CapabilityDatabaseSlowLogs] = err
+			snapshot.CapabilityStates[domain.CapabilityDatabaseSlowLogs] = domain.CapabilityStateUnavailable
+		} else {
 			snapshot.SlowLogs = slowGroups
 		}
 	}
@@ -144,6 +155,7 @@ func PopulateSnapshotMetrics(snapshot *domain.Snapshot, baseWM *model.WindowMetr
 		snapshot.BaselineDependencies = baseWM.Deps
 		snapshot.BaselineExceptions = baseWM.Errors
 		snapshot.BaselineFanout = baseWM.Fanout
+		snapshot.BaselineNPlusOne = baseWM.NPlusOne
 	}
 	if currWM != nil {
 		snapshot.CurrentOverall = currWM.Overall
@@ -151,5 +163,6 @@ func PopulateSnapshotMetrics(snapshot *domain.Snapshot, baseWM *model.WindowMetr
 		snapshot.CurrentDependencies = currWM.Deps
 		snapshot.CurrentExceptions = currWM.Errors
 		snapshot.CurrentFanout = currWM.Fanout
+		snapshot.CurrentNPlusOne = currWM.NPlusOne
 	}
 }

@@ -374,3 +374,90 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 		t.Errorf("expected time filter in both union branches, got %d, in: %s", got, q)
 	}
 }
+
+func TestBuilderDynamicSQLDependency(t *testing.T) {
+	b, _ := NewBuilder("dependencies")
+	start := time.Now().Add(-1 * time.Hour)
+	end := time.Now()
+
+	// 1. Single SQL type -> type =~ 'PostgreSQL'
+	target := config.TargetConfig{
+		RoleName: "order-service",
+		Dependencies: config.DependenciesConfig{
+			SQLTypes:       []string{"PostgreSQL"},
+			IgnoredTargets: []string{"localhost:8080"},
+		},
+	}
+	tq := b.WithTimeRange(start, end).WithTarget(target).BuildDependenciesSummary("SQL")
+	q := tq.Query
+	if !strings.Contains(q, "type =~ 'PostgreSQL'") {
+		t.Errorf("expected type =~ 'PostgreSQL', got: %s", q)
+	}
+	if strings.Contains(q, "type in~ ('SQL', 'Azure SQL'") {
+		t.Errorf("expected dynamic query to avoid hardcoded default predicate, got: %s", q)
+	}
+	if !strings.Contains(q, "| where not(target in~ ('localhost:8080'))") {
+		t.Errorf("expected ignored target filter, got: %s", q)
+	}
+
+	// 2. Multiple SQL types -> type in~ ('PostgreSQL', 'mysql')
+	targetMulti := config.TargetConfig{
+		RoleName: "order-service",
+		Dependencies: config.DependenciesConfig{
+			SQLTypes: []string{"PostgreSQL", "mysql"},
+		},
+	}
+	tqMulti := b.WithTimeRange(start, end).WithTarget(targetMulti).BuildDependenciesSummary("SQL")
+	if !strings.Contains(tqMulti.Query, "type in~ ('PostgreSQL', 'mysql')") {
+		t.Errorf("expected type in~ ('PostgreSQL', 'mysql'), got: %s", tqMulti.Query)
+	}
+}
+
+func TestBuilderDynamicExceptions(t *testing.T) {
+	b, _ := NewBuilder("exceptions")
+	start := time.Now().Add(-1 * time.Hour)
+	end := time.Now()
+	target := config.TargetConfig{
+		RoleName: "order-service",
+		Exceptions: config.ExceptionsConfig{
+			IgnoredTypes:    []string{"OperationCanceledException", "TaskCanceledException"},
+			IgnoredMessages: []string{"context canceled"},
+		},
+	}
+
+	tq := b.WithTimeRange(start, end).WithTarget(target).BuildExceptionsSummary()
+	q := tq.Query
+	if !strings.Contains(q, "| where not(type in~ ('OperationCanceledException', 'TaskCanceledException'))") {
+		t.Errorf("expected ignored types filter in exceptions query, got: %s", q)
+	}
+	if !strings.Contains(q, "has_any ('context canceled')") {
+		t.Errorf("expected ignored message filter in exceptions query, got: %s", q)
+	}
+}
+
+func TestBuilderDynamicEndpoints(t *testing.T) {
+	b, _ := NewBuilder("requests")
+	start := time.Now().Add(-1 * time.Hour)
+	end := time.Now()
+	target := config.TargetConfig{
+		RoleName: "order-service",
+		Endpoints: config.EndpointsConfig{
+			IgnoredEndpoints:  []string{"/metrics", "/swagger"},
+			IgnoredUserAgents: []string{"Datadog"},
+		},
+	}
+
+	tq := b.WithTimeRange(start, end).WithTarget(target).BuildEndpointsSummary()
+	q := tq.Query
+	if !strings.Contains(q, "'/metrics'") || !strings.Contains(q, "'/swagger'") {
+		t.Errorf("expected custom ignored endpoints in query, got: %s", q)
+	}
+	if !strings.Contains(q, "'Datadog'") {
+		t.Errorf("expected custom ignored user-agents in query, got: %s", q)
+	}
+	// Defaults should still be preserved
+	if !strings.Contains(q, "'/healthz'") {
+		t.Errorf("expected default /healthz to be preserved, got: %s", q)
+	}
+}
+

@@ -44,6 +44,9 @@ func parseDurationWindow(input string) (time.Time, time.Time, error) {
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
+	if dur <= 0 {
+		return time.Time{}, time.Time{}, fmt.Errorf("window duration must be positive, got %q", input)
+	}
 	return now.Add(-dur), now, nil
 }
 

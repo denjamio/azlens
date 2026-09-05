@@ -139,29 +139,3 @@ func TestPrintLatencyBreakdownTable(t *testing.T) {
 		t.Errorf("expected percentage in output, got: %s", out)
 	}
 }
-
-func TestPrintDiffTerminalVerdicts(t *testing.T) {
-	now := time.Now()
-	testCases := []struct {
-		verdict  model.RegressionSeverity
-		expected string
-	}{
-		{model.SeverityWarning, "WARNING (Degradations detected)"},
-		{model.SeverityImprove, "IMPROVED (Performance improved after deploy)"},
-		{model.SeverityNone, "HEALTHY (No significant regressions detected)"},
-	}
-
-	for _, tc := range testCases {
-		report := model.DiffReport{
-			AppName:        "checkout-svc",
-			BaselineWindow: model.TimeWindow{Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour)},
-			CurrentWindow:  model.TimeWindow{Start: now.Add(-time.Hour), End: now},
-			OverallVerdict: tc.verdict,
-		}
-		var buf bytes.Buffer
-		PrintDiffTerminal(&buf, report)
-		if !strings.Contains(buf.String(), tc.expected) {
-			t.Errorf("expected %q in output for verdict %v, got: %s", tc.expected, tc.verdict, buf.String())
-		}
-	}
-}

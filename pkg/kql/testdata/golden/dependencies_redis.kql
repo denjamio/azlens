@@ -1,7 +1,7 @@
 dependencies
 | where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
 | where cloud_RoleName =~ 'order-service'
-| where type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'
+| where type in~ ('Redis', 'Azure Redis') or type has 'redis'
 | summarize 
     TotalCalls = count(),
     FailedCalls = countif(success == false),

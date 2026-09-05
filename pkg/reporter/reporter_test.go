@@ -9,51 +9,14 @@ import (
 	"github.com/denjamio/azlens/pkg/model"
 )
 
-func TestReporterOutputs(t *testing.T) {
-	now := time.Now()
-	report := model.DiffReport{
-		AppName:        "test-service",
-		BaselineWindow: model.TimeWindow{Start: now.Add(-2 * time.Hour), End: now.Add(-1 * time.Hour)},
-		CurrentWindow:  model.TimeWindow{Start: now.Add(-1 * time.Hour), End: now},
-		OverallVerdict: model.SeverityCritical,
-		SummaryDeltas: []model.MetricDelta{
-			{MetricName: "P95 Latency", Baseline: 100.0, Current: 250.0, Delta: 150.0, Percentage: 150.0, Unit: "ms", Severity: model.SeverityCritical},
-		},
-		EndpointDeltas: []model.EndpointDiff{
-			{Name: "POST /checkout", Baseline: model.RequestMetric{Latency: model.LatencyPercentiles{P95: 100.0}}, Current: model.RequestMetric{Latency: model.LatencyPercentiles{P95: 250.0}}, P95DeltaPct: 150.0, Severity: model.SeverityCritical},
-		},
-		RootCauseHints: []string{"Degraded endpoint POST /checkout correlated with regressed SQL"},
-	}
-
-	// 1. Terminal Output
-	var termBuf bytes.Buffer
-	PrintDiffTerminal(&termBuf, report)
-	termOut := termBuf.String()
-	if !strings.Contains(termOut, "AZLENS DEPLOY REGRESSION REPORT") {
-		t.Errorf("expected header in terminal output, got: %s", termOut)
-	}
-	if !strings.Contains(termOut, "Root-Cause & Correlation Insights") {
-		t.Errorf("expected root cause in terminal output, got: %s", termOut)
-	}
-
-	// 2. Markdown Output
-	var mdBuf bytes.Buffer
-	PrintDiffMarkdown(&mdBuf, report)
-	mdOut := mdBuf.String()
-	if !strings.Contains(mdOut, "## 🚀 AzLens Deployment Regression Report") {
-		t.Errorf("expected markdown title, got: %s", mdOut)
-	}
-	if !strings.Contains(mdOut, "Root-Cause & Correlation Insights") {
-		t.Errorf("expected root cause in markdown output, got: %s", mdOut)
-	}
-
-	// 3. JSON Output
+func TestPrintJSONOutput(t *testing.T) {
 	var jsonBuf bytes.Buffer
-	if err := PrintJSON(&jsonBuf, report); err != nil {
+	data := map[string]string{"service": "test-service", "status": "ok"}
+	if err := PrintJSON(&jsonBuf, data); err != nil {
 		t.Fatalf("failed rendering JSON: %v", err)
 	}
-	if !strings.Contains(jsonBuf.String(), `"app_name": "test-service"`) {
-		t.Errorf("expected app_name in JSON, got: %s", jsonBuf.String())
+	if !strings.Contains(jsonBuf.String(), `"service": "test-service"`) {
+		t.Errorf("expected service in JSON, got: %s", jsonBuf.String())
 	}
 }
 

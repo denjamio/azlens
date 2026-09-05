@@ -64,16 +64,7 @@ Exact matches win; ambiguous matches return deterministic candidates without gue
 		}
 
 		// 2. Analyze snapshot
-		detCfg := detectors.DefaultConfig()
-		if rt.Profile.Thresholds.LatencyWarnPct > 0 {
-			detCfg.LatencyWarnPct = rt.Profile.Thresholds.LatencyWarnPct
-		}
-		if rt.Profile.Thresholds.LatencyCritPct > 0 {
-			detCfg.LatencyCritPct = rt.Profile.Thresholds.LatencyCritPct
-		}
-		if rt.Profile.Thresholds.MinSampleCalls > 0 {
-			detCfg.MinSampleCalls = rt.Profile.Thresholds.MinSampleCalls
-		}
+		detCfg := detectors.ConfigFromThresholds(rt.Profile.Thresholds)
 
 		engine := analysis.NewEngine(detCfg)
 		res := engine.Analyze(snap)
@@ -285,16 +276,7 @@ func findProblemForScope(problems []domain.Problem, name string) *domain.Problem
 }
 
 func cleanSubject(raw string) string {
-	s := strings.TrimSpace(raw)
-	parts := strings.Fields(s)
-	if len(parts) >= 2 {
-		s = parts[1]
-	}
-	s = strings.TrimPrefix(s, "/")
-	if s == "" {
-		return raw
-	}
-	return s
+	return domain.CleanSubject(raw)
 }
 
 func init() {

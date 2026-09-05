@@ -495,3 +495,78 @@ profiles:
 		t.Errorf("expected legacy service database '', got %q", prod.Target.Services["legacy"].Database)
 	}
 }
+
+func TestDynamicServiceFilters(t *testing.T) {
+	yamlData := `
+role_name: checkout-svc
+dependencies:
+  sql_types:
+    - PostgreSQL
+  cache_types:
+    - Redis
+  ignored_targets:
+    - localhost:8080
+exceptions:
+  ignored_types:
+    - OperationCanceledException
+    - TaskCanceledException
+  ignored_messages:
+    - "context canceled"
+endpoints:
+  ignored_endpoints:
+    - /metrics
+    - /livez
+  ignored_user_agents:
+    - Prometheus
+`
+	var sDef ServiceDef
+	if err := yaml.Unmarshal([]byte(yamlData), &sDef); err != nil {
+		t.Fatalf("failed unmarshaling service def with dynamic filters: %v", err)
+	}
+
+	if len(sDef.Dependencies.SQLTypes) != 1 || sDef.Dependencies.SQLTypes[0] != "PostgreSQL" {
+		t.Errorf("expected SQLTypes [PostgreSQL], got %v", sDef.Dependencies.SQLTypes)
+	}
+	if len(sDef.Dependencies.CacheTypes) != 1 || sDef.Dependencies.CacheTypes[0] != "Redis" {
+		t.Errorf("expected CacheTypes [Redis], got %v", sDef.Dependencies.CacheTypes)
+	}
+	if len(sDef.Dependencies.IgnoredTargets) != 1 || sDef.Dependencies.IgnoredTargets[0] != "localhost:8080" {
+		t.Errorf("expected IgnoredTargets [localhost:8080], got %v", sDef.Dependencies.IgnoredTargets)
+	}
+	if len(sDef.Exceptions.IgnoredTypes) != 2 || sDef.Exceptions.IgnoredTypes[0] != "OperationCanceledException" {
+		t.Errorf("expected IgnoredTypes [OperationCanceledException TaskCanceledException], got %v", sDef.Exceptions.IgnoredTypes)
+	}
+	if len(sDef.Endpoints.IgnoredEndpoints) != 2 || sDef.Endpoints.IgnoredEndpoints[0] != "/metrics" {
+		t.Errorf("expected IgnoredEndpoints [/metrics /livez], got %v", sDef.Endpoints.IgnoredEndpoints)
+	}
+}
+
+func TestMergeDynamicFilters(t *testing.T) {
+	baseDep := DependenciesConfig{
+		SQLTypes:       []string{"SQL"},
+		IgnoredTargets: []string{"localhost"},
+	}
+	overrideDep := DependenciesConfig{
+		SQLTypes:       []string{"PostgreSQL"},
+		IgnoredTargets: []string{"consul"},
+	}
+	mergedDep := MergeDependencies(baseDep, overrideDep)
+	if len(mergedDep.SQLTypes) != 1 || mergedDep.SQLTypes[0] != "PostgreSQL" {
+		t.Errorf("expected overridden SQLTypes [PostgreSQL], got %v", mergedDep.SQLTypes)
+	}
+	if len(mergedDep.IgnoredTargets) != 2 {
+		t.Errorf("expected combined IgnoredTargets [localhost consul], got %v", mergedDep.IgnoredTargets)
+	}
+
+	baseExc := ExceptionsConfig{
+		IgnoredTypes: []string{"BaseException"},
+	}
+	overrideExc := ExceptionsConfig{
+		IgnoredTypes: []string{"TaskCanceledException"},
+	}
+	mergedExc := MergeExceptions(baseExc, overrideExc)
+	if len(mergedExc.IgnoredTypes) != 2 {
+		t.Errorf("expected combined IgnoredTypes, got %v", mergedExc.IgnoredTypes)
+	}
+}
+

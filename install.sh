@@ -95,12 +95,12 @@ if [ -n "${LATEST_TAG}" ]; then
           exit 1
         fi
       else
-        echo -e "${YELLOW}⚠️  No checksum entry found for ${TARBALL}; skipping verification.${NC}"
-        CHECKSUMS_OK=true
+        echo -e "${RED}❌ No checksum entry found for ${TARBALL} in checksums.txt. Aborting.${NC}"
+        exit 1
       fi
     else
-      echo -e "${YELLOW}⚠️  checksums.txt not available for ${LATEST_TAG}; skipping verification.${NC}"
-      CHECKSUMS_OK=true
+      echo -e "${RED}❌ checksums.txt not available for ${LATEST_TAG}. Aborting.${NC}"
+      exit 1
     fi
 
     if [ "${CHECKSUMS_OK}" = true ]; then

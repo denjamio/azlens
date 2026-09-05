@@ -5,6 +5,31 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-05
+
+### Added
+
+- **Dynamic Service Filters in KQL**:
+  - Configurable `dependencies` per service (`sql_types`, `http_types`, `cache_types`, `ignored_targets`), enabling custom data store classifications and target filtering.
+  - Configurable `exceptions` per service (`ignored_types`, `ignored_messages`) to suppress known expected errors directly in KQL without network transfer.
+  - Configurable `endpoints` per service (`ignored_endpoints`, `ignored_user_agents`, `ignore_default_probes`) for custom health probe filtering and route exclusions.
+  - Fully backward compatible: unconfigured services automatically use standard defaults.
+
+### Fixed
+
+- **Threshold Wiring in `azlens explain`**: Unified threshold resolution via `detectors.ConfigFromThresholds(rt.Profile.Thresholds)`, fixing dropped `ErrorRateWarnDelta` and `ErrorRateCritDelta`.
+- **Telemetry Query Error Propagation**: Baseline query failures and database slow log errors are now recorded in `snapshot.QueryErrors` and mark capability status as `unavailable` instead of being silently swallowed.
+- **N+1 Query Candidate Detection**: Activated batched `qNPlusOne` querying in `QueryWindowMetrics` and populated `snapshot.BaselineNPlusOne` / `snapshot.CurrentNPlusOne` in production telemetry pipelines.
+- **Windows Binary Extraction**: Added ZIP archive extraction handling in `azlens upgrade` for Windows releases.
+- **Duration Window Validation**: Prevented invalid or non-positive durations (`<= 0`) in `parseDurationWindow`.
+- **Azure Resource Error Narrowing**: Restricted Azure CLI "not found" classification to genuine ARM/CLI markers, avoiding confusion with KQL table/column names.
+- **Strict Checksum Verification in `install.sh`**: Script now aborts immediately if checksums cannot be verified or `checksums.txt` is missing.
+
+### Removed
+
+- **Legacy Diff Model and Reporters**: Purged obsolete structs (`DiffReport`, `FanoutDiff`, `EndpointDiff`, `DependencyDiff`, `TimeWindow`) and orphaned terminal/markdown diff renderers in favor of `telemetry.SnapshotBuilder` and `analysis.Engine`.
+- **Legacy Dependency Literals**: Removed redundant SQL Server (`'SqlServer'`, `'SQL Server'`), Cosmos DB, and Memcached (`'Memcached'`, `memcached`) hardcoded matches from built-in KQL query predicates and threshold categorizations (users requiring these can declare them dynamically in `dependencies`).
+
 ## [1.1.17] - 2026-09-05
 
 ### Changed

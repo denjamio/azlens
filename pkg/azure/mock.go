@@ -398,13 +398,13 @@ func (m *MockClient) QueryNPlusOneCandidates(ctx context.Context, start, end tim
 		{
 			Endpoint:              "GET /api/v1/products/recommendations",
 			TotalRequests:         28500,
-			AvgSQLCalls:           18.0,
-			MaxSQLCalls:           43,
-			AvgRepeatedCalls:      15.0,
-			MaxRepeatedShape:      22,
-			AvgRepeatedRatio:      83.3,
+			AvgSQLCalls:           1.2,
+			MaxSQLCalls:           3,
+			AvgRepeatedCalls:      1.0,
+			MaxRepeatedShape:      1,
+			AvgRepeatedRatio:      3.5,
 			SampleRepeatedShape:   "sqldb-orders-prod: SELECT * FROM Products WHERE Id = @p0",
-			AvgRepeatedDurationMs: 78.0,
+			AvgRepeatedDurationMs: 4.0,
 			AvgEndpointDurationMs: 137.0,
 		},
 	}, nil
@@ -483,6 +483,7 @@ func (m *MockClient) QueryWindowMetrics(ctx context.Context, start, end time.Tim
 			kql.BuildSlowDependenciesQuery(start, end, m.opts.Profile.Target, "", topN),
 			kql.BuildExceptionsSummaryQuery(start, end, m.opts.Profile.Target, topN),
 			kql.BuildFanoutSummaryQuery(start, end, m.opts.Profile.Target, topN),
+			kql.BuildNPlusOneCandidateQuery(start, end, m.opts.Profile.Target, topN),
 		}
 		var sb strings.Builder
 		for i, q := range batch {
@@ -514,6 +515,10 @@ func (m *MockClient) QueryWindowMetrics(ctx context.Context, start, end time.Tim
 	if err != nil {
 		return model.WindowMetrics{}, err
 	}
+	nplusone, err := m.QueryNPlusOneCandidates(ctx, start, end, topN)
+	if err != nil {
+		return model.WindowMetrics{}, err
+	}
 
 	return model.WindowMetrics{
 		Overall:   overall,
@@ -521,6 +526,7 @@ func (m *MockClient) QueryWindowMetrics(ctx context.Context, start, end time.Tim
 		Deps:      deps,
 		Errors:    errs,
 		Fanout:    fanout,
+		NPlusOne:  nplusone,
 	}, nil
 }
 

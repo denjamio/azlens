@@ -179,10 +179,79 @@ func (b *QueryBuilder) buildBaseFilters() string {
 	return sb.String()
 }
 
-// probeExclusionClause excludes internal health check probes and load balancer pingers
-// from request latency percentiles and throughput measurements
-func probeExclusionClause() string {
+// defaultProbeEndpoints lists standard framework health check endpoints
+var defaultProbeEndpoints = []string{
+	"/healthz", "/readyz", "/livez", "/startupz", "/health", "/healthcheck",
+	"/ping", "/status", "/ready", "/live", "/up", "rails/health",
+	"HealthController", "/actuator/health", "/actuator/info",
+}
+
+// defaultProbeUserAgents lists standard infrastructure probe User-Agents
+var defaultProbeUserAgents = []string{
+	"kube-probe", "GoogleHC", "ELB-HealthChecker", "ReadyForTraffic", "Consul", "Prometheus",
+}
+
+func defaultProbeExclusionClause() string {
 	return "| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info'))\n| where isempty(customDimensions['User-Agent']) or not(tostring(customDimensions['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n"
+}
+
+func (b *QueryBuilder) probeExclusionClause() string {
+	if len(b.target.Endpoints.IgnoredEndpoints) == 0 && len(b.target.Endpoints.IgnoredUserAgents) == 0 && (b.target.Endpoints.IgnoreDefaultProbes == nil || *b.target.Endpoints.IgnoreDefaultProbes) {
+		return defaultProbeExclusionClause()
+	}
+
+	var endpoints []string
+	if b.target.Endpoints.IgnoreDefaultProbes == nil || *b.target.Endpoints.IgnoreDefaultProbes {
+		endpoints = append(endpoints, defaultProbeEndpoints...)
+	}
+	endpoints = append(endpoints, b.target.Endpoints.IgnoredEndpoints...)
+
+	var userAgents []string
+	if b.target.Endpoints.IgnoreDefaultProbes == nil || *b.target.Endpoints.IgnoreDefaultProbes {
+		userAgents = append(userAgents, defaultProbeUserAgents...)
+	}
+	userAgents = append(userAgents, b.target.Endpoints.IgnoredUserAgents...)
+
+	var sb strings.Builder
+	if len(endpoints) > 0 {
+		var formatted []string
+		for _, e := range endpoints {
+			if trimmed := strings.TrimSpace(e); trimmed != "" {
+				formatted = append(formatted, fmt.Sprintf("'%s'", sanitize(trimmed)))
+			}
+		}
+		if len(formatted) > 0 {
+			sb.WriteString(fmt.Sprintf("| where not(name has_any (%s))\n", strings.Join(formatted, ", ")))
+		}
+	}
+	if len(userAgents) > 0 {
+		var formatted []string
+		for _, u := range userAgents {
+			if trimmed := strings.TrimSpace(u); trimmed != "" {
+				formatted = append(formatted, fmt.Sprintf("'%s'", sanitize(trimmed)))
+			}
+		}
+		if len(formatted) > 0 {
+			sb.WriteString(fmt.Sprintf("| where isempty(customDimensions['User-Agent']) or not(tostring(customDimensions['User-Agent']) has_any (%s))\n", strings.Join(formatted, ", ")))
+		}
+	}
+	return sb.String()
+}
+
+func (b *QueryBuilder) sqlDependencyPredicate() string {
+	return DynamicSQLDependencyPredicate(b.target.Dependencies.SQLTypes)
+}
+
+func (b *QueryBuilder) httpDependencyPredicate() string {
+	return DynamicHTTPDependencyPredicate(b.target.Dependencies.HTTPTypes)
+}
+
+func (b *QueryBuilder) redisDependencyPredicate() string {
+	return DynamicRedisDependencyPredicate(b.target.Dependencies.CacheTypes)
+}
+
+func (b *QueryBuilder) dependencyCategoryFilter(depType string) string {
+	return DynamicDependencyCategoryFilter(depType, b.target.Dependencies.SQLTypes, b.target.Dependencies.HTTPTypes, b.target.Dependencies.CacheTypes)
 }
 
 // BuildRequestsSummary calculates throughput, failure rate, duration percentiles, and HTTP status breakdown.
@@ -194,7 +263,7 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
 		return TargetQuery{ID: QueryIDRequestsSummary, Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
-	q := base + probeExclusionClause() + `| summarize 
+	q := base + b.probeExclusionClause() + `| summarize 
     TotalCalls = count(),
     FailedCalls = countif(success == false),
     AvgDuration = avg(duration),
@@ -222,7 +291,7 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
 		return TargetQuery{ID: QueryIDRequestsEndpoints, Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
-	q := base + probeExclusionClause() + fmt.Sprintf(`| summarize 
+	q := base + b.probeExclusionClause() + fmt.Sprintf(`| summarize 
     TotalCalls = count(),
     FailedCalls = countif(success == false),
     AvgDuration = avg(duration),
@@ -252,7 +321,18 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 	}
 	var sb strings.Builder
 	sb.WriteString(b.buildBaseClauses())
-	sb.WriteString(DependencyCategoryFilter(depType))
+	sb.WriteString(b.dependencyCategoryFilter(depType))
+	if len(b.target.Dependencies.IgnoredTargets) > 0 {
+		var cleanTargets []string
+		for _, t := range b.target.Dependencies.IgnoredTargets {
+			if trimmed := strings.TrimSpace(t); trimmed != "" {
+				cleanTargets = append(cleanTargets, fmt.Sprintf("'%s'", sanitize(trimmed)))
+			}
+		}
+		if len(cleanTargets) > 0 {
+			sb.WriteString(fmt.Sprintf("| where not(target in~ (%s))\n", strings.Join(cleanTargets, ", ")))
+		}
+	}
 
 	sb.WriteString(fmt.Sprintf(`| summarize 
     TotalCalls = count(),
@@ -276,6 +356,29 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 		return TargetQuery{ID: QueryIDExceptionsSummary, Backend: b.backend, Err: err}
 	}
 	exceptionsBase := b.buildBaseFilters()
+	if len(b.target.Exceptions.IgnoredTypes) > 0 {
+		var cleanTypes []string
+		for _, t := range b.target.Exceptions.IgnoredTypes {
+			if trimmed := strings.TrimSpace(t); trimmed != "" {
+				cleanTypes = append(cleanTypes, fmt.Sprintf("'%s'", sanitize(trimmed)))
+			}
+		}
+		if len(cleanTypes) > 0 {
+			exceptionsBase += fmt.Sprintf("| where not(type in~ (%s))\n", strings.Join(cleanTypes, ", "))
+		}
+	}
+	if len(b.target.Exceptions.IgnoredMessages) > 0 {
+		var cleanMsgs []string
+		for _, m := range b.target.Exceptions.IgnoredMessages {
+			if trimmed := strings.TrimSpace(m); trimmed != "" {
+				cleanMsgs = append(cleanMsgs, fmt.Sprintf("'%s'", sanitize(trimmed)))
+			}
+		}
+		if len(cleanMsgs) > 0 {
+			exceptionsBase += fmt.Sprintf("| where not(coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, \"<empty>\") has_any (%s))\n", strings.Join(cleanMsgs, ", "))
+		}
+	}
+
 	reqBuilder := mustBuilder("requests").WithTimeRange(b.startTime, b.endTime).WithTarget(b.target)
 	requestsBase := reqBuilder.buildBaseFilters()
 
@@ -344,7 +447,7 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
     P99_Calls = todouble(P_Calls[4])
 | where P95_Calls > 1.0 or MaxSqlCalls >= 5 or AvgSqlCalls > 1.0
 | project Endpoint, TotalRequests, AvgSqlCalls, P50_Calls, P75_Calls, P90_Calls, P95_Calls, P99_Calls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
-| top %d by P95_Calls desc`, depFilters, SQLDependencyPredicate(), b.limit)
+| top %d by P95_Calls desc`, depFilters, b.sqlDependencyPredicate(), b.limit)
 	return TargetQuery{ID: QueryIDFanoutSQL, Query: q, Backend: b.backend}
 }
 
@@ -397,7 +500,7 @@ func (b *QueryBuilder) BuildNPlusOneCandidateSummary() TargetQuery {
   by Endpoint
 | where AvgRepeatedRatio >= 40.0 and MaxRepeatedShape >= 5
 | project Endpoint, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgRepeatedCalls, MaxRepeatedShape, AvgRepeatedRatio, SampleRepeatedShape, AvgRepeatedDuration, AvgEndpointDuration
-| top %d by MaxRepeatedShape desc`, SQLDependencyPredicate(), reqFilters, b.limit)
+| top %d by MaxRepeatedShape desc`, b.sqlDependencyPredicate(), reqFilters, b.limit)
 
 	return TargetQuery{ID: QueryIDNPlusOneCandidate, Query: q, Backend: b.backend}
 }
@@ -445,7 +548,7 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
     PctResidual = iff(AvgTotal > 0, round(100.0 * AvgResidual / AvgTotal, 1), 0.0),
     HasOverlap = iff(OverlapCount > 0, true, false)
 | project Endpoint, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctResidual, HasOverlap
-| top %d by AvgTotalMs desc`, depFilters, SQLDependencyPredicate(), RedisDependencyPredicate(), HTTPDependencyPredicate(), b.limit)
+| top %d by AvgTotalMs desc`, depFilters, b.sqlDependencyPredicate(), b.redisDependencyPredicate(), b.httpDependencyPredicate(), b.limit)
 	return TargetQuery{ID: QueryIDLatencyBreakdown, Query: q, Backend: b.backend}
 }
 
