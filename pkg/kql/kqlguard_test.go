@@ -36,7 +36,6 @@ func TestValidateQueriesWithKqlGuard(t *testing.T) {
 		"dependencies_sql.kql":      BuildSlowDependenciesQuery(start, end, target, "SQL", 15),
 		"dependencies_http.kql":     BuildSlowDependenciesQuery(start, end, target, "HTTP", 15),
 		"dependencies_redis.kql":    BuildSlowDependenciesQuery(start, end, target, "REDIS", 15),
-		"dependencies_cosmos.kql":   BuildSlowDependenciesQuery(start, end, target, "COSMOS", 15),
 		"dependencies_all.kql":      BuildSlowDependenciesQuery(start, end, target, "", 15),
 		"exceptions_summary.kql":    BuildExceptionsSummaryQuery(start, end, target, 15),
 		"fanout_summary.kql":        BuildFanoutSummaryQuery(start, end, target, 15),

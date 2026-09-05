@@ -289,32 +289,32 @@ func TestCrossServiceCausalIsolation(t *testing.T) {
 	correlator := analysis.NewCorrelator()
 	findings := []domain.Finding{
 		{
-			Kind:  domain.FindingRequestLatencyRegression,
-			Scope: domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
-			Summary: "POST /orders p95 latency increased by 233%",
+			Kind:        domain.FindingRequestLatencyRegression,
+			Scope:       domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
+			Summary:     "POST /orders p95 latency increased by 233%",
 			SampleCount: 500,
 			Evidence: []domain.Evidence{
 				{
-					Signal:  "p95 latency",
-					Current: domain.Value{Val: 500.0, Unit: "ms", Text: "500ms"},
+					Signal:   "p95 latency",
+					Current:  domain.Value{Val: 500.0, Unit: "ms", Text: "500ms"},
 					Baseline: &domain.Value{Val: 150.0, Unit: "ms", Text: "150ms"},
-					Change: &domain.Change{Delta: 350.0, Pct: 233.0},
-					Scope: domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
+					Change:   &domain.Change{Delta: 350.0, Pct: 233.0},
+					Scope:    domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
 				},
 			},
 		},
 		{
-			Kind:  domain.FindingDependencyLatencyRegression,
-			Scope: domain.Scope{Role: "inventory-service", Target: "inventory-db"},
-			Summary: "SQL dependency 'inventory-db' p95 increased by 300%",
+			Kind:        domain.FindingDependencyLatencyRegression,
+			Scope:       domain.Scope{Role: "inventory-service", Target: "inventory-db"},
+			Summary:     "SQL dependency 'inventory-db' p95 increased by 300%",
 			SampleCount: 800,
 			Evidence: []domain.Evidence{
 				{
-					Signal:  "dependency p95 latency",
-					Current: domain.Value{Val: 1200.0, Unit: "ms", Text: "1200ms"},
+					Signal:   "dependency p95 latency",
+					Current:  domain.Value{Val: 1200.0, Unit: "ms", Text: "1200ms"},
 					Baseline: &domain.Value{Val: 300.0, Unit: "ms", Text: "300ms"},
-					Change: &domain.Change{Delta: 900.0, Pct: 300.0},
-					Scope: domain.Scope{Role: "inventory-service", Target: "inventory-db"},
+					Change:   &domain.Change{Delta: 900.0, Pct: 300.0},
+					Scope:    domain.Scope{Role: "inventory-service", Target: "inventory-db"},
 				},
 			},
 		},

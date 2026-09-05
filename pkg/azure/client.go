@@ -616,7 +616,7 @@ func (c *AzCliClient) QueryLatencyBreakdown(ctx context.Context, start, end time
 
 	idxEndpoint := getIdx("endpoint")
 	idxAvgTotal := getIdx("avgtotalms", "avgtotal", "duration")
-	idxDb := getIdx("pctdatabase", "pctdb")
+	idxDB := getIdx("pctdatabase", "pctdb")
 	idxExt := getIdx("pctexternalapi", "pctext")
 	idxCache := getIdx("pctcache")
 	idxRes := getIdx("pctresidual", "pctappcode")
@@ -637,8 +637,8 @@ func (c *AzCliClient) QueryLatencyBreakdown(ctx context.Context, start, end time
 		} else {
 			lb.AvgDurationMs = toFloat(row[1])
 		}
-		if idxDb >= 0 && idxDb < len(row) {
-			lb.PctDatabase = toFloat(row[idxDb])
+		if idxDB >= 0 && idxDB < len(row) {
+			lb.PctDatabase = toFloat(row[idxDB])
 		} else {
 			lb.PctDatabase = toFloat(row[2])
 		}
@@ -1044,14 +1044,14 @@ func parseFanoutTable(t *AzQueryTable) []model.FanoutMetric {
 
 	idxEndpoint := getIdx("endpoint")
 	idxRequests := getIdx("totalrequests", "requests")
-	idxAvgSql := getIdx("avgsqlcalls")
+	idxAvgSQL := getIdx("avgsqlcalls")
 	idxP50 := getIdx("p50_calls", "p50")
 	idxP75 := getIdx("p75_calls", "p75")
 	idxP90 := getIdx("p90_calls", "p90")
 	idxP95 := getIdx("p95_calls", "p95")
 	idxP99 := getIdx("p99_calls", "p99")
-	idxMaxSql := getIdx("maxsqlcalls")
-	idxAvgSqlDur := getIdx("avgsqlduration")
+	idxMaxSQL := getIdx("maxsqlcalls")
+	idxAvgSQLDur := getIdx("avgsqlduration")
 	idxAvgEpDur := getIdx("avgendpointduration")
 
 	for _, row := range t.Rows {
@@ -1069,8 +1069,8 @@ func parseFanoutTable(t *AzQueryTable) []model.FanoutMetric {
 		} else {
 			m.TotalRequests = toInt64(row[1])
 		}
-		if idxAvgSql >= 0 && idxAvgSql < len(row) {
-			m.AvgSQLCalls = toFloat(row[idxAvgSql])
+		if idxAvgSQL >= 0 && idxAvgSQL < len(row) {
+			m.AvgSQLCalls = toFloat(row[idxAvgSQL])
 		} else {
 			m.AvgSQLCalls = toFloat(row[2])
 		}
@@ -1089,13 +1089,13 @@ func parseFanoutTable(t *AzQueryTable) []model.FanoutMetric {
 		if idxP99 >= 0 && idxP99 < len(row) {
 			m.P99Calls = toFloat(row[idxP99])
 		}
-		if idxMaxSql >= 0 && idxMaxSql < len(row) {
-			m.MaxSQLCalls = toInt64(row[idxMaxSql])
+		if idxMaxSQL >= 0 && idxMaxSQL < len(row) {
+			m.MaxSQLCalls = toInt64(row[idxMaxSQL])
 		} else if len(row) > 3 {
 			m.MaxSQLCalls = toInt64(row[3])
 		}
-		if idxAvgSqlDur >= 0 && idxAvgSqlDur < len(row) {
-			m.AvgSQLDurationMs = toFloat(row[idxAvgSqlDur])
+		if idxAvgSQLDur >= 0 && idxAvgSQLDur < len(row) {
+			m.AvgSQLDurationMs = toFloat(row[idxAvgSQLDur])
 		} else if len(row) > 4 {
 			m.AvgSQLDurationMs = toFloat(row[4])
 		}
@@ -1130,8 +1130,8 @@ func parseNPlusOneTable(t *AzQueryTable) []model.NPlusOneCandidate {
 
 	idxEndpoint := getIdx("endpoint")
 	idxRequests := getIdx("totalrequests")
-	idxAvgSql := getIdx("avgsqlcalls")
-	idxMaxSql := getIdx("maxsqlcalls")
+	idxAvgSQL := getIdx("avgsqlcalls")
+	idxMaxSQL := getIdx("maxsqlcalls")
 	idxAvgRepeated := getIdx("avgrepeatedcalls")
 	idxMaxShape := getIdx("maxrepeatedshape")
 	idxAvgRatio := getIdx("avgrepeatedratio")
@@ -1152,11 +1152,11 @@ func parseNPlusOneTable(t *AzQueryTable) []model.NPlusOneCandidate {
 		if idxRequests >= 0 && idxRequests < len(row) {
 			c.TotalRequests = toInt64(row[idxRequests])
 		}
-		if idxAvgSql >= 0 && idxAvgSql < len(row) {
-			c.AvgSQLCalls = toFloat(row[idxAvgSql])
+		if idxAvgSQL >= 0 && idxAvgSQL < len(row) {
+			c.AvgSQLCalls = toFloat(row[idxAvgSQL])
 		}
-		if idxMaxSql >= 0 && idxMaxSql < len(row) {
-			c.MaxSQLCalls = toInt64(row[idxMaxSql])
+		if idxMaxSQL >= 0 && idxMaxSQL < len(row) {
+			c.MaxSQLCalls = toInt64(row[idxMaxSQL])
 		}
 		if idxAvgRepeated >= 0 && idxAvgRepeated < len(row) {
 			c.AvgRepeatedCalls = toFloat(row[idxAvgRepeated])

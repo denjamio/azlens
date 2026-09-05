@@ -7,11 +7,10 @@ import (
 
 // Standard logical dependency categories
 const (
-	CategorySQL    = "SQL"
-	CategoryHTTP   = "HTTP"
-	CategoryRedis  = "REDIS"
-	CategoryCosmos = "COSMOS"
-	CategoryOther  = "OTHER"
+	CategorySQL   = "SQL"
+	CategoryHTTP  = "HTTP"
+	CategoryRedis = "REDIS"
+	CategoryOther = "OTHER"
 )
 
 // SQLDependencyPredicate returns the single source of truth KQL filter expression
@@ -32,12 +31,6 @@ func RedisDependencyPredicate() string {
 	return "type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'"
 }
 
-// CosmosDependencyPredicate returns the single source of truth KQL filter expression
-// for Azure DocumentDB and Cosmos DB dependencies.
-func CosmosDependencyPredicate() string {
-	return "type in~ ('Azure DocumentDB', 'Cosmos', 'CosmosDB')"
-}
-
 // DependencyCategoryFilter returns the KQL WHERE clause for a specific category,
 // or an empty string if no category filter applies.
 func DependencyCategoryFilter(depType string) string {
@@ -49,8 +42,6 @@ func DependencyCategoryFilter(depType string) string {
 		return fmt.Sprintf("| where %s\n", HTTPDependencyPredicate())
 	case CategoryRedis:
 		return fmt.Sprintf("| where %s\n", RedisDependencyPredicate())
-	case CategoryCosmos, "COSMOSDB":
-		return fmt.Sprintf("| where %s\n", CosmosDependencyPredicate())
 	case "", "ALL":
 		return ""
 	default:

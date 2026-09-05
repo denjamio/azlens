@@ -7,7 +7,6 @@ const (
 	QueryIDDependenciesSQL      = "dependencies.sql"
 	QueryIDDependenciesHTTP     = "dependencies.http"
 	QueryIDDependenciesRedis    = "dependencies.redis"
-	QueryIDDependenciesCosmos   = "dependencies.cosmos"
 	QueryIDDependenciesAll      = "dependencies.all"
 	QueryIDExceptionsSummary    = "exceptions.summary"
 	QueryIDFanoutSQL            = "fanout.sql"

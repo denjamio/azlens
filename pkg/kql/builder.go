@@ -246,8 +246,6 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 		qid = QueryIDDependenciesHTTP
 	case CategoryRedis:
 		qid = QueryIDDependenciesRedis
-	case CategoryCosmos, "COSMOSDB":
-		qid = QueryIDDependenciesCosmos
 	}
 	if err := b.checkTenancyFirewall(); err != nil {
 		return TargetQuery{ID: qid, Backend: b.backend, Err: err}
