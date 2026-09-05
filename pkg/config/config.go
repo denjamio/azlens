@@ -35,7 +35,6 @@ type Defaults struct {
 
 // InsightsConfig holds configuration for Application Insights.
 type InsightsConfig struct {
-	Name           string `yaml:"name,omitempty" json:"name,omitempty"`
 	ResourceGroup  string `yaml:"resource_group,omitempty" json:"resource_group,omitempty"`
 	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`
 	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"`
@@ -59,16 +58,7 @@ func BoolPtr(b bool) *bool { return &b }
 // - pod: cloud_RoleInstance token base (pod name without deployment hash)
 type ServiceDef struct {
 	RoleName string `yaml:"role_name,omitempty" json:"role_name,omitempty"`
-	Role     string `yaml:"role,omitempty" json:"role,omitempty"`
 	Pod      string `yaml:"pod,omitempty" json:"pod,omitempty"`
-}
-
-// GetRoleName returns RoleName if set, or falls back to Role for backwards compatibility
-func (s ServiceDef) GetRoleName() string {
-	if s.RoleName != "" {
-		return s.RoleName
-	}
-	return s.Role
 }
 
 // TargetConfig encapsulates telemetry destination and filter criteria.
@@ -77,7 +67,7 @@ func (s ServiceDef) GetRoleName() string {
 // Filter reference (what each option filters in KQL):
 //   - service           -> Resolved service name from shared.services or CLI (-s / --service)
 //   - insights_name     -> App Insights component name or App ID (GUID)
-//   - role_name / role  -> cloud_RoleName (EXACT microservice name; =~ equality)
+//   - role_name         -> cloud_RoleName (EXACT microservice name; =~ equality)
 //   - pod               -> cloud_RoleInstance (pod name WITHOUT the deployment hash; token match: has)
 //   - logs.database     -> Db (MySqlSlowLogs in Log Analytics; mandatory tenant filter)
 //   - resource_id       -> _ResourceId (Log Analytics multi-resource workspaces)
@@ -91,28 +81,11 @@ type TargetConfig struct {
 	Service          string                `yaml:"service,omitempty" json:"service,omitempty"`
 	Services         map[string]ServiceDef `yaml:"services,omitempty" json:"services,omitempty"`
 	RoleName         string                `yaml:"role_name,omitempty" json:"role_name,omitempty"`
-	Role             string                `yaml:"role,omitempty" json:"role,omitempty"`
 	Pod              string                `yaml:"pod,omitempty" json:"pod,omitempty"`
 	ResourceID       string                `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`
 	ExcludeSynthetic *bool                 `yaml:"exclude_synthetic,omitempty" json:"exclude_synthetic,omitempty"`
 	ExcludeProbes    *bool                 `yaml:"exclude_probes,omitempty" json:"exclude_probes,omitempty"`
 	CustomDimensions map[string]string     `yaml:"custom_dimensions,omitempty" json:"custom_dimensions,omitempty"`
-}
-
-// GetInsightsName returns InsightsName if set, or falls back to Insights.Name
-func (t TargetConfig) GetInsightsName() string {
-	if t.InsightsName != "" {
-		return t.InsightsName
-	}
-	return t.Insights.Name
-}
-
-// GetRoleName returns RoleName if set, or falls back to Role
-func (t TargetConfig) GetRoleName() string {
-	if t.RoleName != "" {
-		return t.RoleName
-	}
-	return t.Role
 }
 
 // ExcludesSynthetic reports whether synthetic traffic / availability tests must be filtered
@@ -130,10 +103,6 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 	merged := shared
 	if override.InsightsName != "" {
 		merged.InsightsName = override.InsightsName
-		merged.Insights.Name = override.InsightsName
-	} else if override.Insights.Name != "" {
-		merged.Insights.Name = override.Insights.Name
-		merged.InsightsName = override.Insights.Name
 	}
 	if override.Insights.ResourceGroup != "" {
 		merged.Insights.ResourceGroup = override.Insights.ResourceGroup
@@ -171,10 +140,6 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 	}
 	if override.RoleName != "" {
 		merged.RoleName = override.RoleName
-		merged.Role = override.RoleName
-	} else if override.Role != "" {
-		merged.Role = override.Role
-		merged.RoleName = override.Role
 	}
 	if override.Pod != "" {
 		merged.Pod = override.Pod
@@ -197,17 +162,6 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 			dims[k] = v
 		}
 		merged.CustomDimensions = dims
-	}
-
-	if merged.InsightsName != "" && merged.Insights.Name == "" {
-		merged.Insights.Name = merged.InsightsName
-	} else if merged.Insights.Name != "" && merged.InsightsName == "" {
-		merged.InsightsName = merged.Insights.Name
-	}
-	if merged.RoleName != "" && merged.Role == "" {
-		merged.Role = merged.RoleName
-	} else if merged.Role != "" && merged.RoleName == "" {
-		merged.RoleName = merged.Role
 	}
 
 	return merged

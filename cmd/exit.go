@@ -15,7 +15,6 @@ const (
 	ExitCodeOK           = 0
 	ExitCodeFailure      = 1
 	ExitCodeActionable   = 2
-	ExitCodeQuality      = 2 // backward compatible alias
 	ExitCodeInsufficient = 3
 	ExitCodeUnknown      = 3
 )

@@ -107,7 +107,7 @@ func TestEnsureSubscriptionSessions(t *testing.T) {
 	t.Run("no subscriptions configured", func(t *testing.T) {
 		// Without the stub in PATH: no az invocation must happen at all
 		prof := config.Profile{Target: config.TargetConfig{
-			Insights: config.InsightsConfig{Name: "app-only"},
+			InsightsName: "app-only",
 		}}
 		if err := ensureSubscriptionSessions(prof); err != nil {
 			t.Errorf("expected nil error with no configured subscriptions, got: %v", err)

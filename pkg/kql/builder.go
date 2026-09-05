@@ -126,7 +126,7 @@ func (b *QueryBuilder) checkTenancyFirewall() error {
 		}
 		return nil
 	}
-	if strings.TrimSpace(b.target.Role) == "" {
+	if strings.TrimSpace(b.target.RoleName) == "" {
 		return ErrMissingRole
 	}
 	return nil
@@ -158,8 +158,8 @@ func (b *QueryBuilder) buildBaseFilters() string {
 	}
 
 	// 3. Microservice / Role Scope (App Insights indexed field)
-	if strings.TrimSpace(b.target.Role) != "" && !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("cloud_RoleName", b.target.Role)))
+	if strings.TrimSpace(b.target.RoleName) != "" && !strings.EqualFold(b.table, "MySqlSlowLogs") {
+		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("cloud_RoleName", b.target.RoleName)))
 	}
 
 	// 4. Pod Scope (cloud_RoleInstance in App Insights)

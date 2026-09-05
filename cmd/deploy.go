@@ -119,7 +119,7 @@ Exit codes:
 			},
 			domain.Scope{
 				Service:  rt.Profile.Target.Service,
-				Role:     rt.Profile.Target.Role,
+				Role:     rt.Profile.Target.RoleName,
 				Pod:      rt.Profile.Target.Pod,
 				Database: rt.Profile.Target.Logs.Database,
 			},

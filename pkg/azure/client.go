@@ -113,8 +113,8 @@ func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string
 		targetSub = p.Target.Logs.SubscriptionID
 		targetDirectory = p.Target.Logs.DirectoryID
 	case kql.BackendAppInsights:
-		if p.Target.Insights.Name != "" {
-			args = []string{"monitor", "app-insights", "query", "--app", p.Target.Insights.Name, "--analytics-query", tq.Query, "-o", "json"}
+		if p.Target.InsightsName != "" {
+			args = []string{"monitor", "app-insights", "query", "--app", p.Target.InsightsName, "--analytics-query", tq.Query, "-o", "json"}
 			if p.Target.Insights.ResourceGroup != "" {
 				args = append(args, "--resource-group", p.Target.Insights.ResourceGroup)
 			}
@@ -125,7 +125,7 @@ func routeForTargetQuery(p config.Profile, tq kql.TargetQuery) ([]string, string
 			targetSub = p.Target.Logs.SubscriptionID
 			targetDirectory = p.Target.Logs.DirectoryID
 		} else {
-			return nil, "", "", fmt.Errorf("either target.insights.name or target.logs.workspace_id must be configured in the active profile")
+			return nil, "", "", fmt.Errorf("either target.insights_name or target.logs.workspace_id must be configured in the active profile")
 		}
 	default:
 		return nil, "", "", fmt.Errorf("unknown query backend: %s", tq.Backend)
@@ -927,7 +927,8 @@ func toInt64(v interface{}) int64 {
 		warnUnexpectedValue(v)
 		return 0
 	case nil:
-		return 0 // KQL NULL (e.g. percentiles over an empty set)
+		// KQL NULL (e.g. percentiles over an empty set)
+		return 0
 	default:
 		warnUnexpectedValue(v)
 		return 0
@@ -949,7 +950,8 @@ func toFloat(v interface{}) float64 {
 		warnUnexpectedValue(v)
 		return 0.0
 	case nil:
-		return 0.0 // KQL NULL (e.g. percentiles over an empty set)
+		// KQL NULL (e.g. percentiles over an empty set)
+		return 0.0
 	default:
 		warnUnexpectedValue(v)
 		return 0.0

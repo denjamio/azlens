@@ -83,8 +83,8 @@ Exact matches win; ambiguous matches return deterministic candidates without gue
 		if rt.Profile.Target.Service != "" {
 			configuredServices = append(configuredServices, rt.Profile.Target.Service)
 		}
-		if rt.Profile.Target.Role != "" && rt.Profile.Target.Role != rt.Profile.Target.Service {
-			configuredServices = append(configuredServices, rt.Profile.Target.Role)
+		if rt.Profile.Target.RoleName != "" && rt.Profile.Target.RoleName != rt.Profile.Target.Service {
+			configuredServices = append(configuredServices, rt.Profile.Target.RoleName)
 		}
 		for s := range rt.Profile.Target.Services {
 			if s != rt.Profile.Target.Service {
@@ -153,8 +153,8 @@ func resolveExplainSubject(
 
 	lowerSubj := strings.ToLower(subject)
 
-	// Collect candidates and exact matches
-	candidatesMap := make(map[string]string) // name -> kind
+	// Collect candidates and exact matches (name -> kind)
+	candidatesMap := make(map[string]string)
 
 	// 1. Check current problems
 	var exactProblem *domain.Problem

@@ -12,11 +12,16 @@ import (
 
 // RegressionThresholds configures tolerance limits for regressions
 type RegressionThresholds struct {
-	LatencyWarnPct     float64 // e.g. 10.0 (%)
-	LatencyCritPct     float64 // e.g. 25.0 (%)
-	ErrorRateWarnDelta float64 // e.g. 1.0 (absolute % increase)
-	ErrorRateCritDelta float64 // e.g. 3.0 (absolute % increase)
-	MinSampleCalls     int64   // Minimum calls to consider endpoint statistically significant
+	// LatencyWarnPct is the warning threshold percent increase (e.g. 10.0%)
+	LatencyWarnPct float64
+	// LatencyCritPct is the critical threshold percent increase (e.g. 25.0%)
+	LatencyCritPct float64
+	// ErrorRateWarnDelta is the warning absolute increase in percent (e.g. 1.0)
+	ErrorRateWarnDelta float64
+	// ErrorRateCritDelta is the critical absolute increase in percent (e.g. 3.0)
+	ErrorRateCritDelta float64
+	// MinSampleCalls is the minimum calls to consider endpoint statistically significant
+	MinSampleCalls int64
 }
 
 // DefaultThresholds returns sensible default thresholds for deploy regressions
@@ -338,9 +343,11 @@ func calcDelta(name string, baseline, current float64, unit string, warnLimit, c
 	sev := model.SeverityNone
 	var compareValue float64
 	if isAbsoluteThreshold {
-		compareValue = delta // absolute difference for error rate
+		// absolute difference for error rate
+		compareValue = delta
 	} else {
-		compareValue = pctChange // % difference for latency
+		// % difference for latency
+		compareValue = pctChange
 	}
 
 	explanation := fmt.Sprintf("%.2f%s -> %.2f%s", baseline, unit, current, unit)

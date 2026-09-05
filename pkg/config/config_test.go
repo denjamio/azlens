@@ -24,10 +24,9 @@ profiles:
   checkout:
     name: "Checkout Service"
     target:
-      insights:
-        name: "app-checkout-prod"
+      insights_name: "app-checkout-prod"
       service: "checkout-api"
-      role: "checkout-api"
+      role_name: "checkout-api"
     thresholds:
       p95_latency_warn_pct: 18.0
       p95_latency_crit_pct: 35.0
@@ -50,8 +49,8 @@ profiles:
 		t.Fatalf("failed getting default profile: %v", err)
 	}
 
-	if prof.Target.Role != "checkout-api" {
-		t.Errorf("expected role 'checkout-api', got %v", prof.Target.Role)
+	if prof.Target.RoleName != "checkout-api" {
+		t.Errorf("expected role_name 'checkout-api', got %v", prof.Target.RoleName)
 	}
 	if prof.Thresholds.LatencyCritPct != 35.0 {
 		t.Errorf("expected 35.0 crit threshold, got %f", prof.Thresholds.LatencyCritPct)
@@ -121,15 +120,15 @@ profiles:
   prod:
     name: "Production"
     target:
+      insights_name: "app-shared-prod"
       insights:
-        name: "app-shared-prod"
         subscription_id: "sub-insights-123"
       logs:
         workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
         subscription_id: "sub-logs-456"
         database: "backend_ror"
       service: "order-service"
-      role: "order-service"
+      role_name: "order-service"
       pod: "order-service"
       exclude_synthetic: true
       exclude_probes: true
@@ -148,14 +147,14 @@ profiles:
 		t.Fatalf("failed getting profile: %v", err)
 	}
 
-	if prof.Target.Insights.Name != "app-shared-prod" {
-		t.Errorf("expected Target.Insights.Name 'app-shared-prod', got '%s'", prof.Target.Insights.Name)
+	if prof.Target.InsightsName != "app-shared-prod" {
+		t.Errorf("expected Target.InsightsName 'app-shared-prod', got '%s'", prof.Target.InsightsName)
 	}
 	if prof.Target.Insights.SubscriptionID != "sub-insights-123" {
 		t.Errorf("expected Target.Insights.SubscriptionID 'sub-insights-123', got '%s'", prof.Target.Insights.SubscriptionID)
 	}
-	if prof.Target.Role != "order-service" {
-		t.Errorf("expected Target.Role 'order-service', got %v", prof.Target.Role)
+	if prof.Target.RoleName != "order-service" {
+		t.Errorf("expected Target.RoleName 'order-service', got %v", prof.Target.RoleName)
 	}
 	if prof.Target.Logs.WorkspaceID != "33333333-hhhh-iiii-jjjj-333333333333" {
 		t.Errorf("expected Target.Logs.WorkspaceID '33333333-hhhh-iiii-jjjj-333333333333', got '%s'", prof.Target.Logs.WorkspaceID)
@@ -197,13 +196,13 @@ shared:
     database: "backend_ror"
   services:
     order-service:
-      role: order-service
+      role_name: order-service
       pod: order-service
     billing-service:
-      role: billing-service
+      role_name: billing-service
       pod: billing-service
   service: "order-service"
-  role: "order-service"
+  role_name: "order-service"
   pod: "order-service"
   exclude_synthetic: true
   exclude_probes: true
@@ -218,19 +217,17 @@ profiles:
   prod:
     name: "Production"
     target:
-      insights:
-        name: "app-shared-prod"
+      insights_name: "app-shared-prod"
       logs:
         workspace_id: "ws-guid-prod"
   staging:
     name: "Staging"
     target:
-      insights:
-        name: "app-shared-staging"
+      insights_name: "app-shared-staging"
       logs:
         workspace_id: "ws-guid-staging"
       service: "billing-service"
-      role: "billing-service"
+      role_name: "billing-service"
       exclude_probes: false
       custom_dimensions:
         team: "staging-oncall"
@@ -251,7 +248,7 @@ profiles:
 	if err != nil {
 		t.Fatalf("failed getting prod profile: %v", err)
 	}
-	if prod.Target.Insights.Name != "app-shared-prod" || prod.Target.Logs.WorkspaceID != "ws-guid-prod" {
+	if prod.Target.InsightsName != "app-shared-prod" || prod.Target.Logs.WorkspaceID != "ws-guid-prod" {
 		t.Errorf("expected prod resource names from profile, got: %+v", prod.Target)
 	}
 	if prod.Target.Insights.SubscriptionID != "sub-insights-shared" {
@@ -263,7 +260,7 @@ profiles:
 	if prod.Target.Insights.DirectoryID != "dir-insights-shared" || prod.Target.Logs.DirectoryID != "dir-logs-shared" {
 		t.Errorf("expected shared directory IDs inherited, got: %+v / %+v", prod.Target.Insights, prod.Target.Logs)
 	}
-	if prod.Target.Role != "order-service" || prod.Target.Pod != "order-service" || prod.Target.Logs.Database != "backend_ror" {
+	if prod.Target.RoleName != "order-service" || prod.Target.Pod != "order-service" || prod.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected shared filters inherited, got: %+v", prod.Target)
 	}
 	if !prod.Target.ExcludesSynthetic() || !prod.Target.ExcludesProbes() {
@@ -281,8 +278,8 @@ profiles:
 	if err != nil {
 		t.Fatalf("failed getting staging profile: %v", err)
 	}
-	if staging.Target.Role != "billing-service" {
-		t.Errorf("expected profile role override to win over shared, got %v", staging.Target.Role)
+	if staging.Target.RoleName != "billing-service" {
+		t.Errorf("expected profile role_name override to win over shared, got %v", staging.Target.RoleName)
 	}
 	if staging.Target.ExcludesProbes() {
 		t.Errorf("expected explicit profile exclude_probes=false to override shared true")
@@ -301,36 +298,22 @@ profiles:
 	}
 
 	// 3. shared config itself is untouched by merges (no mutation side effects)
-	if cfg.Shared.Role != "order-service" {
-		t.Errorf("shared target must not be mutated by GetProfile, got role %v", cfg.Shared.Role)
+	if cfg.Shared.RoleName != "order-service" {
+		t.Errorf("shared target must not be mutated by GetProfile, got role_name %v", cfg.Shared.RoleName)
 	}
 }
 
 func TestServiceDefUnmarshal(t *testing.T) {
-	// Canonical role_name
-	yamlDataNew := `
+	yamlData := `
 role_name: checkout-svc
 pod: checkout-app
 `
-	var sDefNew ServiceDef
-	if err := yaml.Unmarshal([]byte(yamlDataNew), &sDefNew); err != nil {
+	var sDef ServiceDef
+	if err := yaml.Unmarshal([]byte(yamlData), &sDef); err != nil {
 		t.Fatalf("unexpected unmarshal error: %v", err)
 	}
-	if sDefNew.GetRoleName() != "checkout-svc" || sDefNew.RoleName != "checkout-svc" || sDefNew.Pod != "checkout-app" {
-		t.Errorf("expected ServiceDef{RoleName: checkout-svc, Pod: checkout-app}, got %+v", sDefNew)
-	}
-
-	// Legacy role backwards compatibility
-	yamlDataLegacy := `
-role: legacy-svc
-pod: legacy-app
-`
-	var sDefLegacy ServiceDef
-	if err := yaml.Unmarshal([]byte(yamlDataLegacy), &sDefLegacy); err != nil {
-		t.Fatalf("unexpected unmarshal error: %v", err)
-	}
-	if sDefLegacy.GetRoleName() != "legacy-svc" || sDefLegacy.Role != "legacy-svc" || sDefLegacy.Pod != "legacy-app" {
-		t.Errorf("expected ServiceDef{Role: legacy-svc, Pod: legacy-app}, got %+v", sDefLegacy)
+	if sDef.RoleName != "checkout-svc" || sDef.Pod != "checkout-app" {
+		t.Errorf("expected ServiceDef{RoleName: checkout-svc, Pod: checkout-app}, got %+v", sDef)
 	}
 }
 
@@ -344,7 +327,6 @@ func parseConfigTest(t *testing.T, yamlStr string) *Config {
 }
 
 func TestInsightsNameAndRoleName(t *testing.T) {
-	// Test canonical insights_name and role_name
 	canonicalYAML := `
 version: "1.0"
 defaults:
@@ -367,58 +349,11 @@ profiles:
 	if err != nil {
 		t.Fatalf("failed getting prod profile: %v", err)
 	}
-	if prof.Target.GetInsightsName() != "app-insights-canonical" {
-		t.Errorf("expected GetInsightsName 'app-insights-canonical', got %q", prof.Target.GetInsightsName())
-	}
 	if prof.Target.InsightsName != "app-insights-canonical" {
 		t.Errorf("expected InsightsName 'app-insights-canonical', got %q", prof.Target.InsightsName)
 	}
-	if prof.Target.Insights.Name != "app-insights-canonical" {
-		t.Errorf("expected synchronized Insights.Name 'app-insights-canonical', got %q", prof.Target.Insights.Name)
-	}
-	if prof.Target.GetRoleName() != "checkout-service" {
-		t.Errorf("expected GetRoleName 'checkout-service', got %q", prof.Target.GetRoleName())
-	}
 	if prof.Target.RoleName != "checkout-service" {
 		t.Errorf("expected RoleName 'checkout-service', got %q", prof.Target.RoleName)
-	}
-	if prof.Target.Role != "checkout-service" {
-		t.Errorf("expected synchronized Role 'checkout-service', got %q", prof.Target.Role)
-	}
-
-	// Test legacy insights.name and role
-	legacyYAML := `
-version: "1.0"
-profiles:
-  legacy:
-    name: "Legacy"
-    target:
-      insights:
-        name: "app-insights-legacy"
-      role: "legacy-service"
-`
-	cfgLegacy := parseConfigTest(t, legacyYAML)
-	profLegacy, err := cfgLegacy.GetProfile("legacy")
-	if err != nil {
-		t.Fatalf("failed getting legacy profile: %v", err)
-	}
-	if profLegacy.Target.GetInsightsName() != "app-insights-legacy" {
-		t.Errorf("expected GetInsightsName 'app-insights-legacy', got %q", profLegacy.Target.GetInsightsName())
-	}
-	if profLegacy.Target.InsightsName != "app-insights-legacy" {
-		t.Errorf("expected synchronized InsightsName 'app-insights-legacy', got %q", profLegacy.Target.InsightsName)
-	}
-	if profLegacy.Target.Insights.Name != "app-insights-legacy" {
-		t.Errorf("expected Insights.Name 'app-insights-legacy', got %q", profLegacy.Target.Insights.Name)
-	}
-	if profLegacy.Target.GetRoleName() != "legacy-service" {
-		t.Errorf("expected GetRoleName 'legacy-service', got %q", profLegacy.Target.GetRoleName())
-	}
-	if profLegacy.Target.RoleName != "legacy-service" {
-		t.Errorf("expected synchronized RoleName 'legacy-service', got %q", profLegacy.Target.RoleName)
-	}
-	if profLegacy.Target.Role != "legacy-service" {
-		t.Errorf("expected Role 'legacy-service', got %q", profLegacy.Target.Role)
 	}
 }
 

@@ -236,8 +236,9 @@ func (d *NewExceptionDetector) Detect(snapshot *domain.Snapshot) []domain.Findin
 	totalTraffic := snapshot.CurrentOverall.TotalCalls
 
 	for _, curr := range snapshot.CurrentExceptions {
+		// Skip if existed in baseline
 		if baseMap[curr.Type] {
-			continue // Existed in baseline
+			continue
 		}
 
 		// Calculate traffic share if total traffic is known
@@ -313,8 +314,9 @@ func (d *ExceptionRegressionDetector) Detect(snapshot *domain.Snapshot) []domain
 
 	for _, curr := range snapshot.CurrentExceptions {
 		base, exists := baseMap[curr.Type]
+		// Handled by NewExceptionDetector
 		if !exists {
-			continue // Handled by NewExceptionDetector
+			continue
 		}
 
 		if base.Count < d.cfg.MinSampleCalls && curr.Count < d.cfg.MinSampleCalls {

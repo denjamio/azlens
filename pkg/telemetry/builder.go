@@ -47,7 +47,7 @@ func (b *SnapshotBuilder) BuildSnapshot(
 		},
 		domain.Scope{
 			Service:  prof.Target.Service,
-			Role:     prof.Target.Role,
+			Role:     prof.Target.RoleName,
 			Pod:      prof.Target.Pod,
 			Database: prof.Target.Logs.Database,
 		},
@@ -60,7 +60,7 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	)
 
 	// Mark configured capabilities
-	if prof.Target.Insights.Name != "" || prof.Target.Logs.WorkspaceID != "" {
+	if prof.Target.InsightsName != "" || prof.Target.Logs.WorkspaceID != "" {
 		snapshot.ConfiguredCapabilities[domain.CapabilityRequests] = true
 		snapshot.ConfiguredCapabilities[domain.CapabilityDependencies] = true
 		snapshot.ConfiguredCapabilities[domain.CapabilityExceptions] = true

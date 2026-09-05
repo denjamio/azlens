@@ -65,21 +65,4 @@ func TestProfileValidation(t *testing.T) {
 	if !hasThresholdErr {
 		t.Errorf("expected error for invalid latency threshold")
 	}
-
-	// Backwards compatibility check: legacy Insights.Name and Role satisfy requirements
-	legacyProf := Profile{
-		Name: "Legacy",
-		Target: TargetConfig{
-			Insights:      InsightsConfig{Name: "legacy-app"},
-			Logs:          LogsConfig{Database: "legacy-db"},
-			Role:          "legacy-role",
-			ExcludeProbes: BoolPtr(true),
-		},
-	}
-	legacyIssues := legacyProf.Validate()
-	for _, iss := range legacyIssues {
-		if iss.Severity == SeverityError {
-			t.Errorf("unexpected validation error for legacy config: %+v", iss)
-		}
-	}
 }

@@ -64,10 +64,10 @@ func checkRequiredAzExtensions(prof config.Profile) error {
 		return nil
 	}
 	needed := make(map[string]bool)
-	if strings.TrimSpace(prof.Target.GetInsightsName()) != "" {
+	if strings.TrimSpace(prof.Target.InsightsName) != "" {
 		needed["application-insights"] = true
 	}
-	if strings.TrimSpace(prof.Target.Logs.WorkspaceID) != "" || strings.TrimSpace(prof.Target.GetInsightsName()) == "" {
+	if strings.TrimSpace(prof.Target.Logs.WorkspaceID) != "" || strings.TrimSpace(prof.Target.InsightsName) == "" {
 		needed["log-analytics"] = true
 	}
 	var blocking []string
@@ -159,7 +159,7 @@ var doctorCmd = &cobra.Command{
 
 		// 2. Configured Backends Check
 		var backends []reporter.BackendStatus
-		if rt.Profile.Target.GetInsightsName() != "" {
+		if rt.Profile.Target.InsightsName != "" {
 			backends = append(backends, reporter.BackendStatus{
 				Name:      "Application Insights",
 				Available: true,
@@ -175,7 +175,7 @@ var doctorCmd = &cobra.Command{
 			backends = append(backends, reporter.BackendStatus{
 				Name:      "Telemetry Backend",
 				Available: false,
-				Details:   "neither insights.name nor logs.workspace_id configured",
+				Details:   "neither insights_name nor logs.workspace_id configured",
 			})
 		}
 		docResult.Backends = backends
@@ -187,7 +187,7 @@ var doctorCmd = &cobra.Command{
 		if snap == nil {
 			snap = domain.NewSnapshot(
 				domain.ProfileContext{Name: rt.ProfileName, DisplayName: rt.Profile.Name},
-				domain.Scope{Service: rt.Profile.Target.Service, Role: rt.Profile.Target.Role, Pod: rt.Profile.Target.Pod, Database: rt.Profile.Target.Logs.Database},
+				domain.Scope{Service: rt.Profile.Target.Service, Role: rt.Profile.Target.RoleName, Pod: rt.Profile.Target.Pod, Database: rt.Profile.Target.Logs.Database},
 				domain.WindowContext{Label: "last 1h", Start: now.Add(-1 * time.Hour), End: now},
 			)
 		}

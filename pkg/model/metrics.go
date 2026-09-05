@@ -29,22 +29,25 @@ type LatencyPercentiles struct {
 
 // RequestMetric represents aggregated performance metrics for a specific endpoint or overall
 type RequestMetric struct {
-	Name        string             `json:"name"`
-	TotalCalls  int64              `json:"total_calls"`
-	FailedCalls int64              `json:"failed_calls"`
-	ErrorRate   float64            `json:"error_rate"` // 0.0 to 100.0%
-	RPS         float64            `json:"rps"`
-	HTTP2xx     int64              `json:"http_2xx,omitempty"`
-	HTTP4xx     int64              `json:"http_4xx,omitempty"`
-	HTTP5xx     int64              `json:"http_5xx,omitempty"`
-	Latency     LatencyPercentiles `json:"latency"`
+	Name        string `json:"name"`
+	TotalCalls  int64  `json:"total_calls"`
+	FailedCalls int64  `json:"failed_calls"`
+	// ErrorRate ranges from 0.0 to 100.0%
+	ErrorRate float64            `json:"error_rate"`
+	RPS       float64            `json:"rps"`
+	HTTP2xx   int64              `json:"http_2xx,omitempty"`
+	HTTP4xx   int64              `json:"http_4xx,omitempty"`
+	HTTP5xx   int64              `json:"http_5xx,omitempty"`
+	Latency   LatencyPercentiles `json:"latency"`
 }
 
 // DependencyMetric represents database or external API call metrics
 type DependencyMetric struct {
-	Target      string             `json:"target"`
-	Type        string             `json:"type"` // SQL, PostgreSQL, CosmosDB, Redis, HTTP, gRPC
-	Name        string             `json:"name"` // Command, SQL Query, or HTTP Route
+	Target string `json:"target"`
+	// Type of dependency (e.g. SQL, PostgreSQL, CosmosDB, Redis, HTTP, gRPC)
+	Type string `json:"type"`
+	// Name of dependency command, SQL query, or HTTP route
+	Name        string             `json:"name"`
 	TotalCalls  int64              `json:"total_calls"`
 	FailedCalls int64              `json:"failed_calls"`
 	ErrorRate   float64            `json:"error_rate"`
@@ -53,12 +56,18 @@ type DependencyMetric struct {
 
 // ErrorSummary represents grouped exceptions or HTTP 5xx errors
 type ErrorSummary struct {
-	Type          string    `json:"type"`           // e.g. "System.NullReferenceException", "500 Internal Server Error"
-	Message       string    `json:"message"`        // Error message / innermostMessage
-	Count         int64     `json:"count"`          // Number of occurrences
-	FirstSeen     time.Time `json:"first_seen"`     // Timestamp first seen
-	LastSeen      time.Time `json:"last_seen"`      // Timestamp last seen
-	AffectedPaths []string  `json:"affected_paths"` // Endpoints throwing this error
+	// Type represents the exception type or status (e.g. "System.NullReferenceException", "500 Internal Server Error")
+	Type string `json:"type"`
+	// Message contains the error message or innermostMessage
+	Message string `json:"message"`
+	// Count is the number of occurrences
+	Count int64 `json:"count"`
+	// FirstSeen is the timestamp when first seen
+	FirstSeen time.Time `json:"first_seen"`
+	// LastSeen is the timestamp when last seen
+	LastSeen time.Time `json:"last_seen"`
+	// AffectedPaths are endpoints throwing this error
+	AffectedPaths []string `json:"affected_paths"`
 }
 
 // instrumentationNoiseRe matches exceptions raised by the auto-instrumentation

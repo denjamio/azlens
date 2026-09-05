@@ -8,10 +8,11 @@ import (
 
 // AvailabilityMetric describes synthetic test or probe health.
 type AvailabilityMetric struct {
-	TestName    string  `json:"test_name"`
-	TotalTests  int64   `json:"total_tests"`
-	FailedTests int64   `json:"failed_tests"`
-	SuccessRate float64 `json:"success_rate"` // 0.0 - 100.0%
+	TestName    string `json:"test_name"`
+	TotalTests  int64  `json:"total_tests"`
+	FailedTests int64  `json:"failed_tests"`
+	// SuccessRate is between 0.0 and 100.0%
+	SuccessRate float64 `json:"success_rate"`
 	Message     string  `json:"message,omitempty"`
 }
 

@@ -132,10 +132,10 @@ func BuildLatencyBreakdownQuery(start, end time.Time, target config.TargetConfig
 
 // BuildDeprecationsQuery builds high-performance, noise-filtered KQL query to find deprecation warnings
 func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
-	if strings.TrimSpace(target.Role) == "" {
+	if strings.TrimSpace(target.RoleName) == "" {
 		return TargetQuery{Backend: BackendAppInsights, Err: ErrMissingRole}
 	}
-	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.Role))
+	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
 	syntheticFilter := ""
 	if target.ExcludesSynthetic() {
 		syntheticFilter = "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"

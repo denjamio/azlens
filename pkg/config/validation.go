@@ -27,7 +27,7 @@ func (p *Profile) Validate() []ValidationIssue {
 	var issues []ValidationIssue
 
 	// 1. App Insights check
-	if strings.TrimSpace(p.Target.GetInsightsName()) == "" {
+	if strings.TrimSpace(p.Target.InsightsName) == "" {
 		issues = append(issues, ValidationIssue{
 			Field:    "target.insights_name",
 			Severity: SeverityError,
@@ -47,7 +47,7 @@ func (p *Profile) Validate() []ValidationIssue {
 	}
 
 	// 3. Service targeting check (mandatory microservice isolation)
-	if strings.TrimSpace(p.Target.Service) == "" && strings.TrimSpace(p.Target.GetRoleName()) == "" {
+	if strings.TrimSpace(p.Target.Service) == "" && strings.TrimSpace(p.Target.RoleName) == "" {
 		issues = append(issues, ValidationIssue{
 			Field:    "target.service",
 			Severity: SeverityError,
