@@ -9,15 +9,15 @@ func TestProfileValidation(t *testing.T) {
 	prof := Profile{
 		Name: "Test",
 		Target: TargetConfig{
-			Insights:      InsightsConfig{Name: ""}, // Missing -> Error
-			Logs:          LogsConfig{Database: ""}, // Missing -> Error
-			Service:       "",                       // Missing -> Error
-			Role:          "",
-			ExcludeProbes: BoolPtr(false), // Explicit false -> Warning
+			InsightsName:  "",
+			Logs:          LogsConfig{Database: ""},
+			Service:       "",
+			RoleName:      "",
+			ExcludeProbes: BoolPtr(false),
 		},
 		Thresholds: ProfileThresholds{
 			LatencyWarnPct: 30.0,
-			LatencyCritPct: 20.0, // Invalid: warn > crit -> Error
+			LatencyCritPct: 20.0,
 		},
 	}
 
@@ -33,7 +33,7 @@ func TestProfileValidation(t *testing.T) {
 	hasThresholdErr := false
 
 	for _, iss := range issues {
-		if iss.Field == "target.insights.name" && iss.Severity == SeverityError {
+		if iss.Field == "target.insights_name" && iss.Severity == SeverityError {
 			hasAppErr = true
 		}
 		if iss.Field == "shared.logs.database" && iss.Severity == SeverityError {
@@ -64,5 +64,22 @@ func TestProfileValidation(t *testing.T) {
 	}
 	if !hasThresholdErr {
 		t.Errorf("expected error for invalid latency threshold")
+	}
+
+	// Backwards compatibility check: legacy Insights.Name and Role satisfy requirements
+	legacyProf := Profile{
+		Name: "Legacy",
+		Target: TargetConfig{
+			Insights:      InsightsConfig{Name: "legacy-app"},
+			Logs:          LogsConfig{Database: "legacy-db"},
+			Role:          "legacy-role",
+			ExcludeProbes: BoolPtr(true),
+		},
+	}
+	legacyIssues := legacyProf.Validate()
+	for _, iss := range legacyIssues {
+		if iss.Severity == SeverityError {
+			t.Errorf("unexpected validation error for legacy config: %+v", iss)
+		}
 	}
 }

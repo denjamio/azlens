@@ -307,16 +307,118 @@ profiles:
 }
 
 func TestServiceDefUnmarshal(t *testing.T) {
-	yamlData := `
-role: checkout-svc
+	// Canonical role_name
+	yamlDataNew := `
+role_name: checkout-svc
 pod: checkout-app
 `
-	var sDef ServiceDef
-	if err := yaml.Unmarshal([]byte(yamlData), &sDef); err != nil {
+	var sDefNew ServiceDef
+	if err := yaml.Unmarshal([]byte(yamlDataNew), &sDefNew); err != nil {
 		t.Fatalf("unexpected unmarshal error: %v", err)
 	}
-	if sDef.Role != "checkout-svc" || sDef.Pod != "checkout-app" {
-		t.Errorf("expected ServiceDef{Role: checkout-svc, Pod: checkout-app}, got %+v", sDef)
+	if sDefNew.GetRoleName() != "checkout-svc" || sDefNew.RoleName != "checkout-svc" || sDefNew.Pod != "checkout-app" {
+		t.Errorf("expected ServiceDef{RoleName: checkout-svc, Pod: checkout-app}, got %+v", sDefNew)
+	}
+
+	// Legacy role backwards compatibility
+	yamlDataLegacy := `
+role: legacy-svc
+pod: legacy-app
+`
+	var sDefLegacy ServiceDef
+	if err := yaml.Unmarshal([]byte(yamlDataLegacy), &sDefLegacy); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if sDefLegacy.GetRoleName() != "legacy-svc" || sDefLegacy.Role != "legacy-svc" || sDefLegacy.Pod != "legacy-app" {
+		t.Errorf("expected ServiceDef{Role: legacy-svc, Pod: legacy-app}, got %+v", sDefLegacy)
+	}
+}
+
+func parseConfigTest(t *testing.T, yamlStr string) *Config {
+	t.Helper()
+	var cfg Config
+	if err := yaml.Unmarshal([]byte(yamlStr), &cfg); err != nil {
+		t.Fatalf("failed parsing YAML config: %v", err)
+	}
+	return &cfg
+}
+
+func TestInsightsNameAndRoleName(t *testing.T) {
+	// Test canonical insights_name and role_name
+	canonicalYAML := `
+version: "1.0"
+defaults:
+  profile: prod
+  service: checkout
+shared:
+  services:
+    checkout:
+      role_name: checkout-service
+      pod: checkout-pod
+profiles:
+  prod:
+    name: "Production"
+    target:
+      insights_name: "app-insights-canonical"
+      role_name: "checkout-service"
+`
+	cfg := parseConfigTest(t, canonicalYAML)
+	prof, err := cfg.GetProfile("prod")
+	if err != nil {
+		t.Fatalf("failed getting prod profile: %v", err)
+	}
+	if prof.Target.GetInsightsName() != "app-insights-canonical" {
+		t.Errorf("expected GetInsightsName 'app-insights-canonical', got %q", prof.Target.GetInsightsName())
+	}
+	if prof.Target.InsightsName != "app-insights-canonical" {
+		t.Errorf("expected InsightsName 'app-insights-canonical', got %q", prof.Target.InsightsName)
+	}
+	if prof.Target.Insights.Name != "app-insights-canonical" {
+		t.Errorf("expected synchronized Insights.Name 'app-insights-canonical', got %q", prof.Target.Insights.Name)
+	}
+	if prof.Target.GetRoleName() != "checkout-service" {
+		t.Errorf("expected GetRoleName 'checkout-service', got %q", prof.Target.GetRoleName())
+	}
+	if prof.Target.RoleName != "checkout-service" {
+		t.Errorf("expected RoleName 'checkout-service', got %q", prof.Target.RoleName)
+	}
+	if prof.Target.Role != "checkout-service" {
+		t.Errorf("expected synchronized Role 'checkout-service', got %q", prof.Target.Role)
+	}
+
+	// Test legacy insights.name and role
+	legacyYAML := `
+version: "1.0"
+profiles:
+  legacy:
+    name: "Legacy"
+    target:
+      insights:
+        name: "app-insights-legacy"
+      role: "legacy-service"
+`
+	cfgLegacy := parseConfigTest(t, legacyYAML)
+	profLegacy, err := cfgLegacy.GetProfile("legacy")
+	if err != nil {
+		t.Fatalf("failed getting legacy profile: %v", err)
+	}
+	if profLegacy.Target.GetInsightsName() != "app-insights-legacy" {
+		t.Errorf("expected GetInsightsName 'app-insights-legacy', got %q", profLegacy.Target.GetInsightsName())
+	}
+	if profLegacy.Target.InsightsName != "app-insights-legacy" {
+		t.Errorf("expected synchronized InsightsName 'app-insights-legacy', got %q", profLegacy.Target.InsightsName)
+	}
+	if profLegacy.Target.Insights.Name != "app-insights-legacy" {
+		t.Errorf("expected Insights.Name 'app-insights-legacy', got %q", profLegacy.Target.Insights.Name)
+	}
+	if profLegacy.Target.GetRoleName() != "legacy-service" {
+		t.Errorf("expected GetRoleName 'legacy-service', got %q", profLegacy.Target.GetRoleName())
+	}
+	if profLegacy.Target.RoleName != "legacy-service" {
+		t.Errorf("expected synchronized RoleName 'legacy-service', got %q", profLegacy.Target.RoleName)
+	}
+	if profLegacy.Target.Role != "legacy-service" {
+		t.Errorf("expected Role 'legacy-service', got %q", profLegacy.Target.Role)
 	}
 }
 

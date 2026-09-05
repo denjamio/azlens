@@ -211,17 +211,20 @@ into clear, actionable stories with supporting evidence and next actions.`,
 		// Resolve role and pod from declared services map or fallback ad-hoc
 		if targetService != "" {
 			if sDef, ok := prof.Target.Services[targetService]; ok {
-				if sDef.Role != "" {
-					prof.Target.Role = sDef.Role
-				} else {
-					prof.Target.Role = targetService
+				role := sDef.GetRoleName()
+				if role == "" {
+					role = targetService
 				}
+				prof.Target.RoleName = role
+				prof.Target.Role = role
+
 				if sDef.Pod != "" {
 					prof.Target.Pod = sDef.Pod
 				} else {
 					prof.Target.Pod = targetService
 				}
 			} else {
+				prof.Target.RoleName = targetService
 				prof.Target.Role = targetService
 				prof.Target.Pod = targetService
 			}

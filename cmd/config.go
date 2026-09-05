@@ -46,7 +46,7 @@ var configProfilesCmd = &cobra.Command{
 				activeMark = color.CyanString("(default)")
 			}
 
-			insName := prof.Target.Insights.Name
+			insName := prof.Target.GetInsightsName()
 			if insName == "" {
 				insName = "-"
 			}
@@ -56,7 +56,7 @@ var configProfilesCmd = &cobra.Command{
 			}
 			serviceScope := prof.Target.Service
 			if serviceScope == "" {
-				serviceScope = prof.Target.Role
+				serviceScope = prof.Target.GetRoleName()
 			}
 			if serviceScope == "" {
 				serviceScope = "-"

@@ -32,13 +32,13 @@ make build
 3. **No magic scores**: There is no arbitrary health percentage or metric soup. Environments are strictly **`healthy`**, **`degraded`**, or **`unknown`**.
 4. **Actionability over raw data**: Every finding provides an immediate, copy-pasteable next step command.
 
-```mermaid
-graph TD
-    A["🚀 azlens: Operational Health Check"] --> B["🔍 azlens explain: Root Cause Analysis"]
-    A --> C["📊 azlens inspect: Telemetry Evidence"]
-    A --> D["🚀 azlens deploy: Release Safety Verification"]
-    A --> E["🩺 azlens doctor: Coverage & Diagnostics"]
-    A --> F["⚙️ azlens config / upgrade: Settings & Updater"]
+```text
+🚀 azlens: Operational Health Check
+ ├──► 🔍 azlens explain   ──  Root cause analysis & evidence
+ ├──► 📊 azlens inspect   ──  Deep telemetry investigation
+ ├──► 🚀 azlens deploy    ──  Release regression verification
+ ├──► 🩺 azlens doctor    ──  Environment coverage & reachability
+ └──► ⚙️ azlens config    ──  Team-shared profile management
 ```
 
 ---
@@ -68,14 +68,14 @@ azlens -o markdown
 
 **Healthy Output (Silence is a feature):**
 ```text
-Production · last 60m
+Production · checkout · last 60m
 
 Everything looks normal.
 ```
 
 **Degraded Output (Actionable problem story):**
 ```text
-Production · last 60m
+Production · checkout · last 60m
 
 Needs Attention:
 [1] POST /api/v1/orders/checkout degraded by api.stripe.com failures
@@ -248,32 +248,36 @@ AzLens follows **Convention over Configuration**. The config file is the single 
 # ─────────────────────────────────────────────────────────────────────────────
 # AzLens Configuration Reference (azlens.yaml)
 # Explanatory comments are consolidated in this header block.
+# - defaults: operational defaults (profile, service, window, limit, output)
+# - shared.logs.database: MySQL slow query logs tenant database (required)
+# - shared.services: maps service names to role_name (cloud_RoleName) and pod (cloud_RoleInstance)
+# - profiles.*.target.insights_name: App Insights resource name or App ID GUID
 # ─────────────────────────────────────────────────────────────────────────────
 
 version: "1.0"
 
 defaults:
-  profile: prod          # Default active profile
-  service: checkout      # Default active service
-  window: "1h"           # Default operational window
-  limit: 15              # Table row limit
-  output: "table"        # table | markdown | json
+  profile: prod
+  service: checkout
+  window: "1h"
+  limit: 15
+  output: "table"
 
 # Shared targets: declared ONCE, inherited by all profiles
 shared:
   logs:
-    database: "orders_db"    # MySQL slow query logs tenant database (required)
+    database: "orders_db"
 
   # Service catalog: maps logical services to physical telemetry targets
   services:
     checkout:
-      role: checkout-service   # App Insights cloud_RoleName
-      pod: checkout-app        # Pod base name without replica hash
+      role_name: checkout-service
+      pod: checkout-app
     orders:
-      role: order-service
+      role_name: order-service
       pod: order-app
     billing:
-      role: billing-service
+      role_name: billing-service
       pod: billing-worker
 
   thresholds:
@@ -286,31 +290,27 @@ shared:
 profiles:
   prod:
     name: "Production"
-    subscription_id: "11111111-aaaa-bbbb-cccc-111111111111"
-    resource_group: "rg-prod"
-    workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
     target:
-      insights:
-        name: "app-insights-prod"
+      insights_name: "app-insights-prod"
+      logs:
+        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
 
   staging:
     name: "Staging"
-    subscription_id: "22222222-dddd-eeee-ffff-222222222222"
-    resource_group: "rg-staging"
-    workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
     target:
-      insights:
-        name: "app-insights-staging"
+      insights_name: "app-insights-staging"
+      logs:
+        workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
 ```
 
 ### Singular Service Flag (`-s` / `--service`)
 - Target any service by name: `-s <name>` or `--service <name>`.
 - The CLI automatically looks up the service in `shared.services` to apply the exact `cloud_RoleName` and `cloud_RoleInstance` filters.
-- **Ad-hoc fallback**: If you pass a service name not present in the catalog (`-s custom-job`), AzLens uses `custom-job` for both role and pod matching.
+- **Ad-hoc fallback**: If you pass a service name not present in the catalog (`-s custom-job`), AzLens uses `custom-job` for both role_name and pod matching.
 
 ### Dual-Layer Tenancy Enforcement
 To guarantee multi-tenant safety and prevent unscoped cross-tenant queries:
-1. **Config Validation**: `shared.logs.database` and an active service/role are mandatory (`SeverityError`). Newly installed or non-telemetry commands (`--help`, `version`, `config init`, `config profiles`, `config path`) remain lazy and non-blocking.
+1. **Config Validation**: `shared.logs.database` and an active service/role_name are mandatory (`SeverityError`). Newly installed or non-telemetry commands (`--help`, `version`, `config init`, `config profiles`, `config path`) remain lazy and non-blocking.
 2. **KQL Query Firewall**: In `pkg/kql/builder.go`, application queries (`requests`, `dependencies`, `exceptions`, `traces`) refuse to build if no role filter is present (`ErrMissingRole`), and database slow log queries (`MySqlSlowLogs`) refuse to build without a database filter (`ErrMissingDatabase`).
 
 ### Profile Resolution Precedence

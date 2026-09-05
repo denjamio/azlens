@@ -5,20 +5,20 @@
 # 1. SHARED TARGET:
 #    Declare ONCE in 'shared:' everything that does not vary across environments.
 #    Profiles inherit shared settings and override only what differs
-#    (typically insights.name and logs.workspace_id).
+#    (typically insights_name and logs.workspace_id).
 #
 # 2. MULTI-TENANCY & SERVICE ISOLATION:
 #    - Multi-tenancy requires 'shared.logs.database' and an active service.
-#    - Queries enforce tenant isolation on Log Analytics (database) and App Insights (role).
-#    - Application queries require a role filter; database queries require a database filter.
+#    - Queries enforce tenant isolation on Log Analytics (database) and App Insights (role_name).
+#    - Application queries require a role_name filter; database queries require a database filter.
 #
 # 3. SERVICE CATALOG:
 #    - 'shared.services' maps logical service names to physical telemetry targets:
-#        role: EXACT cloud_RoleName in Application Insights
-#        pod:  cloud_RoleInstance base token without the dynamic replica hash
+#        role_name: EXACT cloud_RoleName in Application Insights
+#        pod:       cloud_RoleInstance base token without the dynamic replica hash
 #    - 'defaults.service' specifies the default active service.
 #    - CLI: target any service with '-s <name>' or '--service <name>'.
-#    - Ad-hoc fallback: if '-s <name>' is not defined in services, role and pod
+#    - Ad-hoc fallback: if '-s <name>' is not defined in services, role_name and pod
 #      both default to '<name>'.
 #
 # 4. AZURE SESSIONS & SCRIPTING:
@@ -48,13 +48,13 @@ shared:
 
   services:
     checkout:
-      role: checkout-service
+      role_name: checkout-service
       pod: checkout-app
     orders:
-      role: order-service
+      role_name: order-service
       pod: order-app
     billing:
-      role: billing-service
+      role_name: billing-service
       pod: billing-worker
 
   exclude_synthetic: true
@@ -71,16 +71,14 @@ profiles:
   prod:
     name: "Production Microservices"
     target:
-      insights:
-        name: "app-shared-prod"
+      insights_name: "app-shared-prod"
       logs:
         workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
 
   staging:
     name: "Staging Environment"
     target:
-      insights:
-        name: "app-shared-staging"
+      insights_name: "app-shared-staging"
       logs:
         workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
     defaults:
@@ -96,7 +94,6 @@ profiles:
   dev:
     name: "Development Environment"
     target:
-      insights:
-        name: "app-shared-dev"
+      insights_name: "app-shared-dev"
       logs:
         workspace_id: "55555555-eeee-ffff-dddd-555555555555"

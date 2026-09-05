@@ -25,28 +25,28 @@ const (
 // Defaults defines operational preferences (active profile, default service, timeframes, limits, output).
 // These are inherited by profiles when not explicitly overridden.
 type Defaults struct {
-	Profile string `yaml:"profile,omitempty" json:"profile,omitempty"` // Default active profile name (e.g. "prod", "staging")
-	Service string `yaml:"service,omitempty" json:"service,omitempty"` // Default active service name (e.g. "checkout")
-	Window  string `yaml:"window,omitempty" json:"window,omitempty"`   // Default timeframe for 'inspect' and operational health (e.g. "1h", "30m")
-	Since   string `yaml:"since,omitempty" json:"since,omitempty"`     // Default deploy diff comparison window (e.g. "1h", "30m")
-	Limit   int    `yaml:"limit,omitempty" json:"limit,omitempty"`     // Default number of items returned (--limit / -n)
-	Output  string `yaml:"output,omitempty" json:"output,omitempty"`   // Default output format (table, markdown, json)
+	Profile string `yaml:"profile,omitempty" json:"profile,omitempty"`
+	Service string `yaml:"service,omitempty" json:"service,omitempty"`
+	Window  string `yaml:"window,omitempty" json:"window,omitempty"`
+	Since   string `yaml:"since,omitempty" json:"since,omitempty"`
+	Limit   int    `yaml:"limit,omitempty" json:"limit,omitempty"`
+	Output  string `yaml:"output,omitempty" json:"output,omitempty"`
 }
 
-// InsightsConfig holds configuration for Application Insights (mapping only, no scalar)
+// InsightsConfig holds configuration for Application Insights.
 type InsightsConfig struct {
-	Name           string `yaml:"name,omitempty" json:"name,omitempty"`                       // Resource name, App ID (GUID), or full resource ID
-	ResourceGroup  string `yaml:"resource_group,omitempty" json:"resource_group,omitempty"`   // Resource group containing Application Insights (required when using component name)
-	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`       // Entra directory ID hosting App Insights — drives 'az login --tenant' and AZURE_TENANT_ID per query
-	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"` // Subscription ID hosting Application Insights (routes the query)
+	Name           string `yaml:"name,omitempty" json:"name,omitempty"`
+	ResourceGroup  string `yaml:"resource_group,omitempty" json:"resource_group,omitempty"`
+	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`
+	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"`
 }
 
-// LogsConfig holds configuration for Log Analytics (mapping only, no scalar)
+// LogsConfig holds configuration for Log Analytics.
 type LogsConfig struct {
-	WorkspaceID    string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`       // Log Analytics workspace Customer ID (GUID), not the resource name
-	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`       // Entra directory ID hosting Log Analytics — drives 'az login --tenant' and AZURE_TENANT_ID per query
-	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"` // Subscription ID hosting Log Analytics (routes the query)
-	Database       string `yaml:"database,omitempty" json:"database,omitempty"`               // Database name for MySqlSlowLogs filtering (mandatory tenant filter)
+	WorkspaceID    string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`
+	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"`
+	Database       string `yaml:"database,omitempty" json:"database,omitempty"`
 }
 
 // BoolPtr returns a pointer to b. Target boolean filters use pointers so that
@@ -54,10 +54,21 @@ type LogsConfig struct {
 // override the shared configuration.
 func BoolPtr(b bool) *bool { return &b }
 
-// ServiceDef maps a service name to its Application Insights targeting dimensions.
+// ServiceDef maps a service name to its Application Insights targeting dimensions:
+// - role_name: exact cloud_RoleName in Application Insights
+// - pod: cloud_RoleInstance token base (pod name without deployment hash)
 type ServiceDef struct {
-	Role string `yaml:"role,omitempty" json:"role,omitempty"` // App Insights cloud_RoleName (exact microservice name)
-	Pod  string `yaml:"pod,omitempty" json:"pod,omitempty"`   // App Insights cloud_RoleInstance token base (pod name without deployment hash)
+	RoleName string `yaml:"role_name,omitempty" json:"role_name,omitempty"`
+	Role     string `yaml:"role,omitempty" json:"role,omitempty"`
+	Pod      string `yaml:"pod,omitempty" json:"pod,omitempty"`
+}
+
+// GetRoleName returns RoleName if set, or falls back to Role for backwards compatibility
+func (s ServiceDef) GetRoleName() string {
+	if s.RoleName != "" {
+		return s.RoleName
+	}
+	return s.Role
 }
 
 // TargetConfig encapsulates telemetry destination and filter criteria.
@@ -65,24 +76,43 @@ type ServiceDef struct {
 //
 // Filter reference (what each option filters in KQL):
 //   - service           -> Resolved service name from shared.services or CLI (-s / --service)
-//   - role              -> cloud_RoleName          (EXACT microservice name; =~ equality)
-//   - pod               -> cloud_RoleInstance      (pod name WITHOUT the deployment hash; token match: has)
-//   - logs.database     -> Db                      (MySqlSlowLogs in Log Analytics; mandatory tenant filter)
-//   - resource_id       -> _ResourceId             (Log Analytics multi-resource workspaces)
+//   - insights_name     -> App Insights component name or App ID (GUID)
+//   - role_name / role  -> cloud_RoleName (EXACT microservice name; =~ equality)
+//   - pod               -> cloud_RoleInstance (pod name WITHOUT the deployment hash; token match: has)
+//   - logs.database     -> Db (MySqlSlowLogs in Log Analytics; mandatory tenant filter)
+//   - resource_id       -> _ResourceId (Log Analytics multi-resource workspaces)
 //   - exclude_synthetic -> operation_SyntheticSource / syntheticSource
 //   - exclude_probes    -> kube-probe User-Agent + /healthz-style routes
 //   - custom_dimensions -> customDimensions['<key>'] =~ '<value>'
 type TargetConfig struct {
+	InsightsName     string                `yaml:"insights_name,omitempty" json:"insights_name,omitempty"`
 	Insights         InsightsConfig        `yaml:"insights,omitempty" json:"insights,omitempty"`
 	Logs             LogsConfig            `yaml:"logs,omitempty" json:"logs,omitempty"`
-	Service          string                `yaml:"service,omitempty" json:"service,omitempty"`                     // Active service name
-	Services         map[string]ServiceDef `yaml:"services,omitempty" json:"services,omitempty"`                   // Catalog of microservices
-	Role             string                `yaml:"role,omitempty" json:"role,omitempty"`                           // Resolved App Insights cloud_RoleName
-	Pod              string                `yaml:"pod,omitempty" json:"pod,omitempty"`                             // Resolved App Insights cloud_RoleInstance token base
-	ResourceID       string                `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`             // Azure Resource ID (_ResourceId)
-	ExcludeSynthetic *bool                 `yaml:"exclude_synthetic,omitempty" json:"exclude_synthetic,omitempty"` // Filter out synthetic traffic / availability tests (nil = inherit)
-	ExcludeProbes    *bool                 `yaml:"exclude_probes,omitempty" json:"exclude_probes,omitempty"`       // Exclude /healthz, /ready, kube-probe requests (nil = inherit)
-	CustomDimensions map[string]string     `yaml:"custom_dimensions,omitempty" json:"custom_dimensions,omitempty"` // Custom key-value pairs
+	Service          string                `yaml:"service,omitempty" json:"service,omitempty"`
+	Services         map[string]ServiceDef `yaml:"services,omitempty" json:"services,omitempty"`
+	RoleName         string                `yaml:"role_name,omitempty" json:"role_name,omitempty"`
+	Role             string                `yaml:"role,omitempty" json:"role,omitempty"`
+	Pod              string                `yaml:"pod,omitempty" json:"pod,omitempty"`
+	ResourceID       string                `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`
+	ExcludeSynthetic *bool                 `yaml:"exclude_synthetic,omitempty" json:"exclude_synthetic,omitempty"`
+	ExcludeProbes    *bool                 `yaml:"exclude_probes,omitempty" json:"exclude_probes,omitempty"`
+	CustomDimensions map[string]string     `yaml:"custom_dimensions,omitempty" json:"custom_dimensions,omitempty"`
+}
+
+// GetInsightsName returns InsightsName if set, or falls back to Insights.Name
+func (t TargetConfig) GetInsightsName() string {
+	if t.InsightsName != "" {
+		return t.InsightsName
+	}
+	return t.Insights.Name
+}
+
+// GetRoleName returns RoleName if set, or falls back to Role
+func (t TargetConfig) GetRoleName() string {
+	if t.RoleName != "" {
+		return t.RoleName
+	}
+	return t.Role
 }
 
 // ExcludesSynthetic reports whether synthetic traffic / availability tests must be filtered
@@ -98,8 +128,12 @@ func (t TargetConfig) ExcludesProbes() bool { return t.ExcludeProbes != nil && *
 // duplication — profiles should only declare what differs per environment.
 func MergeTarget(shared, override TargetConfig) TargetConfig {
 	merged := shared
-	if override.Insights.Name != "" {
+	if override.InsightsName != "" {
+		merged.InsightsName = override.InsightsName
+		merged.Insights.Name = override.InsightsName
+	} else if override.Insights.Name != "" {
 		merged.Insights.Name = override.Insights.Name
+		merged.InsightsName = override.Insights.Name
 	}
 	if override.Insights.ResourceGroup != "" {
 		merged.Insights.ResourceGroup = override.Insights.ResourceGroup
@@ -135,8 +169,12 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 		}
 		merged.Services = svcs
 	}
-	if override.Role != "" {
+	if override.RoleName != "" {
+		merged.RoleName = override.RoleName
+		merged.Role = override.RoleName
+	} else if override.Role != "" {
 		merged.Role = override.Role
+		merged.RoleName = override.Role
 	}
 	if override.Pod != "" {
 		merged.Pod = override.Pod
@@ -160,14 +198,27 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 		}
 		merged.CustomDimensions = dims
 	}
+
+	if merged.InsightsName != "" && merged.Insights.Name == "" {
+		merged.Insights.Name = merged.InsightsName
+	} else if merged.Insights.Name != "" && merged.InsightsName == "" {
+		merged.InsightsName = merged.Insights.Name
+	}
+	if merged.RoleName != "" && merged.Role == "" {
+		merged.Role = merged.RoleName
+	} else if merged.Role != "" && merged.RoleName == "" {
+		merged.RoleName = merged.Role
+	}
+
 	return merged
 }
 
 // Profile represents a specific project or environment telemetry configuration
 type Profile struct {
-	Name       string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Target     TargetConfig      `yaml:"target,omitempty" json:"target,omitempty"`
-	Defaults   Defaults          `yaml:"defaults,omitempty" json:"defaults,omitempty"` // Per-profile operational overrides (window, since, limit, output)
+	Name   string       `yaml:"name,omitempty" json:"name,omitempty"`
+	Target TargetConfig `yaml:"target,omitempty" json:"target,omitempty"`
+	// Per-profile operational overrides (window, since, limit, output)
+	Defaults   Defaults          `yaml:"defaults,omitempty" json:"defaults,omitempty"`
 	Thresholds ProfileThresholds `yaml:"thresholds,omitempty" json:"thresholds,omitempty"`
 }
 
@@ -213,11 +264,12 @@ type SharedConfig struct {
 
 // Config represents the top-level azlens configuration file (azlens.yaml)
 type Config struct {
-	Version    string             `yaml:"version" json:"version"`
-	Defaults   Defaults           `yaml:"defaults,omitempty" json:"defaults,omitempty"`
-	Shared     SharedConfig       `yaml:"shared,omitempty" json:"shared,omitempty"`
-	Profiles   map[string]Profile `yaml:"profiles" json:"profiles"`
-	LoadedPath string             `yaml:"-" json:"-"` // Where the config was resolved from
+	Version  string             `yaml:"version" json:"version"`
+	Defaults Defaults           `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+	Shared   SharedConfig       `yaml:"shared,omitempty" json:"shared,omitempty"`
+	Profiles map[string]Profile `yaml:"profiles" json:"profiles"`
+	// LoadedPath is where the config was resolved from
+	LoadedPath string `yaml:"-" json:"-"`
 }
 
 // ResolveProfile resolves the active profile name in exact precedence order (Section 4):
@@ -225,7 +277,7 @@ type Config struct {
 // 2. AZLENS_PROFILE environment variable
 // 3. defaults.profile in azlens.yaml
 // 4. the only configured profile, if exactly one exists
-// 5. actionable error if multiple profiles exist and none can be selected
+// 5. DefaultProfile ("prod") fallback
 func (c *Config) ResolveProfile(cliProfile string) (string, error) {
 	if trimmed := strings.TrimSpace(cliProfile); trimmed != "" {
 		return trimmed, nil
@@ -335,8 +387,9 @@ func DefaultConfig() *Config {
 			},
 		},
 		Profiles: map[string]Profile{
+			// Production inherits shared thresholds
 			"prod": {
-				Name: "Production", // inherits shared thresholds
+				Name: "Production",
 			},
 			"staging": {
 				Name: "Staging",
@@ -344,7 +397,8 @@ func DefaultConfig() *Config {
 					Window: "30m",
 					Since:  "15m",
 				},
-				Thresholds: ProfileThresholds{ // per-environment override of shared policy
+				// Per-environment override of shared policy
+				Thresholds: ProfileThresholds{
 					LatencyWarnPct:     25.0,
 					LatencyCritPct:     50.0,
 					ErrorRateWarnDelta: 2.0,
@@ -368,7 +422,7 @@ const StarterConfigTemplate = `# AzLens Configuration (azlens.yaml)
 # 2. Multi-Tenancy: 'shared.logs.database' and an active service are mandatory to ensure
 #    isolated telemetry queries across database and application telemetry.
 # 3. Microservice Catalog: Declare services under 'shared.services' with their App Insights
-#    cloud_RoleName ('role') and pod token base ('pod', without deployment hashes).
+#    cloud_RoleName ('role_name') and pod token base ('pod', without deployment hashes).
 # 4. Targeting: Target any service using '-s <name>' / '--service <name>'. Defaults to 'defaults.service'.
 # 5. Sessions: azlens leverages 'az' CLI authentication directly. No credentials are saved on disk.
 
@@ -386,7 +440,7 @@ defaults:
 # ─── Shared target ────────────────────────────────────────────────────────
 # Declare ONCE everything that does NOT vary across environments.
 # Profiles below inherit every field here and only declare what differs
-# (typically insights.name and logs.workspace_id).
+# (typically insights_name and logs.workspace_id).
 shared:
   insights:
     resource_group: ""
@@ -398,7 +452,7 @@ shared:
     database: ""
   services:
     checkout:
-      role: checkout-service
+      role_name: checkout-service
       pod: checkout-service
   exclude_synthetic: true
   exclude_probes: true
@@ -416,27 +470,23 @@ profiles:
   prod:
     name: "Production"
     target:
-      insights:
-        name: ""         # App Insights resource name (e.g. app-prod)
+      # App Insights resource name or App ID GUID
+      insights_name: ""
       logs:
-        workspace_id: "" # Log Analytics workspace Customer ID GUID
-    # Optional per-environment overrides of any shared field:
-    #   service: checkout
-    #   thresholds: {p95_latency_warn_pct: 25.0, p95_latency_crit_pct: 50.0}
+        # Log Analytics workspace Customer ID GUID
+        workspace_id: ""
 
   staging:
     name: "Staging"
     target:
-      insights:
-        name: ""
+      insights_name: ""
       logs:
         workspace_id: ""
 
   dev:
     name: "Development"
     target:
-      insights:
-        name: ""
+      insights_name: ""
       logs:
         workspace_id: ""
 `

@@ -27,12 +27,12 @@ func (p *Profile) Validate() []ValidationIssue {
 	var issues []ValidationIssue
 
 	// 1. App Insights check
-	if strings.TrimSpace(p.Target.Insights.Name) == "" {
+	if strings.TrimSpace(p.Target.GetInsightsName()) == "" {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.insights.name",
+			Field:    "target.insights_name",
 			Severity: SeverityError,
 			Message:  "Application Insights component is not configured.",
-			Hint:     "Configure 'target.insights.name' with your Azure App Insights resource name or App ID.",
+			Hint:     "Configure 'target.insights_name' with your Azure App Insights resource name or App ID.",
 		})
 	}
 
@@ -47,7 +47,7 @@ func (p *Profile) Validate() []ValidationIssue {
 	}
 
 	// 3. Service targeting check (mandatory microservice isolation)
-	if strings.TrimSpace(p.Target.Service) == "" && strings.TrimSpace(p.Target.Role) == "" {
+	if strings.TrimSpace(p.Target.Service) == "" && strings.TrimSpace(p.Target.GetRoleName()) == "" {
 		issues = append(issues, ValidationIssue{
 			Field:    "target.service",
 			Severity: SeverityError,

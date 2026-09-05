@@ -46,8 +46,9 @@ func (e *Engine) Analyze(snapshot *domain.Snapshot) *domain.AnalysisResult {
 		SchemaVersion: "1",
 		Profile:       snapshot.Profile,
 		Scope: domain.ScopeContext{
-			Role: snapshot.Scope.Role,
-			Pod:  snapshot.Scope.Pod,
+			Service: snapshot.Scope.Service,
+			Role:    snapshot.Scope.Role,
+			Pod:     snapshot.Scope.Pod,
 		},
 		Window:        snapshot.Window,
 		State:         healthState,

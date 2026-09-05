@@ -35,7 +35,7 @@ profiles:
     resource_group: rg-prod
     workspace_id: ws-prod
     target:
-      app_insights_app: app-prod
+      insights_name: app-prod
       service: checkout
   staging:
     name: Staging
@@ -43,7 +43,7 @@ profiles:
     resource_group: rg-staging
     workspace_id: ws-staging
     target:
-      app_insights_app: app-staging
+      insights_name: app-staging
       service: checkout-staging
 `
 	if err := os.WriteFile(filepath.Join(dir, "azlens.yaml"), []byte(cfgContent), 0644); err != nil {

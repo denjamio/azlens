@@ -49,8 +49,9 @@ type CapabilityStatus struct {
 	LastSeen    *time.Time      `json:"last_seen,omitempty"`
 }
 
-// Scope defines the targeted operational boundaries (role, endpoint, pod, database, etc.).
+// Scope defines the targeted operational boundaries (service, role, endpoint, pod, database, etc.).
 type Scope struct {
+	Service  string `json:"service,omitempty"`
 	Role     string `json:"role,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Target   string `json:"target,omitempty"`
@@ -62,6 +63,9 @@ type Scope struct {
 func (s Scope) String() string {
 	if s.Endpoint != "" {
 		return s.Endpoint
+	}
+	if s.Service != "" {
+		return s.Service
 	}
 	if s.Role != "" {
 		return s.Role
@@ -181,17 +185,19 @@ const (
 
 // Problem represents a correlated operational issue shown to the user (Section 12.3).
 type Problem struct {
-	ID        string      `json:"id,omitempty"`
-	Kind      ProblemKind `json:"kind"`
-	Priority  int         `json:"priority"` // 1 = highest
-	Scope     Scope       `json:"scope"`
-	Summary   string      `json:"summary"`
-	Impact    Impact      `json:"impact"`
-	StartedAt *time.Time  `json:"started_at,omitempty"`
-	Symptoms  []Finding   `json:"symptoms,omitempty"`
-	Cause     *Cause      `json:"cause,omitempty"`
-	Action    *Action     `json:"action,omitempty"`
-	RankScore float64     `json:"-"` // Internal ranking score, never exposed in JSON/human
+	ID   string      `json:"id,omitempty"`
+	Kind ProblemKind `json:"kind"`
+	// Priority: 1 = highest
+	Priority  int        `json:"priority"`
+	Scope     Scope      `json:"scope"`
+	Summary   string     `json:"summary"`
+	Impact    Impact     `json:"impact"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	Symptoms  []Finding  `json:"symptoms,omitempty"`
+	Cause     *Cause     `json:"cause,omitempty"`
+	Action    *Action    `json:"action,omitempty"`
+	// Internal ranking score, never exposed in JSON/human
+	RankScore float64 `json:"-"`
 }
 
 // WatchingItem represents an unusual or risky operational signal without enough impact (Section 8).

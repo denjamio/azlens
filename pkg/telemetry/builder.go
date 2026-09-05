@@ -46,6 +46,7 @@ func (b *SnapshotBuilder) BuildSnapshot(
 			DisplayName: displayName,
 		},
 		domain.Scope{
+			Service:  prof.Target.Service,
 			Role:     prof.Target.Role,
 			Pod:      prof.Target.Pod,
 			Database: prof.Target.Logs.Database,

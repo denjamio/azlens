@@ -118,6 +118,7 @@ Exit codes:
 				DisplayName: rt.Profile.Name,
 			},
 			domain.Scope{
+				Service:  rt.Profile.Target.Service,
 				Role:     rt.Profile.Target.Role,
 				Pod:      rt.Profile.Target.Pod,
 				Database: rt.Profile.Target.Logs.Database,

@@ -17,7 +17,7 @@ func PrintOperationalTerminal(w io.Writer, res *domain.AnalysisResult) {
 		w = os.Stdout
 	}
 
-	header := formatContextBanner(res.Profile, res.Window)
+	header := formatContextBanner(res.Profile, res.Scope, res.Window)
 	fmt.Fprintf(w, "\n%s\n\n", header)
 
 	switch res.State {
@@ -144,7 +144,7 @@ func PrintOperationalMarkdown(w io.Writer, res *domain.AnalysisResult) {
 		w = os.Stdout
 	}
 
-	header := formatContextBanner(res.Profile, res.Window)
+	header := formatContextBanner(res.Profile, res.Scope, res.Window)
 	fmt.Fprintf(w, "# %s\n\n", header)
 
 	switch res.State {
@@ -236,11 +236,15 @@ func PrintExplainTerminal(w io.Writer, res *domain.AnalysisResult, problem *doma
 		w = os.Stdout
 	}
 
+	servicePart := ""
+	if svc := resolveScopeServiceName(res.Scope); svc != "" {
+		servicePart = fmt.Sprintf(" · %s", svc)
+	}
 	subjPart := ""
 	if subject != "" {
 		subjPart = fmt.Sprintf(" · %s", subject)
 	}
-	header := fmt.Sprintf("%s%s · %s", res.Profile.DisplayName, subjPart, res.Window.Label)
+	header := fmt.Sprintf("%s%s%s · %s", res.Profile.DisplayName, servicePart, subjPart, res.Window.Label)
 	fmt.Fprintf(w, "\n%s\n\n", header)
 
 	if problem == nil {
@@ -313,11 +317,15 @@ func PrintExplainMarkdown(w io.Writer, res *domain.AnalysisResult, problem *doma
 		w = os.Stdout
 	}
 
+	servicePart := ""
+	if svc := resolveScopeServiceName(res.Scope); svc != "" {
+		servicePart = fmt.Sprintf(" · %s", svc)
+	}
 	subjPart := ""
 	if subject != "" {
 		subjPart = fmt.Sprintf(" · %s", subject)
 	}
-	fmt.Fprintf(w, "# %s%s · %s\n\n", res.Profile.DisplayName, subjPart, res.Window.Label)
+	fmt.Fprintf(w, "# %s%s%s · %s\n\n", res.Profile.DisplayName, servicePart, subjPart, res.Window.Label)
 
 	if problem == nil {
 		fmt.Fprintln(w, "No active problems detected for this subject.")
@@ -374,9 +382,13 @@ func PrintDeployTerminal(w io.Writer, res *domain.AnalysisResult, deployTimeLabe
 		w = os.Stdout
 	}
 
-	header := fmt.Sprintf("%s · deploy at %s", res.Profile.DisplayName, deployTimeLabel)
+	servicePart := ""
+	if svc := resolveScopeServiceName(res.Scope); svc != "" {
+		servicePart = fmt.Sprintf(" · %s", svc)
+	}
+	header := fmt.Sprintf("%s%s · deploy at %s", res.Profile.DisplayName, servicePart, deployTimeLabel)
 	if deployTimeLabel == "" {
-		header = fmt.Sprintf("%s · %s", res.Profile.DisplayName, res.Window.Label)
+		header = fmt.Sprintf("%s%s · %s", res.Profile.DisplayName, servicePart, res.Window.Label)
 	}
 	fmt.Fprintf(w, "\n%s\n\n", header)
 
@@ -430,9 +442,13 @@ func PrintDeployMarkdown(w io.Writer, res *domain.AnalysisResult, deployTimeLabe
 		w = os.Stdout
 	}
 
-	header := fmt.Sprintf("%s · deploy at %s", res.Profile.DisplayName, deployTimeLabel)
+	servicePart := ""
+	if svc := resolveScopeServiceName(res.Scope); svc != "" {
+		servicePart = fmt.Sprintf(" · %s", svc)
+	}
+	header := fmt.Sprintf("%s%s · deploy at %s", res.Profile.DisplayName, servicePart, deployTimeLabel)
 	if deployTimeLabel == "" {
-		header = fmt.Sprintf("%s · %s", res.Profile.DisplayName, res.Window.Label)
+		header = fmt.Sprintf("%s%s · %s", res.Profile.DisplayName, servicePart, res.Window.Label)
 	}
 	fmt.Fprintf(w, "# %s\n\n", header)
 
@@ -564,7 +580,14 @@ func formatCapabilityName(cap domain.CapabilityType) string {
 	}
 }
 
-func formatContextBanner(prof domain.ProfileContext, win domain.WindowContext) string {
+func resolveScopeServiceName(scope domain.ScopeContext) string {
+	if scope.Service != "" {
+		return scope.Service
+	}
+	return scope.Role
+}
+
+func formatContextBanner(prof domain.ProfileContext, scope domain.ScopeContext, win domain.WindowContext) string {
 	name := prof.DisplayName
 	if name == "" {
 		name = prof.Name
@@ -572,11 +595,15 @@ func formatContextBanner(prof domain.ProfileContext, win domain.WindowContext) s
 	if name == "" {
 		name = "Production"
 	}
+	servicePart := ""
+	if svc := resolveScopeServiceName(scope); svc != "" {
+		servicePart = fmt.Sprintf(" · %s", svc)
+	}
 	label := win.Label
 	if label == "" {
 		label = "last 60m"
 	}
-	return fmt.Sprintf("%s · %s", name, label)
+	return fmt.Sprintf("%s%s · %s", name, servicePart, label)
 }
 
 func cleanSubject(raw string) string {
