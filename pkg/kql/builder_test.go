@@ -55,7 +55,7 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 
 	// Verify single-pass percentile aggregation (one histogram scan) and
 	// scalar expansion without the illegal dynamic property access
-	if !strings.Contains(query, "P = percentiles(duration, 50, 75, 90, 95, 99)") {
+	if !strings.Contains(query, "P = percentiles_array(duration, 50, 75, 90, 95, 99)") {
 		t.Errorf("expected single-pass percentiles aggregate, got: %s", query)
 	}
 	if !strings.Contains(query, "P95 = todouble(P[3])") {

@@ -211,6 +211,10 @@ azlens upgrade --check   # Check if a new version is available without installin
 
 # Version
 azlens version           # Print build version, commit, and date
+
+# Debugging & Query Inspection
+azlens inspect endpoints --debug   # Verbose execution: KQL query, target backend, and raw Azure CLI output
+azlens deploy 30m -q               # Print generated KQL queries before executing
 ```
 
 ---

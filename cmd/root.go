@@ -28,6 +28,7 @@ var (
 	colorModeFlag  string
 	mockFlag       bool
 	printQueryFlag bool
+	debugFlag      bool
 	serviceFlag    string
 )
 
@@ -230,6 +231,13 @@ into clear, actionable stories with supporting evidence and next actions.`,
 			}
 		}
 
+		if debugFlag {
+			fmt.Fprintf(os.Stderr, "[azlens:debug] Active Profile: %s\n", activeProfileName)
+			if targetService != "" {
+				fmt.Fprintf(os.Stderr, "[azlens:debug] Target Service: %s (RoleName: %s, Database: %s)\n", targetService, prof.Target.RoleName, prof.Target.Logs.Database)
+			}
+		}
+
 		// 6. Inject the runtime for the executing command
 		cmd.SetContext(context.WithValue(cmd.Context(), runtimeContextKey{}, &appRuntime{
 			Config:      cfg,
@@ -238,7 +246,8 @@ into clear, actionable stories with supporting evidence and next actions.`,
 			Client: azure.NewClient(azure.ClientOptions{
 				Profile:    prof,
 				IsMock:     mockFlag,
-				PrintQuery: printQueryFlag,
+				PrintQuery: printQueryFlag || debugFlag,
+				Debug:      debugFlag,
 				OnAuthRequired: func(tenant string) error {
 					if isInteractiveTerminal() {
 						return launchAzLogin(tenant)
@@ -290,6 +299,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&colorModeFlag, "color", "auto", "Colorize output (auto, always, never)")
 	RootCmd.PersistentFlags().BoolVar(&mockFlag, "mock", false, "Use mock/simulated telemetry data (no Azure connection needed)")
 	RootCmd.PersistentFlags().BoolVarP(&printQueryFlag, "print-query", "q", false, "Print generated KQL query statements before executing")
+	RootCmd.PersistentFlags().BoolVarP(&debugFlag, "debug", "d", false, "Print generated KQL queries, target backend, and verbose CLI execution details")
 	RootCmd.PersistentFlags().StringVarP(&serviceFlag, "service", "s", "", "Target service name defined in services or ad-hoc (sets role_name and database filters)")
 	RootCmd.PersistentFlags().DurationVar(&queryTimeout, "query-timeout", defaultQueryTimeout, "Per-query timeout budget (e.g. 30s, 2m)")
 	_ = RootCmd.PersistentFlags().MarkHidden("query-timeout")

@@ -160,3 +160,25 @@ func TestExecuteKQLPrintQuery(t *testing.T) {
 		t.Fatalf("expected query to succeed with PrintQuery enabled, got: %v", err)
 	}
 }
+
+func TestDebugFlagDoesNotBreakExecution(t *testing.T) {
+	prof := config.Profile{
+		Name: "TestApp",
+		Target: config.TargetConfig{
+			Insights: config.InsightsConfig{
+				Name: "my-app",
+			},
+			RoleName: "order-service",
+		},
+	}
+	capture := filepath.Join(t.TempDir(), "args.txt")
+	t.Setenv("PATH", fakeAzScript(t, capture)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("AZLENS_TEST_CAPTURE", capture)
+
+	now := time.Now()
+	client := &AzCliClient{opts: ClientOptions{Profile: prof, Debug: true}}
+	_, err := client.QueryRequestsSummary(context.Background(), now.Add(-1*time.Hour), now)
+	if err != nil {
+		t.Fatalf("expected query to succeed with Debug enabled, got: %v", err)
+	}
+}

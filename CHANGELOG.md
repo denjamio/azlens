@@ -5,6 +5,21 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.16] - 2026-09-05
+
+### Added
+
+- **Global `--debug` / `-d` Persistent Flag**:
+  - Added `--debug` / `-d` flag available across all commands (`azlens`, `inspect`, `deploy`, `triage`, `explain`, etc.).
+  - Displays verbose runtime diagnostics on `stderr`: active profile, service targeting (`RoleName` and `Database`), target backend (App Insights vs Log Analytics), subscription ID, directory/tenant ID, exact `az` CLI command arguments, generated KQL queries, and raw Azure CLI stdout/stderr error outputs upon failure or JSON parse error.
+
+### Fixed
+
+- **Resolved `BadArgumentError: The request had some invalid properties` in `endpoints`, `dependencies`, and `requests`**:
+  - Replaced `P = percentiles(...)` with `P = percentiles_array(...)` in `BuildRequestsSummary`, `BuildEndpointsSummary`, and `BuildDependenciesSummary`.
+  - In Kusto / Azure Monitor KQL, `percentiles()` emits separate named scalar columns (e.g. `percentile_duration_50`), which causes runtime syntax/semantic error `KQL101: The element access operator [] is not allowed in this context` when followed by `P[0]`, `P[1]`, etc.
+  - Using `percentiles_array()` computes all percentiles in a single histogram pass and emits a true dynamic array, allowing safe, efficient scalar indexing (`todouble(P[0])`, etc.) with zero query cost warnings.
+
 ## [1.1.15] - 2026-09-05
 
 ### Added

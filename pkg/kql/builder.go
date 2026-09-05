@@ -199,7 +199,7 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P = percentiles(duration, 50, 75, 90, 95, 99),
+    P = percentiles_array(duration, 50, 75, 90, 95, 99),
     Count2xx = countif(toint(resultCode) >= 200 and toint(resultCode) < 300),
     Count4xx = countif(toint(resultCode) >= 400 and toint(resultCode) < 500),
     Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false))
@@ -227,7 +227,7 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P = percentiles(duration, 50, 75, 90, 95, 99)
+    P = percentiles_array(duration, 50, 75, 90, 95, 99)
   by Endpoint = name
 | extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project Endpoint, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate
@@ -265,7 +265,7 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
     AvgDuration = avg(duration),
     MinDuration = min(duration),
     MaxDuration = max(duration),
-    P = percentiles(duration, 50, 90, 95, 99)
+    P = percentiles_array(duration, 50, 90, 95, 99)
   by Type = type, Target = target, Dependency = name
 | extend P50 = todouble(P[0]), P90 = todouble(P[1]), P95 = todouble(P[2]), P99 = todouble(P[3]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project Type, Target, Dependency, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate

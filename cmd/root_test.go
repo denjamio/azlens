@@ -21,6 +21,7 @@ func resetRootFlags() {
 	colorModeFlag = "auto"
 	mockFlag = false
 	printQueryFlag = false
+	debugFlag = false
 	serviceFlag = ""
 	inspectLimit = config.DefaultLimit
 	inspectDepType = "all"
@@ -33,6 +34,10 @@ func resetRootFlags() {
 		f.Changed = false
 	}
 	if f := RootCmd.Flags().Lookup("mock"); f != nil {
+		_ = f.Value.Set("false")
+		f.Changed = false
+	}
+	if f := RootCmd.Flags().Lookup("debug"); f != nil {
 		_ = f.Value.Set("false")
 		f.Changed = false
 	}
@@ -358,5 +363,21 @@ func TestMockDeployVerdictIsHealthy(t *testing.T) {
 	// territory (exit code 2), breaking the offline first-run experience
 	if err := RootCmd.Execute(); err != nil {
 		t.Fatalf("expected healthy mock deploy (exit 0), got: %v", err)
+	}
+}
+
+func TestRootDebugFlag(t *testing.T) {
+	resetRootFlags()
+	defer resetRootFlags()
+
+	buf := new(bytes.Buffer)
+	RootCmd.SetOut(buf)
+	RootCmd.SetArgs([]string{"inspect", "endpoints", "30m", "--mock", "--debug"})
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("command with --debug failed: %v", err)
+	}
+
+	if !debugFlag {
+		t.Errorf("expected debugFlag to be true")
 	}
 }

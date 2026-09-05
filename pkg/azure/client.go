@@ -57,6 +57,7 @@ type ClientOptions struct {
 	Profile        config.Profile
 	IsMock         bool
 	PrintQuery     bool
+	Debug          bool
 	OnAuthRequired func(tenant string) error
 }
 
@@ -280,6 +281,9 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outStr := strings.TrimSpace(string(out))
+		if c.opts.Debug {
+			fmt.Fprintf(os.Stderr, "[azlens:debug] Azure CLI error: %v\n[azlens:debug] Raw CLI output:\n%s\n", err, outStr)
+		}
 		// Missing az CLI extension: az reports the command group as unknown when
 		// the extension providing it is not installed. Guide with the exact fix.
 		if strings.Contains(outStr, "mispelled") || //nolint:misspell // az's genuine typo in its output
@@ -302,7 +306,14 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 		return nil, fmt.Errorf("azure cli query failed: %w (output: %s)", err, outStr)
 	}
 
-	return parseAzQueryOutput(out)
+	res, err := parseAzQueryOutput(out)
+	if err != nil {
+		if c.opts.Debug {
+			fmt.Fprintf(os.Stderr, "[azlens:debug] Failed to parse Azure CLI JSON output: %v\n[azlens:debug] Raw CLI output:\n%s\n", err, string(out))
+		}
+		return nil, err
+	}
+	return res, nil
 }
 
 // parseAzQueryOutput parses Azure CLI JSON output into an AzQueryResult.
@@ -401,12 +412,16 @@ func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQu
 	if tq.Err != nil {
 		return nil, tq.Err
 	}
-	if c.opts.PrintQuery {
+	if c.opts.PrintQuery || c.opts.Debug {
 		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
 	}
 	args, targetSub, directoryID, err := routeForTargetQuery(c.opts.Profile, tq)
 	if err != nil {
 		return nil, err
+	}
+	if c.opts.Debug {
+		fmt.Fprintf(os.Stderr, "[azlens:debug] Target Backend: %s | Subscription: %s | Directory: %s\n", tq.Backend, targetSub, directoryID)
+		fmt.Fprintf(os.Stderr, "[azlens:debug] CLI Command: az %s\n", strings.Join(args, " "))
 	}
 	if err := c.ensureActiveSubscription(ctx, targetSub, directoryID); err != nil {
 		return nil, err
@@ -435,7 +450,7 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 	}
 
 	batchedQuery := strings.Join(rawQueries, ";\n\n")
-	if c.opts.PrintQuery {
+	if c.opts.PrintQuery || c.opts.Debug {
 		fmt.Fprintf(os.Stderr, "\n[azlens:batch-query] Backend: %s (%d statements)\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", targetBackend, len(queries), batchedQuery)
 	}
 
@@ -447,6 +462,10 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 	args, targetSub, directoryID, err := routeForTargetQuery(c.opts.Profile, batchTarget)
 	if err != nil {
 		return nil, err
+	}
+	if c.opts.Debug {
+		fmt.Fprintf(os.Stderr, "[azlens:debug] Target Backend: %s | Subscription: %s | Directory: %s\n", targetBackend, targetSub, directoryID)
+		fmt.Fprintf(os.Stderr, "[azlens:debug] CLI Command: az %s\n", strings.Join(args, " "))
 	}
 
 	if err := c.ensureActiveSubscription(ctx, targetSub, directoryID); err != nil {

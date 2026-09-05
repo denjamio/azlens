@@ -32,8 +32,8 @@ func (m *MockClient) GetProfile() config.Profile {
 }
 
 func (m *MockClient) logQuery(tq kql.TargetQuery) {
-	if m.opts.PrintQuery {
-		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
+	if m.opts.PrintQuery || m.opts.Debug {
+		fmt.Fprintf(os.Stderr, "\n[azlens:query] Backend: %s (MOCK)\n------------------------------------------------------------\n%s\n------------------------------------------------------------\n", tq.Backend, tq.Query)
 	}
 }
 
