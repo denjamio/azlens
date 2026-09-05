@@ -44,11 +44,11 @@ func applyColorMode(mode string) {
 	}
 }
 
-// defaultQueryTimeout is the default per-query budget; override with --query-timeout
+// defaultQueryTimeout is the default telemetry operation timeout budget; override with --query-timeout
 const defaultQueryTimeout = 45 * time.Second
 
-// queryTimeout is the per-query budget for Azure telemetry queries, bound to
-// the hidden --query-timeout flag (useful for large windows on slow workspaces)
+// queryTimeout is the overall operation timeout budget for telemetry operations (snapshot assembly,
+// queries, and logs), bound to the hidden --query-timeout flag (useful for large windows on slow workspaces)
 var queryTimeout = defaultQueryTimeout
 
 // appRuntime carries the resolved configuration, active profile, and client
@@ -143,6 +143,12 @@ into clear, actionable stories with supporting evidence and next actions.`,
 		}
 		if rt.Profile.Thresholds.LatencyCritPct > 0 {
 			detCfg.LatencyCritPct = rt.Profile.Thresholds.LatencyCritPct
+		}
+		if rt.Profile.Thresholds.ErrorRateWarnDelta > 0 {
+			detCfg.ErrorRateWarnDelta = rt.Profile.Thresholds.ErrorRateWarnDelta
+		}
+		if rt.Profile.Thresholds.ErrorRateCritDelta > 0 {
+			detCfg.ErrorRateCritDelta = rt.Profile.Thresholds.ErrorRateCritDelta
 		}
 		if rt.Profile.Thresholds.MinSampleCalls > 0 {
 			detCfg.MinSampleCalls = rt.Profile.Thresholds.MinSampleCalls
@@ -294,7 +300,7 @@ func init() {
 	RootCmd.PersistentFlags().BoolVarP(&printQueryFlag, "print-query", "q", false, "Print generated KQL query statements before executing")
 	RootCmd.PersistentFlags().BoolVarP(&debugFlag, "debug", "d", false, "Print generated KQL queries, target backend, and verbose CLI execution details")
 	RootCmd.PersistentFlags().StringVarP(&serviceFlag, "service", "s", "", "Target service name defined in services or ad-hoc (sets role_name and database filters)")
-	RootCmd.PersistentFlags().DurationVar(&queryTimeout, "query-timeout", defaultQueryTimeout, "Per-query timeout budget (e.g. 30s, 2m)")
+	RootCmd.PersistentFlags().DurationVar(&queryTimeout, "query-timeout", defaultQueryTimeout, "Operation timeout budget for telemetry queries and snapshot assembly (e.g. 30s, 2m)")
 	_ = RootCmd.PersistentFlags().MarkHidden("query-timeout")
 
 	_ = RootCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

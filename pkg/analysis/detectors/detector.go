@@ -37,7 +37,7 @@ func DefaultConfig() Config {
 		LatencyCritPct:     30.0,
 		ErrorRateWarnDelta: 1.0,
 		ErrorRateCritDelta: 3.0,
-		MinSampleCalls:     10,
+		MinSampleCalls:     5,
 		StaleDuration:      15 * time.Minute,
 	}
 }

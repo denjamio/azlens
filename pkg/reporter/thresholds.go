@@ -46,7 +46,7 @@ const (
 )
 
 // SQL calls per request for N+1 detection.
-// Basis: azlens analyzer defaults (fan-out flagged at >=5 average calls,
+// Basis: azlens analysis defaults (fan-out flagged at >=5 average calls,
 // critical at >=15 or a +100% spike).
 const (
 	NPlusOneWarn = 5.0
@@ -54,7 +54,7 @@ const (
 )
 
 // Regression deltas, in percent change.
-// Basis: azlens analyzer regression thresholds (latency warning at +15%,
+// Basis: azlens analysis regression thresholds (latency warning at +15%,
 // critical at +30%, meaningful improvement at <= -15%), which mirror common
 // APM regression monitors; the N+1 spike band uses the same defaults
 // (warning at +40%, critical at +100%).

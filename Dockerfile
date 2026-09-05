@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && git config --global --add safe.directory '*'
 
-# Install official golangci-lint
-COPY --from=golangci/golangci-lint:v1.61.0 /usr/bin/golangci-lint /usr/local/bin/golangci-lint
+# Install official golangci-lint (v2 matching .golangci.yml schema and CI)
+COPY --from=golangci/golangci-lint:v2.13 /usr/bin/golangci-lint /usr/local/bin/golangci-lint
 
 # Install official Microsoft kql-guard (supports x86_64 and arm64)
 ARG KQL_GUARD_VERSION=v0.2.0

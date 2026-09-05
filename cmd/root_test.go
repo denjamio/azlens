@@ -381,3 +381,90 @@ func TestRootDebugFlag(t *testing.T) {
 		t.Errorf("expected debugFlag to be true")
 	}
 }
+
+func TestLayer1TenancyValidationPreflightFails(t *testing.T) {
+	resetRootFlags()
+	defer resetRootFlags()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "azlens.yaml")
+	// Config missing mandatory database for service
+	cfgContent := `version: "1"
+shared:
+  services:
+    checkout-service:
+      role_name: checkout-role
+profiles:
+  prod:
+    target:
+      insights:
+        name: my-app-insights
+      service: checkout-service
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed writing config: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	_ = os.Chdir(dir)
+
+	// Run inspect without --mock so preflight diagnostics (Layer 1) triggers
+	RootCmd.SetArgs([]string{"--config", cfgPath, "inspect", "endpoints"})
+	err := RootCmd.Execute()
+	if err == nil {
+		t.Fatalf("expected Layer 1 tenancy validation to fail due to missing service.database")
+	}
+	if !strings.Contains(err.Error(), "service.database") && !strings.Contains(err.Error(), "Database is not configured") {
+		t.Errorf("expected error to mention service.database, got: %v", err)
+	}
+}
+
+func TestErrorRateThresholdsWiring(t *testing.T) {
+	resetRootFlags()
+	defer resetRootFlags()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "azlens.yaml")
+	cfgContent := `version: "1"
+shared:
+  thresholds:
+    error_rate_warn_delta: 2.5
+    error_rate_crit_delta: 7.5
+    latency_warn_pct: 20.0
+    latency_crit_pct: 40.0
+    min_sample_calls: 8
+  services:
+    checkout-service:
+      role_name: checkout-role
+      database: checkout_db
+profiles:
+  prod:
+    target:
+      insights:
+        name: my-app-insights
+      service: checkout-service
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed writing config: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	_ = os.Chdir(dir)
+
+	// Verify operational root command with custom thresholds
+	buf := new(bytes.Buffer)
+	RootCmd.SetOut(buf)
+	RootCmd.SetArgs([]string{"--config", cfgPath, "30m", "--mock", "-o", "json"})
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("expected root command with custom thresholds to succeed, got: %v", err)
+	}
+
+	// Verify deploy command with custom thresholds
+	buf.Reset()
+	RootCmd.SetArgs([]string{"--config", cfgPath, "deploy", "30m", "--mock", "-o", "json"})
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("expected deploy command with custom thresholds to succeed, got: %v", err)
+	}
+}

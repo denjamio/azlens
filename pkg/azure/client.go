@@ -168,6 +168,14 @@ const maxQueryAttempts = 3
 // so tests can shorten it)
 var retryBaseDelay = 750 * time.Millisecond
 
+// isMisspelledCommandError reports whether az CLI returned its characteristic
+// "misspelled or not recognized" error (including az CLI's historic typo)
+func isMisspelledCommandError(msg string) bool {
+	return strings.Contains(msg, "mispelled") || //nolint:misspell // az's genuine typo in "'X' is mispelled or not recognized by the system"
+		strings.Contains(msg, "misspelled") ||
+		strings.Contains(msg, "not recognized by the system")
+}
+
 // permanentQueryErrorMarkers classify az CLI failures that will never succeed
 // on retry, so the client fails fast instead of wasting the query budget
 var permanentQueryErrorMarkers = []string{
@@ -175,8 +183,6 @@ var permanentQueryErrorMarkers = []string{
 	"azure subscription not found",
 	"azure resource not found",
 	"azure cli command not recognized",
-	"mispelled",  //nolint:misspell // az's genuine typo in "'X' is mispelled or not recognized by the system"
-	"misspelled", // the correctly spelled variant, in case az fixes its message
 }
 
 // isPermanentQueryError reports whether the error is deterministic and must not be retried
@@ -187,7 +193,10 @@ func isPermanentQueryError(err error) bool {
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	msg := err.Error()
+	msg := strings.ToLower(err.Error())
+	if isMisspelledCommandError(msg) {
+		return true
+	}
 	for _, marker := range permanentQueryErrorMarkers {
 		if strings.Contains(msg, marker) {
 			return true
@@ -287,9 +296,7 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 		}
 		// Missing az CLI extension: az reports the command group as unknown when
 		// the extension providing it is not installed. Guide with the exact fix.
-		if strings.Contains(outStr, "mispelled") || //nolint:misspell // az's genuine typo in its output
-			strings.Contains(outStr, "misspelled") ||
-			strings.Contains(outStr, "not recognized by the system") {
+		if isMisspelledCommandError(outStr) {
 			if ext := azExtensionForArgs(args); ext != "" {
 				return nil, fmt.Errorf("azure cli command not recognized (output: %s): 'az %s %s' is provided by the '%s' extension, which is not installed.\n💡 Hint: Run 'az extension add --name %s' and retry", outStr, args[0], args[1], ext, ext)
 			}
@@ -595,87 +602,10 @@ func (c *AzCliClient) QueryLatencyBreakdown(ctx context.Context, start, end time
 	if err != nil {
 		return nil, err
 	}
-
-	var results []model.LatencyBreakdown
 	if len(res.Tables) == 0 {
-		return results, nil
+		return nil, nil
 	}
-
-	colMap := make(map[string]int, len(res.Tables[0].Columns))
-	for i, col := range res.Tables[0].Columns {
-		colMap[strings.ToLower(col.Name)] = i
-	}
-	getIdx := func(names ...string) int {
-		for _, n := range names {
-			if idx, ok := colMap[strings.ToLower(n)]; ok {
-				return idx
-			}
-		}
-		return -1
-	}
-
-	idxEndpoint := getIdx("endpoint")
-	idxAvgTotal := getIdx("avgtotalms", "avgtotal", "duration")
-	idxDB := getIdx("pctdatabase", "pctdb")
-	idxExt := getIdx("pctexternalapi", "pctext")
-	idxCache := getIdx("pctcache")
-	idxRes := getIdx("pctresidual", "pctappcode")
-	idxOverlap := getIdx("hasoverlap")
-
-	for _, row := range res.Tables[0].Rows {
-		if len(row) < 6 {
-			continue
-		}
-		lb := model.LatencyBreakdown{}
-		if idxEndpoint >= 0 && idxEndpoint < len(row) {
-			lb.Endpoint = fmt.Sprintf("%v", row[idxEndpoint])
-		} else {
-			lb.Endpoint = fmt.Sprintf("%v", row[0])
-		}
-		if idxAvgTotal >= 0 && idxAvgTotal < len(row) {
-			lb.AvgDurationMs = toFloat(row[idxAvgTotal])
-		} else {
-			lb.AvgDurationMs = toFloat(row[1])
-		}
-		if idxDB >= 0 && idxDB < len(row) {
-			lb.PctDatabase = toFloat(row[idxDB])
-		} else {
-			lb.PctDatabase = toFloat(row[2])
-		}
-		if idxExt >= 0 && idxExt < len(row) {
-			lb.PctExternalAPI = toFloat(row[idxExt])
-		} else {
-			lb.PctExternalAPI = toFloat(row[3])
-		}
-		if idxCache >= 0 && idxCache < len(row) {
-			lb.PctCache = toFloat(row[idxCache])
-		} else {
-			lb.PctCache = toFloat(row[4])
-		}
-		if idxRes >= 0 && idxRes < len(row) {
-			val := toFloat(row[idxRes])
-			lb.PctResidual = val
-			lb.PctAppCode = val
-		} else {
-			val := toFloat(row[5])
-			lb.PctResidual = val
-			lb.PctAppCode = val
-		}
-		if idxOverlap >= 0 && idxOverlap < len(row) && row[idxOverlap] != nil {
-			switch ov := row[idxOverlap].(type) {
-			case bool:
-				lb.HasOverlap = ov
-			case string:
-				lb.HasOverlap = strings.EqualFold(ov, "true")
-			case float64:
-				lb.HasOverlap = ov > 0
-			case int64:
-				lb.HasOverlap = ov > 0
-			}
-		}
-		results = append(results, lb)
-	}
-	return results, nil
+	return parseLatencyBreakdownTable(&res.Tables[0]), nil
 }
 
 func (c *AzCliClient) QueryDeprecations(ctx context.Context, start, end time.Time, topN int) ([]model.DeprecationSummary, error) {
@@ -684,32 +614,10 @@ func (c *AzCliClient) QueryDeprecations(ctx context.Context, start, end time.Tim
 	if err != nil {
 		return nil, err
 	}
-
-	var results []model.DeprecationSummary
 	if len(res.Tables) == 0 {
-		return results, nil
+		return nil, nil
 	}
-
-	for _, row := range res.Tables[0].Rows {
-		if len(row) < 5 {
-			continue
-		}
-		var endpoints []string
-		if eps, ok := row[4].([]interface{}); ok {
-			for _, ep := range eps {
-				endpoints = append(endpoints, fmt.Sprintf("%v", ep))
-			}
-		}
-
-		results = append(results, model.DeprecationSummary{
-			Message:           fmt.Sprintf("%v", row[0]),
-			Count:             toInt64(row[1]),
-			FirstSeen:         parseTime(row[2]),
-			LastSeen:          parseTime(row[3]),
-			AffectedEndpoints: endpoints,
-		})
-	}
-	return results, nil
+	return parseDeprecationsTable(&res.Tables[0]), nil
 }
 
 func (c *AzCliClient) QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogEntry, error) {
@@ -738,178 +646,329 @@ func (c *AzCliClient) QueryMySQLSlowLogsGrouped(ctx context.Context, start, end 
 	return parseSlowLogsGroupTable(&res.Tables[0]), nil
 }
 
-func parseSlowLogsTable(t *AzQueryTable) []model.SlowLogEntry {
-	if len(t.Rows) == 0 {
+// tableDecoder provides fast, safe, case-insensitive column-based row decoding
+// eliminating positional index coupling while retaining safe backward-compatible fallbacks
+type tableDecoder struct {
+	colMap map[string]int
+}
+
+func newTableDecoder(t *AzQueryTable) tableDecoder {
+	if t == nil {
+		return tableDecoder{colMap: make(map[string]int)}
+	}
+	m := make(map[string]int, len(t.Columns))
+	for i, col := range t.Columns {
+		m[strings.ToLower(strings.TrimSpace(col.Name))] = i
+	}
+	return tableDecoder{colMap: m}
+}
+
+// col returns the index of the first matching column name, or -1 if not found
+func (d tableDecoder) col(names ...string) int {
+	for _, n := range names {
+		if idx, ok := d.colMap[strings.ToLower(n)]; ok {
+			return idx
+		}
+	}
+	return -1
+}
+
+// stringVal extracts a string from row by column index, with optional fallback index
+func (d tableDecoder) stringVal(row []interface{}, colIdx int, fallbackIdx int) string {
+	if colIdx >= 0 && colIdx < len(row) && row[colIdx] != nil {
+		return fmt.Sprintf("%v", row[colIdx])
+	}
+	if fallbackIdx >= 0 && fallbackIdx < len(row) && row[fallbackIdx] != nil {
+		return fmt.Sprintf("%v", row[fallbackIdx])
+	}
+	return ""
+}
+
+// int64Val extracts an int64 from row by column index, with optional fallback index
+func (d tableDecoder) int64Val(row []interface{}, colIdx int, fallbackIdx int) int64 {
+	if colIdx >= 0 && colIdx < len(row) && row[colIdx] != nil {
+		return toInt64(row[colIdx])
+	}
+	if fallbackIdx >= 0 && fallbackIdx < len(row) && row[fallbackIdx] != nil {
+		return toInt64(row[fallbackIdx])
+	}
+	return 0
+}
+
+// floatVal extracts a float64 from row by column index, with optional fallback index
+func (d tableDecoder) floatVal(row []interface{}, colIdx int, fallbackIdx int) float64 {
+	if colIdx >= 0 && colIdx < len(row) && row[colIdx] != nil {
+		return toFloat(row[colIdx])
+	}
+	if fallbackIdx >= 0 && fallbackIdx < len(row) && row[fallbackIdx] != nil {
+		return toFloat(row[fallbackIdx])
+	}
+	return 0.0
+}
+
+// boolVal extracts a bool from row by column index, with optional fallback index
+func (d tableDecoder) boolVal(row []interface{}, colIdx int, fallbackIdx int) bool {
+	var raw interface{}
+	if colIdx >= 0 && colIdx < len(row) {
+		raw = row[colIdx]
+	} else if fallbackIdx >= 0 && fallbackIdx < len(row) {
+		raw = row[fallbackIdx]
+	}
+	if raw == nil {
+		return false
+	}
+	switch b := raw.(type) {
+	case bool:
+		return b
+	case string:
+		return strings.EqualFold(b, "true") || b == "1"
+	case float64:
+		return b > 0
+	case int64:
+		return b > 0
+	case int:
+		return b > 0
+	}
+	return false
+}
+
+// timeVal extracts a time.Time from row by column index, with optional fallback index
+func (d tableDecoder) timeVal(row []interface{}, colIdx int, fallbackIdx int) time.Time {
+	if colIdx >= 0 && colIdx < len(row) && row[colIdx] != nil {
+		return parseTime(row[colIdx])
+	}
+	if fallbackIdx >= 0 && fallbackIdx < len(row) && row[fallbackIdx] != nil {
+		return parseTime(row[fallbackIdx])
+	}
+	return time.Time{}
+}
+
+// stringSliceVal extracts a []string from row by column index, with optional fallback index
+func (d tableDecoder) stringSliceVal(row []interface{}, colIdx int, fallbackIdx int) []string {
+	var raw interface{}
+	if colIdx >= 0 && colIdx < len(row) {
+		raw = row[colIdx]
+	} else if fallbackIdx >= 0 && fallbackIdx < len(row) {
+		raw = row[fallbackIdx]
+	}
+	if raw == nil {
 		return nil
 	}
-	colMap := make(map[string]int, len(t.Columns))
-	for i, col := range t.Columns {
-		colMap[strings.ToLower(col.Name)] = i
-	}
-
-	getIdx := func(names ...string) int {
-		for _, n := range names {
-			if idx, ok := colMap[strings.ToLower(n)]; ok {
-				return idx
-			}
+	switch s := raw.(type) {
+	case []interface{}:
+		res := make([]string, 0, len(s))
+		for _, item := range s {
+			res = append(res, fmt.Sprintf("%v", item))
 		}
-		return -1
+		return res
+	case []string:
+		return s
 	}
+	return nil
+}
 
-	idxTime := getIdx("timegenerated", "timestamp")
-	idxDurS := getIdx("duration_s")
-	idxDurMs := getIdx("querydurationms", "duration_ms")
-	idxExamined := getIdx("rowsexamined", "rows_examined")
-	idxSent := getIdx("rowssent", "rows_sent")
-	idxSQL := getIdx("sqltext", "sql_text")
+func parseLatencyBreakdownTable(t *AzQueryTable) []model.LatencyBreakdown {
+	if t == nil || len(t.Rows) == 0 {
+		return nil
+	}
+	dec := newTableDecoder(t)
+	idxEndpoint := dec.col("endpoint")
+	idxAvgTotal := dec.col("avgtotalms", "avgtotal", "duration")
+	idxDB := dec.col("pctdatabase", "pctdb")
+	idxExt := dec.col("pctexternalapi", "pctext")
+	idxCache := dec.col("pctcache")
+	idxRes := dec.col("pctresidual", "pctappcode")
+	idxOverlap := dec.col("hasoverlap")
+
+	results := make([]model.LatencyBreakdown, 0, len(t.Rows))
+	for _, row := range t.Rows {
+		if len(row) < 2 {
+			continue
+		}
+		resVal := dec.floatVal(row, idxRes, 5)
+		results = append(results, model.LatencyBreakdown{
+			Endpoint:       dec.stringVal(row, idxEndpoint, 0),
+			AvgDurationMs:  dec.floatVal(row, idxAvgTotal, 1),
+			PctDatabase:    dec.floatVal(row, idxDB, 2),
+			PctExternalAPI: dec.floatVal(row, idxExt, 3),
+			PctCache:       dec.floatVal(row, idxCache, 4),
+			PctResidual:    resVal,
+			PctAppCode:     resVal,
+			HasOverlap:     dec.boolVal(row, idxOverlap, 6),
+		})
+	}
+	return results
+}
+
+func parseDeprecationsTable(t *AzQueryTable) []model.DeprecationSummary {
+	if t == nil || len(t.Rows) == 0 {
+		return nil
+	}
+	dec := newTableDecoder(t)
+	idxMsg := dec.col("message", "samplemessage")
+	idxCount := dec.col("count")
+	idxFirst := dec.col("firstseen")
+	idxLast := dec.col("lastseen")
+	idxEndpoints := dec.col("affectedendpoints", "endpoints")
+
+	results := make([]model.DeprecationSummary, 0, len(t.Rows))
+	for _, row := range t.Rows {
+		if len(row) < 2 {
+			continue
+		}
+		results = append(results, model.DeprecationSummary{
+			Message:           dec.stringVal(row, idxMsg, 0),
+			Count:             dec.int64Val(row, idxCount, 1),
+			FirstSeen:         dec.timeVal(row, idxFirst, 2),
+			LastSeen:          dec.timeVal(row, idxLast, 3),
+			AffectedEndpoints: dec.stringSliceVal(row, idxEndpoints, 4),
+		})
+	}
+	return results
+}
+
+func parseSlowLogsTable(t *AzQueryTable) []model.SlowLogEntry {
+	if t == nil || len(t.Rows) == 0 {
+		return nil
+	}
+	dec := newTableDecoder(t)
+	idxTime := dec.col("timegenerated", "timestamp")
+	idxDurS := dec.col("duration_s")
+	idxDurMs := dec.col("querydurationms", "duration_ms")
+	idxExamined := dec.col("rowsexamined", "rows_examined")
+	idxSent := dec.col("rowssent", "rows_sent")
+	idxSQL := dec.col("sqltext", "sql_text")
 
 	entries := make([]model.SlowLogEntry, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		entry := model.SlowLogEntry{}
-		if idxTime >= 0 && idxTime < len(row) && row[idxTime] != nil {
-			str := fmt.Sprintf("%v", row[idxTime])
-			if ts, err := time.Parse(time.RFC3339Nano, str); err == nil {
-				entry.Timestamp = ts
-			} else if ts, err := time.Parse(time.RFC3339, str); err == nil {
-				entry.Timestamp = ts
-			}
+		durMs := dec.floatVal(row, idxDurMs, -1)
+		durS := dec.floatVal(row, idxDurS, -1)
+		if durS == 0 && durMs > 0 {
+			durS = durMs / 1000.0
 		}
-		if idxDurMs >= 0 && idxDurMs < len(row) && row[idxDurMs] != nil {
-			entry.DurationMs = toFloat(row[idxDurMs])
-		}
-		if idxDurS >= 0 && idxDurS < len(row) && row[idxDurS] != nil {
-			entry.DurationSec = toFloat(row[idxDurS])
-		} else if entry.DurationMs > 0 {
-			entry.DurationSec = entry.DurationMs / 1000.0
-		}
-		if idxExamined >= 0 && idxExamined < len(row) && row[idxExamined] != nil {
-			entry.RowsExamined = toInt64(row[idxExamined])
-		}
-		if idxSent >= 0 && idxSent < len(row) && row[idxSent] != nil {
-			entry.RowsSent = toInt64(row[idxSent])
-		}
-		if idxSQL >= 0 && idxSQL < len(row) && row[idxSQL] != nil {
-			entry.SQLText = fmt.Sprintf("%v", row[idxSQL])
-		}
-		entries = append(entries, entry)
+		entries = append(entries, model.SlowLogEntry{
+			Timestamp:    dec.timeVal(row, idxTime, 0),
+			DurationMs:   durMs,
+			DurationSec:  durS,
+			RowsExamined: dec.int64Val(row, idxExamined, -1),
+			RowsSent:     dec.int64Val(row, idxSent, -1),
+			SQLText:      dec.stringVal(row, idxSQL, -1),
+		})
 	}
 	return entries
 }
 
 // parseSlowLogsGroupTable parses slow log rows aggregated by SQL fingerprint
 func parseSlowLogsGroupTable(t *AzQueryTable) []model.SlowLogGroup {
-	if len(t.Rows) == 0 {
+	if t == nil || len(t.Rows) == 0 {
 		return nil
 	}
-	colMap := make(map[string]int, len(t.Columns))
-	for i, col := range t.Columns {
-		colMap[strings.ToLower(col.Name)] = i
-	}
-
-	getIdx := func(names ...string) int {
-		for _, n := range names {
-			if idx, ok := colMap[strings.ToLower(n)]; ok {
-				return idx
-			}
-		}
-		return -1
-	}
-
-	idxFingerprint := getIdx("sqlfingerprint")
-	idxExecutions := getIdx("executions")
-	idxAvgMs := getIdx("avgms")
-	idxMaxMs := getIdx("maxms")
-	idxTotalMs := getIdx("totalms")
-	idxRows := getIdx("avgrowsexamined")
-	idxLastSeen := getIdx("lastseen")
+	dec := newTableDecoder(t)
+	idxFingerprint := dec.col("sqlfingerprint")
+	idxExecutions := dec.col("executions")
+	idxAvgMs := dec.col("avgms")
+	idxMaxMs := dec.col("maxms")
+	idxTotalMs := dec.col("totalms")
+	idxRows := dec.col("avgrowsexamined")
+	idxLastSeen := dec.col("lastseen")
 
 	groups := make([]model.SlowLogGroup, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		group := model.SlowLogGroup{}
-		if idxFingerprint >= 0 && idxFingerprint < len(row) && row[idxFingerprint] != nil {
-			group.Fingerprint = fmt.Sprintf("%v", row[idxFingerprint])
-		}
-		if idxExecutions >= 0 && idxExecutions < len(row) {
-			group.Executions = toInt64(row[idxExecutions])
-		}
-		if idxAvgMs >= 0 && idxAvgMs < len(row) {
-			group.AvgMs = toFloat(row[idxAvgMs])
-		}
-		if idxMaxMs >= 0 && idxMaxMs < len(row) {
-			group.MaxMs = toFloat(row[idxMaxMs])
-		}
-		if idxTotalMs >= 0 && idxTotalMs < len(row) {
-			group.TotalMs = toFloat(row[idxTotalMs])
-		}
-		if idxRows >= 0 && idxRows < len(row) {
-			group.AvgRowsExamined = toFloat(row[idxRows])
-		}
-		if idxLastSeen >= 0 && idxLastSeen < len(row) {
-			group.LastSeen = parseTime(row[idxLastSeen])
-		}
-		groups = append(groups, group)
+		groups = append(groups, model.SlowLogGroup{
+			Fingerprint:     dec.stringVal(row, idxFingerprint, 0),
+			Executions:      dec.int64Val(row, idxExecutions, 1),
+			AvgMs:           dec.floatVal(row, idxAvgMs, 2),
+			MaxMs:           dec.floatVal(row, idxMaxMs, 3),
+			TotalMs:         dec.floatVal(row, idxTotalMs, 4),
+			AvgRowsExamined: dec.floatVal(row, idxRows, 5),
+			LastSeen:        dec.timeVal(row, idxLastSeen, 6),
+		})
 	}
 	return groups
 }
 
-// Table parsing helpers shared by single-query and batched flows
-
 // parseOverallRequestTable parses the single-row overall requests summary table
 func parseOverallRequestTable(t *AzQueryTable, name string) model.RequestMetric {
-	if len(t.Rows) == 0 {
+	if t == nil || len(t.Rows) == 0 {
 		return model.RequestMetric{Name: name}
 	}
-
 	row := t.Rows[0]
-	if len(row) < 11 {
-		return model.RequestMetric{Name: name}
-	}
+	dec := newTableDecoder(t)
 
-	metric := model.RequestMetric{
+	idxTotal := dec.col("totalcalls", "count")
+	idxFailed := dec.col("failedcalls", "failed")
+	idxAvg := dec.col("avgduration", "avg")
+	idxMin := dec.col("minduration", "min")
+	idxMax := dec.col("maxduration", "max")
+	idxP50 := dec.col("p50")
+	idxP75 := dec.col("p75")
+	idxP90 := dec.col("p90")
+	idxP95 := dec.col("p95")
+	idxP99 := dec.col("p99")
+	idxErr := dec.col("errorrate", "errrate")
+	idx2xx := dec.col("http_2xx", "http2xx")
+	idx4xx := dec.col("http_4xx", "http4xx")
+	idx5xx := dec.col("http_5xx", "http5xx")
+
+	return model.RequestMetric{
 		Name:        name,
-		TotalCalls:  toInt64(row[0]),
-		FailedCalls: toInt64(row[1]),
-		ErrorRate:   toFloat(row[10]),
+		TotalCalls:  dec.int64Val(row, idxTotal, 0),
+		FailedCalls: dec.int64Val(row, idxFailed, 1),
+		ErrorRate:   dec.floatVal(row, idxErr, 10),
 		Latency: model.LatencyPercentiles{
-			Avg: toFloat(row[2]),
-			Min: toFloat(row[3]),
-			Max: toFloat(row[4]),
-			P50: toFloat(row[5]),
-			P75: toFloat(row[6]),
-			P90: toFloat(row[7]),
-			P95: toFloat(row[8]),
-			P99: toFloat(row[9]),
+			Avg: dec.floatVal(row, idxAvg, 2),
+			Min: dec.floatVal(row, idxMin, 3),
+			Max: dec.floatVal(row, idxMax, 4),
+			P50: dec.floatVal(row, idxP50, 5),
+			P75: dec.floatVal(row, idxP75, 6),
+			P90: dec.floatVal(row, idxP90, 7),
+			P95: dec.floatVal(row, idxP95, 8),
+			P99: dec.floatVal(row, idxP99, 9),
 		},
+		HTTP2xx: dec.int64Val(row, idx2xx, 11),
+		HTTP4xx: dec.int64Val(row, idx4xx, 12),
+		HTTP5xx: dec.int64Val(row, idx5xx, 13),
 	}
-	if len(row) >= 14 {
-		metric.HTTP2xx = toInt64(row[11])
-		metric.HTTP4xx = toInt64(row[12])
-		metric.HTTP5xx = toInt64(row[13])
-	}
-	return metric
 }
 
 // parseEndpointsTable parses per-endpoint request percentile rows
 func parseEndpointsTable(t *AzQueryTable) []model.RequestMetric {
-	var results []model.RequestMetric
+	if t == nil || len(t.Rows) == 0 {
+		return nil
+	}
+	dec := newTableDecoder(t)
+	idxName := dec.col("name", "endpoint", "operation_name")
+	idxTotal := dec.col("totalcalls", "count")
+	idxFailed := dec.col("failedcalls", "failed")
+	idxAvg := dec.col("avgduration", "avg")
+	idxMin := dec.col("minduration", "min")
+	idxMax := dec.col("maxduration", "max")
+	idxP50 := dec.col("p50")
+	idxP75 := dec.col("p75")
+	idxP90 := dec.col("p90")
+	idxP95 := dec.col("p95")
+	idxP99 := dec.col("p99")
+	idxErr := dec.col("errorrate", "errrate")
+
+	results := make([]model.RequestMetric, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		if len(row) < 12 {
+		if len(row) < 3 {
 			continue
 		}
 		results = append(results, model.RequestMetric{
-			Name:        fmt.Sprintf("%v", row[0]),
-			TotalCalls:  toInt64(row[1]),
-			FailedCalls: toInt64(row[2]),
-			ErrorRate:   toFloat(row[11]),
+			Name:        dec.stringVal(row, idxName, 0),
+			TotalCalls:  dec.int64Val(row, idxTotal, 1),
+			FailedCalls: dec.int64Val(row, idxFailed, 2),
+			ErrorRate:   dec.floatVal(row, idxErr, 11),
 			Latency: model.LatencyPercentiles{
-				Avg: toFloat(row[3]),
-				Min: toFloat(row[4]),
-				Max: toFloat(row[5]),
-				P50: toFloat(row[6]),
-				P75: toFloat(row[7]),
-				P90: toFloat(row[8]),
-				P95: toFloat(row[9]),
-				P99: toFloat(row[10]),
+				Avg: dec.floatVal(row, idxAvg, 3),
+				Min: dec.floatVal(row, idxMin, 4),
+				Max: dec.floatVal(row, idxMax, 5),
+				P50: dec.floatVal(row, idxP50, 6),
+				P75: dec.floatVal(row, idxP75, 7),
+				P90: dec.floatVal(row, idxP90, 8),
+				P95: dec.floatVal(row, idxP95, 9),
+				P99: dec.floatVal(row, idxP99, 10),
 			},
 		})
 	}
@@ -918,26 +977,44 @@ func parseEndpointsTable(t *AzQueryTable) []model.RequestMetric {
 
 // parseDepsTable parses slow dependency rows (SQL, HTTP, Redis, ...)
 func parseDepsTable(t *AzQueryTable) []model.DependencyMetric {
-	var results []model.DependencyMetric
+	if t == nil || len(t.Rows) == 0 {
+		return nil
+	}
+	dec := newTableDecoder(t)
+	idxType := dec.col("type")
+	idxTarget := dec.col("target")
+	idxName := dec.col("dependency", "name")
+	idxTotal := dec.col("totalcalls", "count")
+	idxFailed := dec.col("failedcalls", "failed")
+	idxAvg := dec.col("avgduration", "avg")
+	idxMin := dec.col("minduration", "min")
+	idxMax := dec.col("maxduration", "max")
+	idxP50 := dec.col("p50")
+	idxP90 := dec.col("p90")
+	idxP95 := dec.col("p95")
+	idxP99 := dec.col("p99")
+	idxErr := dec.col("errorrate", "errrate")
+
+	results := make([]model.DependencyMetric, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		if len(row) < 13 {
+		if len(row) < 5 {
 			continue
 		}
 		results = append(results, model.DependencyMetric{
-			Type:        fmt.Sprintf("%v", row[0]),
-			Target:      fmt.Sprintf("%v", row[1]),
-			Name:        fmt.Sprintf("%v", row[2]),
-			TotalCalls:  toInt64(row[3]),
-			FailedCalls: toInt64(row[4]),
-			ErrorRate:   toFloat(row[12]),
+			Type:        dec.stringVal(row, idxType, 0),
+			Target:      dec.stringVal(row, idxTarget, 1),
+			Name:        dec.stringVal(row, idxName, 2),
+			TotalCalls:  dec.int64Val(row, idxTotal, 3),
+			FailedCalls: dec.int64Val(row, idxFailed, 4),
+			ErrorRate:   dec.floatVal(row, idxErr, 12),
 			Latency: model.LatencyPercentiles{
-				Avg: toFloat(row[5]),
-				Min: toFloat(row[6]),
-				Max: toFloat(row[7]),
-				P50: toFloat(row[8]),
-				P90: toFloat(row[9]),
-				P95: toFloat(row[10]),
-				P99: toFloat(row[11]),
+				Avg: dec.floatVal(row, idxAvg, 5),
+				Min: dec.floatVal(row, idxMin, 6),
+				Max: dec.floatVal(row, idxMax, 7),
+				P50: dec.floatVal(row, idxP50, 8),
+				P90: dec.floatVal(row, idxP90, 9),
+				P95: dec.floatVal(row, idxP95, 10),
+				P99: dec.floatVal(row, idxP99, 11),
 			},
 		})
 	}
@@ -947,236 +1024,110 @@ func parseDepsTable(t *AzQueryTable) []model.DependencyMetric {
 // parseExceptionsTable parses grouped exception rows: type, source, normalized message,
 // count, first/last seen, and the affected operation paths returned by the query
 func parseExceptionsTable(t *AzQueryTable) []model.ErrorSummary {
-	var results []model.ErrorSummary
-	if len(t.Rows) == 0 {
-		return results
+	if t == nil || len(t.Rows) == 0 {
+		return nil
 	}
-	colMap := make(map[string]int, len(t.Columns))
-	for i, col := range t.Columns {
-		colMap[strings.ToLower(col.Name)] = i
-	}
-	getIdx := func(names ...string) int {
-		for _, n := range names {
-			if idx, ok := colMap[strings.ToLower(n)]; ok {
-				return idx
-			}
-		}
-		return -1
-	}
+	dec := newTableDecoder(t)
+	idxType := dec.col("type")
+	idxSource := dec.col("source")
+	idxMsg := dec.col("message", "samplemessage", "cleanmessage")
+	idxCount := dec.col("count")
+	idxFirst := dec.col("firstseen")
+	idxLast := dec.col("lastseen")
+	idxPaths := dec.col("affectedpaths")
 
-	idxType := getIdx("type")
-	idxSource := getIdx("source")
-	idxMsg := getIdx("message", "samplemessage")
-	idxCount := getIdx("count")
-	idxFirstSeen := getIdx("firstseen")
-	idxLastSeen := getIdx("lastseen")
-	idxPaths := getIdx("affectedpaths")
-
+	results := make([]model.ErrorSummary, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		if len(row) < 5 {
+		if len(row) < 3 {
 			continue
 		}
-		e := model.ErrorSummary{}
-		if idxType >= 0 && idxType < len(row) {
-			e.Type = fmt.Sprintf("%v", row[idxType])
-		} else {
-			e.Type = fmt.Sprintf("%v", row[0])
-		}
-		if idxSource >= 0 && idxSource < len(row) && row[idxSource] != nil {
-			e.Source = fmt.Sprintf("%v", row[idxSource])
-		}
-		if idxMsg >= 0 && idxMsg < len(row) {
-			e.Message = fmt.Sprintf("%v", row[idxMsg])
-		} else if len(row) > 1 {
-			e.Message = fmt.Sprintf("%v", row[1])
-		}
-		if idxCount >= 0 && idxCount < len(row) {
-			e.Count = toInt64(row[idxCount])
-		} else if len(row) > 2 {
-			e.Count = toInt64(row[2])
-		}
-		if idxFirstSeen >= 0 && idxFirstSeen < len(row) {
-			e.FirstSeen = parseTime(row[idxFirstSeen])
-		} else if len(row) > 3 {
-			e.FirstSeen = parseTime(row[3])
-		}
-		if idxLastSeen >= 0 && idxLastSeen < len(row) {
-			e.LastSeen = parseTime(row[idxLastSeen])
-		} else if len(row) > 4 {
-			e.LastSeen = parseTime(row[4])
-		}
-		var paths []string
-		pathIdx := idxPaths
-		if pathIdx < 0 && len(row) >= 6 {
-			pathIdx = len(row) - 1
-		}
-		if pathIdx >= 0 && pathIdx < len(row) {
-			if rawPaths, ok := row[pathIdx].([]interface{}); ok {
-				for _, p := range rawPaths {
-					paths = append(paths, fmt.Sprintf("%v", p))
-				}
-			}
-		}
-		e.AffectedPaths = paths
-		results = append(results, e)
+		results = append(results, model.ErrorSummary{
+			Type:          dec.stringVal(row, idxType, 0),
+			Source:        dec.stringVal(row, idxSource, -1),
+			Message:       dec.stringVal(row, idxMsg, 1),
+			Count:         dec.int64Val(row, idxCount, 2),
+			FirstSeen:     dec.timeVal(row, idxFirst, 3),
+			LastSeen:      dec.timeVal(row, idxLast, 4),
+			AffectedPaths: dec.stringSliceVal(row, idxPaths, 5),
+		})
 	}
 	return results
 }
 
 // parseFanoutTable parses database fan-out rows
 func parseFanoutTable(t *AzQueryTable) []model.FanoutMetric {
-	var results []model.FanoutMetric
-	if len(t.Rows) == 0 {
-		return results
+	if t == nil || len(t.Rows) == 0 {
+		return nil
 	}
-	colMap := make(map[string]int, len(t.Columns))
-	for i, col := range t.Columns {
-		colMap[strings.ToLower(col.Name)] = i
-	}
-	getIdx := func(names ...string) int {
-		for _, n := range names {
-			if idx, ok := colMap[strings.ToLower(n)]; ok {
-				return idx
-			}
-		}
-		return -1
-	}
+	dec := newTableDecoder(t)
+	idxEndpoint := dec.col("endpoint")
+	idxRequests := dec.col("totalrequests", "requests")
+	idxAvgSQL := dec.col("avgsqlcalls")
+	idxP50 := dec.col("p50_calls", "p50")
+	idxP75 := dec.col("p75_calls", "p75")
+	idxP90 := dec.col("p90_calls", "p90")
+	idxP95 := dec.col("p95_calls", "p95")
+	idxP99 := dec.col("p99_calls", "p99")
+	idxMaxSQL := dec.col("maxsqlcalls")
+	idxAvgSQLDur := dec.col("avgsqlduration")
+	idxAvgEpDur := dec.col("avgendpointduration")
 
-	idxEndpoint := getIdx("endpoint")
-	idxRequests := getIdx("totalrequests", "requests")
-	idxAvgSQL := getIdx("avgsqlcalls")
-	idxP50 := getIdx("p50_calls", "p50")
-	idxP75 := getIdx("p75_calls", "p75")
-	idxP90 := getIdx("p90_calls", "p90")
-	idxP95 := getIdx("p95_calls", "p95")
-	idxP99 := getIdx("p99_calls", "p99")
-	idxMaxSQL := getIdx("maxsqlcalls")
-	idxAvgSQLDur := getIdx("avgsqlduration")
-	idxAvgEpDur := getIdx("avgendpointduration")
-
+	results := make([]model.FanoutMetric, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		if len(row) < 6 {
+		if len(row) < 3 {
 			continue
 		}
-		m := model.FanoutMetric{}
-		if idxEndpoint >= 0 && idxEndpoint < len(row) {
-			m.Endpoint = fmt.Sprintf("%v", row[idxEndpoint])
-		} else {
-			m.Endpoint = fmt.Sprintf("%v", row[0])
-		}
-		if idxRequests >= 0 && idxRequests < len(row) {
-			m.TotalRequests = toInt64(row[idxRequests])
-		} else {
-			m.TotalRequests = toInt64(row[1])
-		}
-		if idxAvgSQL >= 0 && idxAvgSQL < len(row) {
-			m.AvgSQLCalls = toFloat(row[idxAvgSQL])
-		} else {
-			m.AvgSQLCalls = toFloat(row[2])
-		}
-		if idxP50 >= 0 && idxP50 < len(row) {
-			m.P50Calls = toFloat(row[idxP50])
-		}
-		if idxP75 >= 0 && idxP75 < len(row) {
-			m.P75Calls = toFloat(row[idxP75])
-		}
-		if idxP90 >= 0 && idxP90 < len(row) {
-			m.P90Calls = toFloat(row[idxP90])
-		}
-		if idxP95 >= 0 && idxP95 < len(row) {
-			m.P95Calls = toFloat(row[idxP95])
-		}
-		if idxP99 >= 0 && idxP99 < len(row) {
-			m.P99Calls = toFloat(row[idxP99])
-		}
-		if idxMaxSQL >= 0 && idxMaxSQL < len(row) {
-			m.MaxSQLCalls = toInt64(row[idxMaxSQL])
-		} else if len(row) > 3 {
-			m.MaxSQLCalls = toInt64(row[3])
-		}
-		if idxAvgSQLDur >= 0 && idxAvgSQLDur < len(row) {
-			m.AvgSQLDurationMs = toFloat(row[idxAvgSQLDur])
-		} else if len(row) > 4 {
-			m.AvgSQLDurationMs = toFloat(row[4])
-		}
-		if idxAvgEpDur >= 0 && idxAvgEpDur < len(row) {
-			m.AvgEndpointDurationMs = toFloat(row[idxAvgEpDur])
-		} else if len(row) > 5 {
-			m.AvgEndpointDurationMs = toFloat(row[5])
-		}
-		results = append(results, m)
+		results = append(results, model.FanoutMetric{
+			Endpoint:              dec.stringVal(row, idxEndpoint, 0),
+			TotalRequests:         dec.int64Val(row, idxRequests, 1),
+			AvgSQLCalls:           dec.floatVal(row, idxAvgSQL, 2),
+			P50Calls:              dec.floatVal(row, idxP50, -1),
+			P75Calls:              dec.floatVal(row, idxP75, -1),
+			P90Calls:              dec.floatVal(row, idxP90, -1),
+			P95Calls:              dec.floatVal(row, idxP95, -1),
+			P99Calls:              dec.floatVal(row, idxP99, -1),
+			MaxSQLCalls:           dec.int64Val(row, idxMaxSQL, 3),
+			AvgSQLDurationMs:      dec.floatVal(row, idxAvgSQLDur, 4),
+			AvgEndpointDurationMs: dec.floatVal(row, idxAvgEpDur, 5),
+		})
 	}
 	return results
 }
 
 // parseNPlusOneTable parses deterministic N+1 candidate rows with repeated query shape evidence
 func parseNPlusOneTable(t *AzQueryTable) []model.NPlusOneCandidate {
-	var results []model.NPlusOneCandidate
-	if len(t.Rows) == 0 {
-		return results
+	if t == nil || len(t.Rows) == 0 {
+		return nil
 	}
-	colMap := make(map[string]int, len(t.Columns))
-	for i, col := range t.Columns {
-		colMap[strings.ToLower(col.Name)] = i
-	}
-	getIdx := func(names ...string) int {
-		for _, n := range names {
-			if idx, ok := colMap[strings.ToLower(n)]; ok {
-				return idx
-			}
-		}
-		return -1
-	}
+	dec := newTableDecoder(t)
+	idxEndpoint := dec.col("endpoint")
+	idxRequests := dec.col("totalrequests")
+	idxAvgSQL := dec.col("avgsqlcalls")
+	idxMaxSQL := dec.col("maxsqlcalls")
+	idxAvgRepeated := dec.col("avgrepeatedcalls")
+	idxMaxShape := dec.col("maxrepeatedshape")
+	idxAvgRatio := dec.col("avgrepeatedratio")
+	idxSampleShape := dec.col("samplerepeatedshape")
+	idxAvgRepeatedDur := dec.col("avgrepeatedduration")
+	idxAvgEpDur := dec.col("avgendpointduration")
 
-	idxEndpoint := getIdx("endpoint")
-	idxRequests := getIdx("totalrequests")
-	idxAvgSQL := getIdx("avgsqlcalls")
-	idxMaxSQL := getIdx("maxsqlcalls")
-	idxAvgRepeated := getIdx("avgrepeatedcalls")
-	idxMaxShape := getIdx("maxrepeatedshape")
-	idxAvgRatio := getIdx("avgrepeatedratio")
-	idxSampleShape := getIdx("samplerepeatedshape")
-	idxAvgRepeatedDur := getIdx("avgrepeatedduration")
-	idxAvgEpDur := getIdx("avgendpointduration")
-
+	results := make([]model.NPlusOneCandidate, 0, len(t.Rows))
 	for _, row := range t.Rows {
-		if len(row) < 7 {
+		if len(row) < 3 {
 			continue
 		}
-		c := model.NPlusOneCandidate{}
-		if idxEndpoint >= 0 && idxEndpoint < len(row) {
-			c.Endpoint = fmt.Sprintf("%v", row[idxEndpoint])
-		} else {
-			c.Endpoint = fmt.Sprintf("%v", row[0])
-		}
-		if idxRequests >= 0 && idxRequests < len(row) {
-			c.TotalRequests = toInt64(row[idxRequests])
-		}
-		if idxAvgSQL >= 0 && idxAvgSQL < len(row) {
-			c.AvgSQLCalls = toFloat(row[idxAvgSQL])
-		}
-		if idxMaxSQL >= 0 && idxMaxSQL < len(row) {
-			c.MaxSQLCalls = toInt64(row[idxMaxSQL])
-		}
-		if idxAvgRepeated >= 0 && idxAvgRepeated < len(row) {
-			c.AvgRepeatedCalls = toFloat(row[idxAvgRepeated])
-		}
-		if idxMaxShape >= 0 && idxMaxShape < len(row) {
-			c.MaxRepeatedShape = toInt64(row[idxMaxShape])
-		}
-		if idxAvgRatio >= 0 && idxAvgRatio < len(row) {
-			c.AvgRepeatedRatio = toFloat(row[idxAvgRatio])
-		}
-		if idxSampleShape >= 0 && idxSampleShape < len(row) && row[idxSampleShape] != nil {
-			c.SampleRepeatedShape = fmt.Sprintf("%v", row[idxSampleShape])
-		}
-		if idxAvgRepeatedDur >= 0 && idxAvgRepeatedDur < len(row) {
-			c.AvgRepeatedDurationMs = toFloat(row[idxAvgRepeatedDur])
-		}
-		if idxAvgEpDur >= 0 && idxAvgEpDur < len(row) {
-			c.AvgEndpointDurationMs = toFloat(row[idxAvgEpDur])
-		}
-		results = append(results, c)
+		results = append(results, model.NPlusOneCandidate{
+			Endpoint:              dec.stringVal(row, idxEndpoint, 0),
+			TotalRequests:         dec.int64Val(row, idxRequests, 1),
+			AvgSQLCalls:           dec.floatVal(row, idxAvgSQL, 2),
+			MaxSQLCalls:           dec.int64Val(row, idxMaxSQL, 3),
+			AvgRepeatedCalls:      dec.floatVal(row, idxAvgRepeated, -1),
+			MaxRepeatedShape:      dec.int64Val(row, idxMaxShape, -1),
+			AvgRepeatedRatio:      dec.floatVal(row, idxAvgRatio, -1),
+			SampleRepeatedShape:   dec.stringVal(row, idxSampleShape, -1),
+			AvgRepeatedDurationMs: dec.floatVal(row, idxAvgRepeatedDur, -1),
+			AvgEndpointDurationMs: dec.floatVal(row, idxAvgEpDur, -1),
+		})
 	}
 	return results
 }

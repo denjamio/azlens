@@ -30,7 +30,7 @@ func TestSeverityBandsFollowIndustryThresholds(t *testing.T) {
 		{"cache latency healthy", cacheLatencyColor(2), nil},
 		{"cache latency warn", cacheLatencyColor(5), colorYellow},
 		{"cache latency crit", cacheLatencyColor(25), colorRed},
-		// N+1: >=5 calls review, >=15 critical (analyzer defaults)
+		// N+1: >=5 calls review, >=15 critical (analysis defaults)
 		{"n+1 healthy", nPlusOneColor(4), nil},
 		{"n+1 warn", nPlusOneColor(5), colorYellow},
 		{"n+1 crit", nPlusOneColor(15), colorRed},
@@ -40,7 +40,7 @@ func TestSeverityBandsFollowIndustryThresholds(t *testing.T) {
 		{"scan ratio crit", scanRatioColor(100000, 10), colorRed},
 		{"scan ratio zero returned", scanRatioColor(5000, 0), nil},
 		{"scan ratio zero examined", scanRatioColor(0, 100), nil},
-		// Regression deltas: +15% warn, +30% crit, <=-15% improved (analyzer)
+		// Regression deltas: +15% warn, +30% crit, <=-15% improved (analysis)
 		{"delta healthy", deltaPctColor(5), nil},
 		{"delta warn", deltaPctColor(15), colorYellow},
 		{"delta crit", deltaPctColor(30), colorRed},

@@ -14,6 +14,7 @@ import (
 	"github.com/denjamio/azlens/pkg/domain"
 	"github.com/denjamio/azlens/pkg/model"
 	"github.com/denjamio/azlens/pkg/reporter"
+	"github.com/denjamio/azlens/pkg/telemetry"
 )
 
 var (
@@ -131,17 +132,7 @@ Exit codes:
 			},
 		)
 
-		snapshot.BaselineOverall = &baseWM.Overall
-		snapshot.BaselineEndpoints = baseWM.Endpoints
-		snapshot.BaselineDependencies = baseWM.Deps
-		snapshot.BaselineExceptions = baseWM.Errors
-		snapshot.BaselineFanout = baseWM.Fanout
-
-		snapshot.CurrentOverall = currWM.Overall
-		snapshot.CurrentEndpoints = currWM.Endpoints
-		snapshot.CurrentDependencies = currWM.Deps
-		snapshot.CurrentExceptions = currWM.Errors
-		snapshot.CurrentFanout = currWM.Fanout
+		telemetry.PopulateSnapshotMetrics(snapshot, &baseWM, &currWM)
 
 		// Scenario J: Insufficient baseline period
 		minRequiredCalls := rt.Profile.Thresholds.MinSampleCalls
@@ -159,6 +150,12 @@ Exit codes:
 		}
 		if rt.Profile.Thresholds.LatencyCritPct > 0 {
 			detCfg.LatencyCritPct = rt.Profile.Thresholds.LatencyCritPct
+		}
+		if rt.Profile.Thresholds.ErrorRateWarnDelta > 0 {
+			detCfg.ErrorRateWarnDelta = rt.Profile.Thresholds.ErrorRateWarnDelta
+		}
+		if rt.Profile.Thresholds.ErrorRateCritDelta > 0 {
+			detCfg.ErrorRateCritDelta = rt.Profile.Thresholds.ErrorRateCritDelta
 		}
 		if rt.Profile.Thresholds.MinSampleCalls > 0 {
 			detCfg.MinSampleCalls = rt.Profile.Thresholds.MinSampleCalls

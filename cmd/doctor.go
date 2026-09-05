@@ -97,21 +97,23 @@ func validateProfileIssues(prof config.Profile) ([]config.ValidationIssue, error
 }
 
 func runPreflightDiagnostics(prof config.Profile) error {
-	if _, err := checkAzureCLIAvailable(); err != nil {
-		return err
-	}
-
-	if err := checkRequiredAzExtensions(prof); err != nil {
-		return err
-	}
-
+	// Layer 1: Configuration & Tenancy Invariants validation (in-memory, fail-fast)
 	issues, err := validateProfileIssues(prof)
 	for _, iss := range issues {
 		if iss.Severity == config.SeverityWarning {
 			fmt.Fprintf(os.Stderr, "⚠️  [%s] %s\n💡 Hint: %s\n", iss.Field, iss.Message, iss.Hint)
 		}
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Layer 2: Azure CLI Environment & Extension pre-flight checks
+	if _, err := checkAzureCLIAvailable(); err != nil {
+		return err
+	}
+
+	return checkRequiredAzExtensions(prof)
 }
 
 // doctorCmd represents the doctor command (Section 6.5).

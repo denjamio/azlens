@@ -109,19 +109,11 @@ func (b *SnapshotBuilder) BuildSnapshot(
 		return snapshot, fmt.Errorf("telemetry query failed: %w", currErr)
 	}
 
+	var pBase *model.WindowMetrics
 	if baseErr == nil {
-		snapshot.BaselineOverall = &baseWM.Overall
-		snapshot.BaselineEndpoints = baseWM.Endpoints
-		snapshot.BaselineDependencies = baseWM.Deps
-		snapshot.BaselineExceptions = baseWM.Errors
-		snapshot.BaselineFanout = baseWM.Fanout
+		pBase = &baseWM
 	}
-
-	snapshot.CurrentOverall = currWM.Overall
-	snapshot.CurrentEndpoints = currWM.Endpoints
-	snapshot.CurrentDependencies = currWM.Deps
-	snapshot.CurrentExceptions = currWM.Errors
-	snapshot.CurrentFanout = currWM.Fanout
+	PopulateSnapshotMetrics(snapshot, pBase, &currWM)
 
 	// Set freshness
 	now := time.Now()
@@ -138,4 +130,26 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	}
 
 	return snapshot, nil
+}
+
+// PopulateSnapshotMetrics populates baseline and current window metrics into a domain.Snapshot,
+// centralizing the mapping from telemetry DTOs to operational domain entities.
+func PopulateSnapshotMetrics(snapshot *domain.Snapshot, baseWM *model.WindowMetrics, currWM *model.WindowMetrics) {
+	if snapshot == nil {
+		return
+	}
+	if baseWM != nil {
+		snapshot.BaselineOverall = &baseWM.Overall
+		snapshot.BaselineEndpoints = baseWM.Endpoints
+		snapshot.BaselineDependencies = baseWM.Deps
+		snapshot.BaselineExceptions = baseWM.Errors
+		snapshot.BaselineFanout = baseWM.Fanout
+	}
+	if currWM != nil {
+		snapshot.CurrentOverall = currWM.Overall
+		snapshot.CurrentEndpoints = currWM.Endpoints
+		snapshot.CurrentDependencies = currWM.Deps
+		snapshot.CurrentExceptions = currWM.Errors
+		snapshot.CurrentFanout = currWM.Fanout
+	}
 }
