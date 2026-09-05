@@ -297,7 +297,7 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 			return nil, fmt.Errorf("azure subscription not found in active account.\n💡 Hint: If App Insights and Log Analytics live in different directories, authenticate to both via 'az login --tenant <tenant-id>' and configure 'insights.subscription_id' and 'logs.subscription_id' (plus 'directory_id') in azlens.yaml")
 		}
 		if strings.Contains(outStr, "ResourceNotFound") || strings.Contains(outStr, "not found") {
-			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: For App Insights, verify 'insights.name' in azlens.yaml — if using a component name, specify 'insights.resource_group' (or use the App ID GUID from portal API Access, or full resource ID). For workspace-based App Insights, leave 'insights.name' empty to query 'logs.workspace_id' directly", outStr)
+			return nil, fmt.Errorf("azure resource not found: %s\n💡 Hint: For App Insights, verify 'insights_name' in azlens.yaml — if using a component name, specify 'insights.resource_group' (or use the App ID GUID from portal API Access, or full resource ID). For workspace-based App Insights, leave 'insights_name' empty to query 'logs.workspace_id' directly", outStr)
 		}
 		return nil, fmt.Errorf("azure cli query failed: %w (output: %s)", err, outStr)
 	}

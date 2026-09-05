@@ -420,14 +420,14 @@ shared:
     min_sample_calls: 5
 
 # Environment targets: only what differs per environment
+# - insights_name: App Insights resource name or App ID GUID
+# - logs.workspace_id: Log Analytics workspace Customer ID GUID
 profiles:
   prod:
     name: "Production"
     target:
-      # App Insights resource name or App ID GUID
       insights_name: ""
       logs:
-        # Log Analytics workspace Customer ID GUID
         workspace_id: ""
 
   staging:

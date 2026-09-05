@@ -21,13 +21,13 @@ defaults:
 shared:
   services:
     order:
-      role: order-service
+      role_name: order-service
       pod: order-app
     billing:
-      role: billing-service
+      role_name: billing-service
       pod: billing-worker
     returns:
-      role: returns-service
+      role_name: returns-service
       pod: returns-app
 profiles:
   prod:

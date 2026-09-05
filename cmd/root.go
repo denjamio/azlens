@@ -295,7 +295,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&colorModeFlag, "color", "auto", "Colorize output (auto, always, never)")
 	RootCmd.PersistentFlags().BoolVar(&mockFlag, "mock", false, "Use mock/simulated telemetry data (no Azure connection needed)")
 	RootCmd.PersistentFlags().BoolVarP(&printQueryFlag, "print-query", "q", false, "Print generated KQL query statements before executing")
-	RootCmd.PersistentFlags().StringVarP(&serviceFlag, "service", "s", "", "Target service name defined in services or ad-hoc (sets role and pod filters)")
+	RootCmd.PersistentFlags().StringVarP(&serviceFlag, "service", "s", "", "Target service name defined in services or ad-hoc (sets role_name and pod filters)")
 	RootCmd.PersistentFlags().DurationVar(&queryTimeout, "query-timeout", defaultQueryTimeout, "Per-query timeout budget (e.g. 30s, 2m)")
 	_ = RootCmd.PersistentFlags().MarkHidden("query-timeout")
 
