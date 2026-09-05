@@ -5,6 +5,15 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.10] - 2026-09-05
+
+### Changed
+
+- **Subquery Microservice Scoping & Hash-Join Column Pruning (`n-plus-one` & `latency-breakdown`)**:
+  - Injected `cloud_RoleName` filtering directly into the inner `dependencies` subquery, avoiding full-workspace scans across unrelated microservices.
+  - Pruned `requests` columns before joining (`| project operation_Id, name, duration`), reducing the join hash table memory footprint in Kusto by over 80%.
+  - Aligned breakdown metric projections with `Endpoint = name`.
+
 ## [1.1.9] - 2026-09-05
 
 ### Changed

@@ -323,12 +323,16 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 		return TargetQuery{Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
-	depTimeFilter := ""
+	depFilters := ""
 	if !b.startTime.IsZero() && !b.endTime.IsZero() {
-		depTimeFilter = fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
+		depFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
 			FormatTime(b.startTime), FormatTime(b.endTime))
 	}
+	if strings.TrimSpace(b.target.RoleName) != "" {
+		depFilters += fmt.Sprintf("\n    | where cloud_RoleName =~ '%s'", sanitize(b.target.RoleName))
+	}
 	q := base + fmt.Sprintf(`| where success == true
+| project operation_Id, name, duration
 | join kind=inner (
     dependencies%s
     | where type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')
@@ -343,7 +347,7 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
   by Endpoint = name
 | where AvgSqlCalls > 1.0
 | project Endpoint, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
-| top %d by AvgSqlCalls desc`, depTimeFilter, b.limit)
+| top %d by AvgSqlCalls desc`, depFilters, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
@@ -353,12 +357,16 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 		return TargetQuery{Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
-	depTimeFilter := ""
+	depFilters := ""
 	if !b.startTime.IsZero() && !b.endTime.IsZero() {
-		depTimeFilter = fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
+		depFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
 			FormatTime(b.startTime), FormatTime(b.endTime))
 	}
-	q := base + fmt.Sprintf(`| join kind=leftouter (
+	if strings.TrimSpace(b.target.RoleName) != "" {
+		depFilters += fmt.Sprintf("\n    | where cloud_RoleName =~ '%s'", sanitize(b.target.RoleName))
+	}
+	q := base + fmt.Sprintf(`| project operation_Id, name, duration
+| join kind=leftouter (
     dependencies%s
     | summarize 
         SqlTime = sumif(duration, type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')),
@@ -373,15 +381,15 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
     AvgHttp = avg(coalesce(HttpExtTime, 0.0)),
     AvgRedis = avg(coalesce(RedisTime, 0.0)),
     AvgApp = avg(coalesce(AppComputeTime, 0.0))
-  by name
+  by Endpoint = name
 | extend 
     AvgTotalMs = round(AvgTotal, 1),
     PctDatabase = iff(AvgTotal > 0, round(100.0 * AvgSql / AvgTotal, 1), 0.0),
     PctExternalApi = iff(AvgTotal > 0, round(100.0 * AvgHttp / AvgTotal, 1), 0.0),
     PctCache = iff(AvgTotal > 0, round(100.0 * AvgRedis / AvgTotal, 1), 0.0),
     PctAppCode = iff(AvgTotal > 0, round(100.0 * AvgApp / AvgTotal, 1), 0.0)
-| project name, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctAppCode
-| top %d by AvgTotalMs desc`, depTimeFilter, b.limit)
+| project Endpoint, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctAppCode
+| top %d by AvgTotalMs desc`, depFilters, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }
 
