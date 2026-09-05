@@ -81,6 +81,9 @@ func TestDependenciesTaxonomy(t *testing.T) {
 	if strings.Contains(sqlQuery, "operation_Name") {
 		t.Errorf("dependencies table in Azure Application Insights does not have operation_Name column, got: %s", sqlQuery)
 	}
+	if strings.Contains(sqlQuery, "operation_SyntheticSource") {
+		t.Errorf("dependencies table in Azure Application Insights does not have operation_SyntheticSource column, got: %s", sqlQuery)
+	}
 }
 
 func TestSanitizeNeutralizesKQLInjection(t *testing.T) {
@@ -145,11 +148,20 @@ func TestCrossCorrelationsQueries(t *testing.T) {
 	if !strings.Contains(fanoutQ, "AvgSqlCalls") {
 		t.Errorf("expected AvgSqlCalls in fanout query, got: %s", fanoutQ)
 	}
+	if strings.Contains(fanoutQ, "dependencies\n    | where cloud_RoleName") {
+		t.Errorf("dependencies subquery should not filter cloud_RoleName (scoped via operation_Id join to preserve dependencies without role tag), got: %s", fanoutQ)
+	}
+	if !strings.Contains(fanoutQ, "postgres") {
+		t.Errorf("expected postgresql support in fanout query, got: %s", fanoutQ)
+	}
 
 	attrTQ := BuildLatencyBreakdownQuery(start, end, target, 10)
 	attrQ := attrTQ.Query
 	if !strings.Contains(attrQ, "join kind=leftouter") || !strings.Contains(attrQ, "PctDatabase") {
 		t.Errorf("expected leftouter join and PctDatabase in breakdown query, got: %s", attrQ)
+	}
+	if !strings.Contains(attrQ, "postgres") {
+		t.Errorf("expected postgresql support in breakdown query, got: %s", attrQ)
 	}
 }
 
@@ -317,6 +329,9 @@ func TestBuildDeprecationsQuery(t *testing.T) {
 	if !strings.Contains(q, "substring(message, 0, 200)") {
 		t.Errorf("expected substring grouping in deprecations query, got: %s", q)
 	}
+	if strings.Contains(q, "operation_SyntheticSource") {
+		t.Errorf("traces and exceptions tables do not have operation_SyntheticSource column, got: %s", q)
+	}
 }
 
 func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
@@ -338,6 +353,15 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	}
 	if !strings.Contains(q, "ClientClosedRequest") {
 		t.Errorf("expected client drop filter in exceptions query, got: %s", q)
+	}
+	if !strings.Contains(q, "coalesce(iff(isnotempty(innermostMessage)") {
+		t.Errorf("expected coalesce for RawMsg in exceptions query, got: %s", q)
+	}
+	if !strings.Contains(q, "where isempty(RawMsg) or not(RawMsg has_any") {
+		t.Errorf("expected null-safe noise filter in exceptions query, got: %s", q)
+	}
+	if !strings.Contains(q, "operation_Name = name") {
+		t.Errorf("expected requests branch to project operation_Name = name, got: %s", q)
 	}
 	if strings.Contains(q, "replace_regex") {
 		t.Errorf("exceptions query should not contain regex normalization, got: %s", q)

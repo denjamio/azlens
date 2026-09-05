@@ -225,16 +225,6 @@ AzLens exit codes are pipeline-aware and designed for CI/CD gates:
 | **`2`** | **Actionable Problem / Regression** | Environment degraded or post-deploy regression detected. |
 | **`3`** | **Insufficient Data / Unknown** | Telemetry missing, stale, or baseline insufficient to determine health. |
 
-### Example GitHub Actions Workflow
-
-```yaml
-- name: Verify Deployment Health
-  shell: bash
-  run: |
-    set -o pipefail
-    azlens deploy 30m -p prod -s checkout -o markdown | tee deploy-verdict.md
-```
-
 ---
 
 ## ⚙️ Configuration & Service Catalog (`azlens.yaml`)

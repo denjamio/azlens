@@ -135,14 +135,13 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 		return TargetQuery{Backend: BackendAppInsights, Err: ErrMissingRole}
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
-	syntheticFilter := "\n    | where isempty(operation_SyntheticSource)"
 	if topN <= 0 {
 		topN = 15
 	}
 	query := fmt.Sprintf(`union isfuzzy=true
 (
     traces
-    | where timestamp between (datetime('%s') .. datetime('%s'))%s%s
+    | where timestamp between (datetime('%s') .. datetime('%s'))%s
     | where message has_any ("deprecated", "deprecation", "deprecations", "obsolete", "RemovedInDjango")
     | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*" or message startswith "SET ")
     | where (severityLevel >= 2) or (message has_any (
@@ -155,7 +154,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 ),
 (
     exceptions
-    | where timestamp between (datetime('%s') .. datetime('%s'))%s%s
+    | where timestamp between (datetime('%s') .. datetime('%s'))%s
     | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or outerMessage has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or innermostMessage has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
     | project timestamp, message = iff(isnotempty(innermostMessage), innermostMessage, outerMessage), operation_Name
 )
@@ -166,8 +165,8 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
     LastSeen = max(timestamp),
     AffectedEndpoints = make_set(operation_Name, 5)
   by Deprecation = substring(message, 0, 200)
-| top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter,
-		FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, topN)
+| top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter,
+		FormatTime(start), FormatTime(end), roleFilter, topN)
 
 	return TargetQuery{Query: query, Backend: BackendAppInsights}
 }

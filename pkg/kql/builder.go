@@ -163,7 +163,8 @@ func (b *QueryBuilder) buildBaseFilters() string {
 	}
 
 	// 5. Exclude synthetic availability test traffic unconditionally (convention over configuration)
-	if strings.EqualFold(b.table, "requests") || strings.EqualFold(b.table, "dependencies") {
+	// In Application Insights, only the 'requests' table has the operation_SyntheticSource column.
+	if strings.EqualFold(b.table, "requests") {
 		sb.WriteString("| where isempty(operation_SyntheticSource)\n")
 	}
 
@@ -180,7 +181,7 @@ func (b *QueryBuilder) buildBaseFilters() string {
 // probeExclusionClause excludes internal health check probes and load balancer pingers
 // from request latency percentiles and throughput measurements
 func probeExclusionClause() string {
-	return "| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n"
+	return "| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info'))\n| where isempty(customDimensions['User-Agent']) or not(tostring(customDimensions['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n"
 }
 
 // BuildRequestsSummary calculates throughput, failure rate, duration percentiles, and HTTP status breakdown.
@@ -245,11 +246,11 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 	cleanType := strings.ToUpper(strings.TrimSpace(depType))
 	switch cleanType {
 	case "SQL":
-		sb.WriteString("| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')\n")
+		sb.WriteString("| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'\n")
 	case "HTTP":
-		sb.WriteString("| where type in~ ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice')\n")
+		sb.WriteString("| where type in~ ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice') or type has 'http'\n")
 	case "REDIS":
-		sb.WriteString("| where type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis'\n")
+		sb.WriteString("| where type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'\n")
 	case "COSMOS", "COSMOSDB":
 		sb.WriteString("| where type in~ ('Azure DocumentDB', 'Cosmos', 'CosmosDB')\n")
 	case "", "ALL":
@@ -290,7 +291,7 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
     exceptions
 %s
     | where not(type in ('ActionController::RoutingError', 'NotFoundHttpException', 'Sinatra::NotFound', 'System.OperationCanceledException', 'System.Threading.Tasks.TaskCanceledException', 'Microsoft.AspNetCore.Connections.ConnectionResetException'))
-    | extend RawMsg = iff(isnotempty(innermostMessage), innermostMessage, outerMessage)
+    | extend RawMsg = coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")
     | project timestamp, type, RawMsg, operation_Name
 ),
 (
@@ -298,10 +299,10 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 %s
     | where success == false and (toint(resultCode) >= 500 or isempty(resultCode))
     | extend type = iff(isempty(resultCode), 'HTTP 5xx', strcat('HTTP ', resultCode))
-    | extend RawMsg = name
-    | project timestamp, type, RawMsg, operation_Name
+    | extend RawMsg = coalesce(name, "<empty>")
+    | project timestamp, type, RawMsg, operation_Name = name
 )
-| where not(RawMsg has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
+| where isempty(RawMsg) or not(RawMsg has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
 | summarize 
     Count = count(),
     SampleMessage = any(RawMsg),
@@ -325,14 +326,11 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 		depFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
 			FormatTime(b.startTime), FormatTime(b.endTime))
 	}
-	if strings.TrimSpace(b.target.RoleName) != "" {
-		depFilters += fmt.Sprintf("\n    | where cloud_RoleName =~ '%s'", sanitize(b.target.RoleName))
-	}
 	q := base + fmt.Sprintf(`| where success == true
 | project operation_Id, name, duration
 | join kind=inner (
     dependencies%s
-    | where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')
+    | where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'
     | summarize SqlCalls = count(), SqlDuration = sum(duration) by operation_Id
 ) on operation_Id
 | summarize 
@@ -359,16 +357,13 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 		depFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
 			FormatTime(b.startTime), FormatTime(b.endTime))
 	}
-	if strings.TrimSpace(b.target.RoleName) != "" {
-		depFilters += fmt.Sprintf("\n    | where cloud_RoleName =~ '%s'", sanitize(b.target.RoleName))
-	}
 	q := base + fmt.Sprintf(`| project operation_Id, name, duration
 | join kind=leftouter (
     dependencies%s
     | summarize 
-        SqlTime = sumif(duration, type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')),
-        RedisTime = sumif(duration, type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis'),
-        HttpExtTime = sumif(duration, type in~ ('HTTP', 'Http (tracked component)', 'Webservice', 'gRPC'))
+        SqlTime = sumif(duration, type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'),
+        RedisTime = sumif(duration, type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'),
+        HttpExtTime = sumif(duration, type in~ ('HTTP', 'Http (tracked component)', 'Webservice', 'gRPC') or type has 'http')
       by operation_Id
 ) on operation_Id
 | extend AppComputeTime = duration - (coalesce(SqlTime, 0.0) + coalesce(RedisTime, 0.0) + coalesce(HttpExtTime, 0.0))

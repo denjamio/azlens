@@ -5,6 +5,24 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.14] - 2026-09-05
+
+### Fixed
+
+- **Resolved `BadArgumentError: The request had some invalid properties` across `azlens`, `deploy`, `endpoints`, and `dependencies`**:
+  - Scoped synthetic traffic filtering (`| where isempty(operation_SyntheticSource)`) strictly to the `requests` table in `buildBaseFilters()`, eliminating query compilation failures on `dependencies`, `traces`, and `exceptions` tables where `operation_SyntheticSource` does not exist.
+  - Corrected `probeExclusionClause()` to access `customDimensions['User-Agent']` natively in KQL, removing illegal array indexing on function returns (`column_ifexists(...)['User-Agent']`).
+- **Restored Error Records in `azlens inspect errors`**:
+  - Added safe `coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")` and guarded noise filters (`| where isempty(RawMsg) or not(...)`) against 3-valued boolean logic null drops.
+  - Fixed `requests` union branch projection to `operation_Name = name`, guaranteeing consistent route population.
+- **Restored N+1 & Fanout Detection in `azlens inspect n-plus-one` and `latency-breakdown`**:
+  - Removed redundant `cloud_RoleName` filtering on the inner `dependencies` subquery (tenancy is already strictly preserved via `requests | where cloud_RoleName =~ ...` joined `on operation_Id`), preventing 0-row drops when SDKs do not tag outbound dependency telemetry with `cloud_RoleName`.
+  - Broadened SQL dependency taxonomy with `has 'sql'`, `has 'postgres'`, and `has 'mysql'` to capture all SDK instrumentation variations.
+
+### Removed
+
+- Removed obsolete Example GitHub Actions Workflow section from `README.md`.
+
 ## [1.1.13] - 2026-09-05
 
 ### Changed
