@@ -129,8 +129,6 @@ profiles:
     service: "order-service"
     role_name: "order-service"
     pod: "order-service"
-    exclude_synthetic: true
-    exclude_probes: true
 `
 	if err := os.WriteFile(tmpFile.Name(), []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed writing temp file: %v", err)
@@ -167,9 +165,6 @@ profiles:
 	if prof.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected Target.Logs.Database 'backend_ror', got '%s'", prof.Target.Logs.Database)
 	}
-	if prof.Target.ExcludesSynthetic() != true || prof.Target.ExcludesProbes() != true {
-		t.Errorf("expected ExcludeSynthetic and ExcludeProbes true, got %v/%v", prof.Target.ExcludesSynthetic(), prof.Target.ExcludesProbes())
-	}
 }
 
 func TestSharedTargetInheritance(t *testing.T) {
@@ -203,8 +198,6 @@ shared:
   service: "order-service"
   role_name: "order-service"
   pod: "order-service"
-  exclude_synthetic: true
-  exclude_probes: true
   custom_dimensions:
     team: "platform"
   thresholds:
@@ -227,7 +220,6 @@ profiles:
       workspace_id: "ws-guid-staging"
     service: "billing-service"
     role_name: "billing-service"
-    exclude_probes: false
     custom_dimensions:
       team: "staging-oncall"
     thresholds:
@@ -262,9 +254,6 @@ profiles:
 	if prod.Target.RoleName != "order-service" || prod.Target.Pod != "order-service" || prod.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected shared filters inherited, got: %+v", prod.Target)
 	}
-	if !prod.Target.ExcludesSynthetic() || !prod.Target.ExcludesProbes() {
-		t.Errorf("expected shared exclusion flags inherited as true")
-	}
 	if prod.Target.CustomDimensions["team"] != "platform" {
 		t.Errorf("expected shared custom_dimensions inherited, got: %v", prod.Target.CustomDimensions)
 	}
@@ -280,14 +269,8 @@ profiles:
 	if staging.Target.RoleName != "billing-service" {
 		t.Errorf("expected profile role_name override to win over shared, got %v", staging.Target.RoleName)
 	}
-	if staging.Target.ExcludesProbes() {
-		t.Errorf("expected explicit profile exclude_probes=false to override shared true")
-	}
 	if staging.Thresholds.LatencyWarnPct != 25.0 || staging.Thresholds.MinSampleCalls != 5 {
 		t.Errorf("expected staging threshold override to win with rest inherited, got: %+v", staging.Thresholds)
-	}
-	if !staging.Target.ExcludesSynthetic() {
-		t.Errorf("expected shared exclude_synthetic=true still inherited")
 	}
 	if staging.Target.Pod != "order-service" || staging.Target.Logs.Database != "backend_ror" {
 		t.Errorf("expected other shared filters still inherited, got: %+v", staging.Target)
@@ -373,17 +356,6 @@ profiles:
 	}
 	if profExplicit.Target.Insights.Name != "app-insights-explicit" {
 		t.Errorf("expected Insights.Name 'app-insights-explicit', got %q", profExplicit.Target.Insights.Name)
-	}
-}
-
-func TestDefaultConfigSharedFilters(t *testing.T) {
-	cfg := DefaultConfig()
-	prof, err := cfg.GetProfile("prod")
-	if err != nil {
-		t.Fatalf("failed getting default prod profile: %v", err)
-	}
-	if !prof.Target.ExcludesSynthetic() || !prof.Target.ExcludesProbes() {
-		t.Errorf("expected default shared exclusions true on effective prod profile")
 	}
 }
 

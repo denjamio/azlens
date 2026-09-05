@@ -66,17 +66,7 @@ func (p *Profile) Validate() []ValidationIssue {
 		})
 	}
 
-	// 5. Probes exclusion check
-	if !p.Target.ExcludesProbes() {
-		issues = append(issues, ValidationIssue{
-			Field:    "shared.exclude_probes",
-			Severity: SeverityWarning,
-			Message:  "exclude_probes is false; Kubernetes liveness/readiness probes will be included in telemetry.",
-			Hint:     "Frequent /healthz or kube-probe requests can skew P95 latency and call volume. Set 'shared.exclude_probes: true'.",
-		})
-	}
-
-	// 6. Thresholds sanity check
+	// 5. Thresholds sanity check
 	if p.Thresholds.LatencyWarnPct >= p.Thresholds.LatencyCritPct && p.Thresholds.LatencyCritPct > 0 {
 		issues = append(issues, ValidationIssue{
 			Field:    "thresholds.p95_latency",
@@ -94,7 +84,7 @@ func (p *Profile) Validate() []ValidationIssue {
 		})
 	}
 
-	// 7. Defaults sanity check
+	// 6. Defaults sanity check
 	if p.Defaults.Output != "" {
 		outLower := strings.ToLower(p.Defaults.Output)
 		if outLower != "table" && outLower != "markdown" && outLower != "json" {

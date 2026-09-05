@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-09-05
+
+### Changed
+
+- **Unconditional, Native Health Probe & Synthetic Filtering**: Eliminated `exclude_probes` and `exclude_synthetic` configuration parameters and diagnostic warnings entirely (convention over configuration). AzLens now unconditionally and transparently excludes internal health check probes and synthetic availability tests across all major application stacks (Kubernetes `/healthz`, `/readyz`, `/livez`, `/startupz`, Spring Boot `/actuator/health`, `/actuator/info`, ASP.NET `/health`, `/status`, Rails `/up`, `/health`, FastAPI/Flask/Django `/health`, `/ping`, Node.js `/ping`, `/status`, and Cloud Load Balancers `kube-probe`, `GoogleHC`, `ELB-HealthChecker`, `ReadyForTraffic`, `Consul`, `Prometheus`) directly in KQL without requiring user configuration or generating validation warnings.
+- **Multi-Stack, Production-Ready Deprecations Engine**: Upgraded `azlens inspect deprecations` KQL query with token-indexed (`has_any`) filtering to capture deprecations across all modern stacks (Node.js, Python, Ruby on Rails, Java/Spring, .NET/C# `CS0618`/`Obsolete`, PHP/Symfony/Laravel, Go) while filtering out SQL statements and normalizing file line numbers, process IDs (`(node:<pid>)`), and memory pointers (`0x<hex>`) for high-performance grouping and zero query performance loss.
+
 ## [1.1.2] - 2026-09-05
 
 ### Changed

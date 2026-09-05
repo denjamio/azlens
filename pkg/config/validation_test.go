@@ -9,11 +9,10 @@ func TestProfileValidation(t *testing.T) {
 	prof := Profile{
 		Name: "Test",
 		Target: TargetConfig{
-			Insights:      InsightsConfig{Name: ""},
-			Logs:          LogsConfig{Database: ""},
-			Service:       "",
-			RoleName:      "",
-			ExcludeProbes: BoolPtr(false),
+			Insights: InsightsConfig{Name: ""},
+			Logs:     LogsConfig{Database: ""},
+			Service:  "",
+			RoleName: "",
 		},
 		Thresholds: ProfileThresholds{
 			LatencyWarnPct: 30.0,
@@ -29,7 +28,6 @@ func TestProfileValidation(t *testing.T) {
 	hasAppErr := false
 	hasDatabaseErr := false
 	hasServiceErr := false
-	hasProbesWarn := false
 	hasThresholdErr := false
 
 	for _, iss := range issues {
@@ -41,9 +39,6 @@ func TestProfileValidation(t *testing.T) {
 		}
 		if iss.Field == "service" && iss.Severity == SeverityError {
 			hasServiceErr = true
-		}
-		if iss.Field == "shared.exclude_probes" && iss.Severity == SeverityWarning {
-			hasProbesWarn = true
 		}
 		if iss.Field == "thresholds.p95_latency" && iss.Severity == SeverityError {
 			hasThresholdErr = true
@@ -58,9 +53,6 @@ func TestProfileValidation(t *testing.T) {
 	}
 	if !hasServiceErr {
 		t.Errorf("expected error for unconfigured Service")
-	}
-	if !hasProbesWarn {
-		t.Errorf("expected warning for disabled exclude_probes")
 	}
 	if !hasThresholdErr {
 		t.Errorf("expected error for invalid latency threshold")

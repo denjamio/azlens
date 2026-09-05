@@ -19,11 +19,9 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 	}
 
 	target := config.TargetConfig{
-		RoleName:         "order-service",
-		Pod:              "order-service-7f8d9b",
-		Logs:             config.LogsConfig{Database: "ecommerce_db"},
-		ExcludeSynthetic: config.BoolPtr(true),
-		ExcludeProbes:    config.BoolPtr(true),
+		RoleName: "order-service",
+		Pod:      "order-service-7f8d9b",
+		Logs:     config.LogsConfig{Database: "ecommerce_db"},
 		CustomDimensions: map[string]string{
 			"version": "v2.1.0",
 		},
@@ -297,7 +295,7 @@ func TestBuildMySqlSlowLogsTenancyFirewall(t *testing.T) {
 func TestBuildDeprecationsQuery(t *testing.T) {
 	start := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
-	target := config.TargetConfig{RoleName: "order-service", ExcludeProbes: config.BoolPtr(true)}
+	target := config.TargetConfig{RoleName: "order-service"}
 
 	tq := BuildDeprecationsQuery(start, end, target, 15)
 	if tq.Backend != BackendAppInsights {
@@ -310,7 +308,7 @@ func TestBuildDeprecationsQuery(t *testing.T) {
 	if !strings.Contains(q, "cloud_RoleName =~ 'order-service'") {
 		t.Errorf("expected role filter in deprecations query, got: %s", q)
 	}
-	if !strings.Contains(q, "message has \"deprecated\"") {
+	if !strings.Contains(q, "message has_any (\"deprecated\"") {
 		t.Errorf("expected deprecated filter in deprecations query, got: %s", q)
 	}
 	if !strings.Contains(q, "message startswith \"SELECT\"") {
@@ -325,7 +323,7 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	b, _ := NewBuilder("exceptions")
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
-	target := config.TargetConfig{RoleName: "order-service", ExcludeProbes: config.BoolPtr(true), ExcludeSynthetic: config.BoolPtr(true)}
+	target := config.TargetConfig{RoleName: "order-service"}
 
 	tq := b.WithTimeRange(start, end).WithTarget(target).BuildExceptionsSummary()
 	q := tq.Query

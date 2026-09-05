@@ -57,9 +57,6 @@ shared:
       role_name: billing-service
       pod: billing-worker
 
-  exclude_synthetic: true
-  exclude_probes: true
-
   thresholds:
     p95_latency_warn_pct: 15.0
     p95_latency_crit_pct: 30.0

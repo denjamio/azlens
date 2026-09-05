@@ -136,14 +136,9 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 		return TargetQuery{Backend: BackendAppInsights, Err: ErrMissingRole}
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
-	syntheticFilter := ""
-	if target.ExcludesSynthetic() {
-		syntheticFilter = "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
-	}
-	probeFilter := ""
-	if target.ExcludesProbes() {
-		probeFilter = "\n    | where tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) !has 'kube-probe' and not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health'))"
-	}
+	syntheticFilter := "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
+	probeFilter := "\n    | where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))"
+
 	if topN <= 0 {
 		topN = 15
 	}
@@ -151,19 +146,27 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 (
     traces
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
-    | where message has "deprecated" or message has "deprecation"
-    | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*")
-    | where (severityLevel >= 2) or (message has_any ('DEPRECATION WARNING', 'DeprecationWarning', '[DEP', 'is deprecated', 'has been deprecated', 'deprecated in', 'deprecated and will be removed'))
+    | where message has_any ("deprecated", "deprecation", "deprecations", "obsolete")
+    | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*" or message startswith "SET ")
+    | where (severityLevel >= 2) or (message has_any (
+        'DEPRECATION WARNING', 'DeprecationWarning', 'PendingDeprecationWarning',
+        '[DEP', 'is deprecated', 'has been deprecated', 'deprecated in',
+        'deprecated and will be removed', 'will be removed in', 'is obsolete',
+        'User Deprecated', 'E_USER_DEPRECATED', 'E_DEPRECATED',
+        'CS0618', 'CS0612', 'Since symfony', 'Since laravel', 'Since rails'
+    ))
     | project timestamp, message, operation_Name
 ),
 (
     exceptions
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
-    | where type has "deprecat" or column_ifexists('outerMessage', '') has "deprecat" or column_ifexists('message', '') has "deprecat"
+    | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat") or column_ifexists('outerMessage', '') has_any ("deprecated", "deprecation", "obsolete") or column_ifexists('message', '') has_any ("deprecated", "deprecation", "obsolete")
     | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name
 )
 | where isnotempty(message)
 | extend NormalizedMsg = replace_regex(message, @":\d+", @":<line>")
+| extend NormalizedMsg = replace_regex(NormalizedMsg, @"\(node:\d+\)", @"(node:<pid>)")
+| extend NormalizedMsg = replace_regex(NormalizedMsg, @"0x[0-9a-fA-F]+", @"0x<hex>")
 | summarize
     Count = count(),
     FirstSeen = min(timestamp),

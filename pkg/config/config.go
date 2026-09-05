@@ -72,8 +72,6 @@ type ServiceDef struct {
 //   - pod               -> cloud_RoleInstance (pod name WITHOUT the deployment hash; token match: has)
 //   - logs.database     -> Db (MySqlSlowLogs in Log Analytics; mandatory tenant filter)
 //   - resource_id       -> _ResourceId (Log Analytics multi-resource workspaces)
-//   - exclude_synthetic -> operation_SyntheticSource / syntheticSource
-//   - exclude_probes    -> kube-probe User-Agent + /healthz-style routes
 //   - custom_dimensions -> customDimensions['<key>'] =~ '<value>'
 type TargetConfig struct {
 	Insights         InsightsConfig        `yaml:"insights,omitempty" json:"insights,omitempty"`
@@ -83,18 +81,8 @@ type TargetConfig struct {
 	RoleName         string                `yaml:"role_name,omitempty" json:"role_name,omitempty"`
 	Pod              string                `yaml:"pod,omitempty" json:"pod,omitempty"`
 	ResourceID       string                `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`
-	ExcludeSynthetic *bool                 `yaml:"exclude_synthetic,omitempty" json:"exclude_synthetic,omitempty"`
-	ExcludeProbes    *bool                 `yaml:"exclude_probes,omitempty" json:"exclude_probes,omitempty"`
 	CustomDimensions map[string]string     `yaml:"custom_dimensions,omitempty" json:"custom_dimensions,omitempty"`
 }
-
-// ExcludesSynthetic reports whether synthetic traffic / availability tests must be filtered
-func (t TargetConfig) ExcludesSynthetic() bool {
-	return t.ExcludeSynthetic != nil && *t.ExcludeSynthetic
-}
-
-// ExcludesProbes reports whether health probes (/healthz, kube-probe) must be filtered
-func (t TargetConfig) ExcludesProbes() bool { return t.ExcludeProbes != nil && *t.ExcludeProbes }
 
 // MergeTarget combines shared and profile-specific target configs: the profile
 // wins on every field it sets; shared fills everything else. Inheritance over
@@ -146,12 +134,6 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 	}
 	if override.ResourceID != "" {
 		merged.ResourceID = override.ResourceID
-	}
-	if override.ExcludeSynthetic != nil {
-		merged.ExcludeSynthetic = override.ExcludeSynthetic
-	}
-	if override.ExcludeProbes != nil {
-		merged.ExcludeProbes = override.ExcludeProbes
 	}
 	if len(override.CustomDimensions) > 0 {
 		dims := make(map[string]string, len(shared.CustomDimensions)+len(override.CustomDimensions))
@@ -349,10 +331,6 @@ func DefaultConfig() *Config {
 			Output:  "table",
 		},
 		Shared: SharedConfig{
-			TargetConfig: TargetConfig{
-				ExcludeSynthetic: BoolPtr(true),
-				ExcludeProbes:    BoolPtr(true),
-			},
 			Thresholds: ProfileThresholds{
 				LatencyWarnPct:     15.0,
 				LatencyCritPct:     30.0,
@@ -429,8 +407,6 @@ shared:
     checkout:
       role_name: checkout-service
       pod: checkout-service
-  exclude_synthetic: true
-  exclude_probes: true
 
   # Quality gate policy shared by every profile (per-profile overrides allowed)
   thresholds:

@@ -172,18 +172,16 @@ func (b *QueryBuilder) buildBaseFilters() string {
 		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("Db", b.target.Logs.Database)))
 	}
 
-	// 5. Exclude synthetic availability tests if configured
-	if b.target.ExcludesSynthetic() && (strings.EqualFold(b.table, "requests") || strings.EqualFold(b.table, "dependencies")) {
+	// 5. Exclude synthetic availability test traffic unconditionally (convention over configuration)
+	if strings.EqualFold(b.table, "requests") || strings.EqualFold(b.table, "dependencies") {
 		sb.WriteString("| where isempty(column_ifexists('operation_SyntheticSource', ''))\n")
 	}
 
-	// 6. Exclude health probes (/healthz, /ready, kube-probe) if configured
-	if b.target.ExcludesProbes() {
-		if strings.EqualFold(b.table, "requests") {
-			sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health')) and tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) !has 'kube-probe'\n")
-		} else if !strings.EqualFold(b.table, "MySqlSlowLogs") {
-			sb.WriteString("| where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/health', '/ping', '/actuator/health')) and tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) !has 'kube-probe'\n")
-		}
+	// 6. Exclude health check probes unconditionally across all standard stacks and orchestrators
+	if strings.EqualFold(b.table, "requests") {
+		sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
+	} else if !strings.EqualFold(b.table, "MySqlSlowLogs") {
+		sb.WriteString("| where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
 	}
 
 	// 7. Custom Dimensions key-value scoping
