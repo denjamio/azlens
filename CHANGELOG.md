@@ -5,6 +5,12 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.11] - 2026-09-05
+
+### Changed
+
+- **Comprehensive Case-Insensitive Dependency Classification**: Extended case-insensitive matching (`in~` and `has`) across all dependency types in `BuildDependenciesSummary` and `BuildLatencyBreakdown` (supporting Redis, Memcached, HTTP, gRPC, and Webservice alongside SQL), preventing case mismatch drops across heterogeneous SDK telemetry instrumentation.
+
 ## [1.1.10] - 2026-09-05
 
 ### Changed

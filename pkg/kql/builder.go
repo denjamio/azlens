@@ -245,13 +245,13 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 	cleanType := strings.ToUpper(strings.TrimSpace(depType))
 	switch cleanType {
 	case "SQL":
-		sb.WriteString("| where type in ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'mysql', 'MySQL', 'SQL Server')\n")
+		sb.WriteString("| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'mysql', 'MySQL', 'SQL Server')\n")
 	case "HTTP":
-		sb.WriteString("| where type in ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice')\n")
+		sb.WriteString("| where type in~ ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice')\n")
 	case "REDIS":
-		sb.WriteString("| where type in ('Redis', 'Azure Redis', 'Memcached')\n")
+		sb.WriteString("| where type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis'\n")
 	case "COSMOS", "COSMOSDB":
-		sb.WriteString("| where type in ('Azure DocumentDB', 'Cosmos', 'CosmosDB')\n")
+		sb.WriteString("| where type in~ ('Azure DocumentDB', 'Cosmos', 'CosmosDB')\n")
 	case "", "ALL":
 		// all dependency types
 	default:
@@ -370,8 +370,8 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
     dependencies%s
     | summarize 
         SqlTime = sumif(duration, type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')),
-        RedisTime = sumif(duration, type has 'redis'),
-        HttpExtTime = sumif(duration, type == 'HTTP')
+        RedisTime = sumif(duration, type has 'redis' or type has 'memcached'),
+        HttpExtTime = sumif(duration, type in~ ('HTTP', 'Http (tracked component)', 'Webservice', 'gRPC'))
       by operation_Id
 ) on operation_Id
 | extend AppComputeTime = duration - (coalesce(SqlTime, 0.0) + coalesce(RedisTime, 0.0) + coalesce(HttpExtTime, 0.0))
