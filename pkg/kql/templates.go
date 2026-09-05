@@ -146,21 +146,20 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 (
     traces
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
-    | where message has_any ("deprecated", "deprecation", "deprecations", "obsolete")
+    | where message has_any ("deprecated", "deprecation", "deprecations", "obsolete", "RemovedInDjango")
     | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*" or message startswith "SET ")
     | where (severityLevel >= 2) or (message has_any (
         'DEPRECATION WARNING', 'DeprecationWarning', 'PendingDeprecationWarning',
-        '[DEP', 'is deprecated', 'has been deprecated', 'deprecated in',
-        'deprecated and will be removed', 'will be removed in', 'is obsolete',
-        'User Deprecated', 'E_USER_DEPRECATED', 'E_DEPRECATED',
-        'CS0618', 'CS0612', 'Since symfony', 'Since laravel', 'Since rails'
+        'RemovedInDjango', '[DEP', 'is deprecated', 'has been deprecated',
+        'deprecated in', 'deprecated and will be removed', 'will be removed in',
+        'is obsolete', 'CS0618', 'CS0612', 'Since rails'
     ))
     | project timestamp, message, operation_Name
 ),
 (
     exceptions
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
-    | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat") or column_ifexists('outerMessage', '') has_any ("deprecated", "deprecation", "obsolete") or column_ifexists('message', '') has_any ("deprecated", "deprecation", "obsolete")
+    | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or column_ifexists('outerMessage', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or column_ifexists('message', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
     | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name
 )
 | where isnotempty(message)
