@@ -137,7 +137,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
 	syntheticFilter := "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
-	probeFilter := "\n    | where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))"
+	probeFilter := "\n    | where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))"
 
 	if topN <= 0 {
 		topN = 15

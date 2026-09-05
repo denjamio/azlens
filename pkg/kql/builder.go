@@ -179,9 +179,9 @@ func (b *QueryBuilder) buildBaseFilters() string {
 
 	// 6. Exclude health check probes unconditionally across all standard stacks and orchestrators
 	if strings.EqualFold(b.table, "requests") {
-		sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
+		sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
 	} else if !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString("| where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
+		sb.WriteString("| where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
 	}
 
 	// 7. Custom Dimensions key-value scoping
