@@ -5,6 +5,15 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2026-09-05
+
+### Changed
+
+- **Strict Service-Scoped Database Isolation**: `database` is now defined strictly per service under `shared.services.<service>.database`. Removed generic fallback to ensure strict multi-tenant database isolation without cross-service bleeding.
+- **Pure Raw `slow-queries` Command**: Streamlined slow query analysis into a single `azlens inspect slow-queries [window]` command returning raw `MySqlSlowLogs` execution records (`TimeGenerated`, `Duration_s`, `QueryDurationMs`, `RowsExamined`, `RowsSent`, and `SqlText` ordered by duration desc), eliminating complex fingerprint aggregation and removing legacy redundant aliases.
+- **Strict Tenancy Boundaries (`cloud_RoleName` & `Db`)**: Eliminated `cloud_RoleInstance` (pod) scoping from application queries. Tenancy boundaries are strictly governed by `cloud_RoleName` (Application Insights) and `Db` (Log Analytics), avoiding telemetry drops caused by dynamic Kubernetes pod replica hashes.
+- **Optimized Health Probe Filtering Scope**: Confined health probe exclusions exclusively to incoming `requests` throughput and `endpoints` latency queries where probe traffic skews percentiles. Stripped health probe filter clauses from `exceptions`, `fanout` (N+1), `deprecations`, and `dependencies`, significantly simplifying queries and accelerating query performance.
+
 ## [1.1.5] - 2026-09-05
 
 ### Added

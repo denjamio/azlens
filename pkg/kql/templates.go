@@ -137,15 +137,13 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
 	syntheticFilter := "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
-	probeFilter := "\n    | where not(column_ifexists('operation_Name', '') has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))"
-
 	if topN <= 0 {
 		topN = 15
 	}
 	query := fmt.Sprintf(`union isfuzzy=true
 (
     traces
-    | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
+    | where timestamp between (datetime('%s') .. datetime('%s'))%s%s
     | where message has_any ("deprecated", "deprecation", "deprecations", "obsolete", "RemovedInDjango")
     | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*" or message startswith "SET ")
     | where (severityLevel >= 2) or (message has_any (
@@ -158,7 +156,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 ),
 (
     exceptions
-    | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
+    | where timestamp between (datetime('%s') .. datetime('%s'))%s%s
     | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or column_ifexists('outerMessage', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or column_ifexists('message', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
     | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name = column_ifexists('operation_Name', '')
 )
@@ -172,8 +170,8 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
     LastSeen = max(timestamp),
     AffectedEndpoints = make_set(operation_Name, 5)
   by CleanMessage = substring(NormalizedMsg, 0, 250)
-| top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, probeFilter,
-		FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, probeFilter, topN)
+| top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter,
+		FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, topN)
 
 	return TargetQuery{Query: query, Backend: BackendAppInsights}
 }

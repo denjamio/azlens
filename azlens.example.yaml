@@ -8,15 +8,14 @@
 #    (typically insights.name and logs.workspace_id).
 #
 # 2. MULTI-TENANCY & SERVICE ISOLATION:
-#    - Multi-tenancy requires an active database (configured per service or in shared.logs.database) and an active service.
-#    - Queries enforce tenant isolation on Log Analytics (database) and App Insights (role_name).
+#    - Multi-tenancy requires an active database (configured per service in shared.services.<service>.database) and an active service.
+#    - Queries enforce tenant isolation on Log Analytics (Db) and App Insights (cloud_RoleName).
 #    - Application queries require a role_name filter; database queries require a database filter.
 #
 # 3. SERVICE CATALOG:
 #    - 'shared.services' maps logical service names to physical telemetry targets:
 #        role_name: EXACT cloud_RoleName in Application Insights
-#        pod:       (optional) cloud_RoleInstance base token without the dynamic replica hash
-#        database:  (optional) per-service target database for slow logs (Db in MySqlSlowLogs)
+#        database:  target database for slow logs (Db in MySqlSlowLogs)
 #    - 'defaults.service' specifies the default active service.
 #    - CLI: target any service with '-s <name>' or '--service <name>'.
 #    - Ad-hoc fallback: if '-s <name>' is not defined in services, role_name defaults to '<name>'.
@@ -44,20 +43,16 @@ shared:
   logs:
     directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     subscription_id: "22222222-dddd-eeee-ffff-222222222222"
-    database: "backend_ror"
 
   services:
     checkout:
       role_name: checkout-service
-      pod: checkout-app
       database: checkout_db
     orders:
       role_name: order-service
-      pod: order-app
       database: orders_db
     billing:
       role_name: billing-service
-      pod: billing-worker
       database: billing_db
 
   thresholds:

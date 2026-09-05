@@ -110,11 +110,6 @@ func equalityExpr(column, value string) string {
 	return fmt.Sprintf("%s =~ '%s'", column, sanitize(value))
 }
 
-// tokenExpr builds a term-indexed KQL match over a column (has)
-func tokenExpr(column, value string) string {
-	return fmt.Sprintf("%s has '%s'", column, sanitize(value))
-}
-
 // checkTenancyFirewall enforces strict multi-tenancy:
 //   - Application queries against App Insights tables (requests, dependencies, exceptions, traces)
 //     MUST have an active Role filter to prevent unbounded scans across shared resource tenants.
@@ -162,12 +157,7 @@ func (b *QueryBuilder) buildBaseFilters() string {
 		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("cloud_RoleName", b.target.RoleName)))
 	}
 
-	// 4. Pod Scope (cloud_RoleInstance in App Insights)
-	if strings.TrimSpace(b.target.Pod) != "" && !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString(fmt.Sprintf("| where %s\n", tokenExpr("cloud_RoleInstance", b.target.Pod)))
-	}
-
-	// 5. Database Scope (MySqlSlowLogs in Log Analytics)
+	// 4. Database Scope (MySqlSlowLogs in Log Analytics)
 	if strings.EqualFold(b.table, "MySqlSlowLogs") && strings.TrimSpace(b.target.Logs.Database) != "" {
 		sb.WriteString(fmt.Sprintf("| where %s\n", equalityExpr("Db", b.target.Logs.Database)))
 	}
@@ -177,14 +167,7 @@ func (b *QueryBuilder) buildBaseFilters() string {
 		sb.WriteString("| where isempty(column_ifexists('operation_SyntheticSource', ''))\n")
 	}
 
-	// 6. Exclude health check probes unconditionally across all standard stacks and orchestrators
-	if strings.EqualFold(b.table, "requests") {
-		sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
-	} else if strings.EqualFold(b.table, "exceptions") {
-		sb.WriteString("| where not(column_ifexists('operation_Name', '') has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
-	}
-
-	// 7. Custom Dimensions key-value scoping
+	// 6. Custom Dimensions key-value scoping
 	for k, v := range b.target.CustomDimensions {
 		if k != "" && v != "" {
 			sb.WriteString(fmt.Sprintf("| where tostring(customDimensions['%s']) =~ '%s'\n", sanitize(k), sanitize(v)))
@@ -192,6 +175,12 @@ func (b *QueryBuilder) buildBaseFilters() string {
 	}
 
 	return sb.String()
+}
+
+// probeExclusionClause excludes internal health check probes and load balancer pingers
+// from request latency percentiles and throughput measurements
+func probeExclusionClause() string {
+	return "| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n"
 }
 
 // BuildRequestsSummary calculates throughput, failure rate, duration percentiles, and HTTP status breakdown.
@@ -203,7 +192,7 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
 		return TargetQuery{Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
-	q := base + `| summarize 
+	q := base + probeExclusionClause() + `| summarize 
     TotalCalls = count(),
     FailedCalls = countif(success == false),
     AvgDuration = avg(duration),
@@ -213,7 +202,13 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     Count2xx = countif(toint(resultCode) >= 200 and toint(resultCode) < 300),
     Count4xx = countif(toint(resultCode) >= 400 and toint(resultCode) < 500),
     Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false))
-| extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend 
+    P50 = todouble(P[0]),
+    P75 = todouble(P[1]),
+    P90 = todouble(P[2]),
+    P95 = todouble(P[3]),
+    P99 = todouble(P[4]),
+    ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
 | project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx`
 	return TargetQuery{Query: q, Backend: b.backend}
 }
@@ -225,7 +220,7 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
 		return TargetQuery{Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
-	q := base + fmt.Sprintf(`| summarize 
+	q := base + probeExclusionClause() + fmt.Sprintf(`| summarize 
     TotalCalls = count(),
     FailedCalls = countif(success == false),
     AvgDuration = avg(duration),

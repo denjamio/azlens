@@ -36,9 +36,9 @@ func (p *Profile) Validate() []ValidationIssue {
 		})
 	}
 
-	// 2. Logs database check (mandatory multi-tenancy)
-	hasDatabase := strings.TrimSpace(p.Target.Logs.Database) != ""
-	if !hasDatabase && p.Target.Service != "" {
+	// 2. Database check (mandatory multi-tenancy per service)
+	hasDatabase := false
+	if p.Target.Service != "" {
 		if sDef, ok := p.Target.Services[p.Target.Service]; ok && strings.TrimSpace(sDef.Database) != "" {
 			hasDatabase = true
 		}
@@ -47,8 +47,8 @@ func (p *Profile) Validate() []ValidationIssue {
 		issues = append(issues, ValidationIssue{
 			Field:    "service.database",
 			Severity: SeverityError,
-			Message:  "Database is not configured for the active service or in shared logs. Database is mandatory to ensure tenant isolation.",
-			Hint:     "Set 'database: <dbname>' under the service in 'shared.services.<service>' or in 'shared.logs.database'.",
+			Message:  "Database is not configured for the active service. Database is mandatory to ensure tenant isolation.",
+			Hint:     "Set 'database: <dbname>' under the service in 'shared.services.<service>'.",
 		})
 	}
 

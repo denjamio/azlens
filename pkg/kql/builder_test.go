@@ -48,11 +48,6 @@ func TestQueryBuilderScopeAndPerformance(t *testing.T) {
 		t.Errorf("expected cloud_RoleName filter, got: %s", query)
 	}
 
-	// Verify pod instance scoping
-	if !strings.Contains(query, "cloud_RoleInstance has 'order-service-7f8d9b'") {
-		t.Errorf("expected cloud_RoleInstance filter, got: %s", query)
-	}
-
 	// Verify probe exclusion
 	if !strings.Contains(query, "kube-probe") || !strings.Contains(query, "has_any") {
 		t.Errorf("expected robust probe exclusion filter with kube-probe and has_any, got: %s", query)
@@ -158,7 +153,7 @@ func TestCrossCorrelationsQueries(t *testing.T) {
 	}
 }
 
-func TestSingularRoleAndPodFilters(t *testing.T) {
+func TestSingularRoleFilter(t *testing.T) {
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
 
@@ -169,7 +164,6 @@ func TestSingularRoleAndPodFilters(t *testing.T) {
 	tq := b.WithTimeRange(start, end).
 		WithTarget(config.TargetConfig{
 			RoleName: "order-service",
-			Pod:      "order-service",
 		}).BuildEndpointsSummary()
 
 	q := tq.Query
@@ -177,8 +171,8 @@ func TestSingularRoleAndPodFilters(t *testing.T) {
 	if !strings.Contains(q, "cloud_RoleName =~ 'order-service'") {
 		t.Errorf("expected singular role =~ filter, got: %s", q)
 	}
-	if !strings.Contains(q, "cloud_RoleInstance has 'order-service'") {
-		t.Errorf("expected singular pod has filter, got: %s", q)
+	if strings.Contains(q, "cloud_RoleInstance") {
+		t.Errorf("cloud_RoleInstance should not be filtered by default, got: %s", q)
 	}
 }
 
@@ -344,9 +338,6 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	}
 	if !strings.Contains(q, "<UUID>") || !strings.Contains(q, "<ID>") {
 		t.Errorf("expected dynamic ID normalization in exceptions query, got: %s", q)
-	}
-	if !strings.Contains(q, "column_ifexists('operation_Name', '') has_any") {
-		t.Errorf("expected probe exclusion with column_ifexists on operation_Name, got: %s", q)
 	}
 	// Both union branches must be partition-pruned by the same time window
 	if got := strings.Count(q, "timestamp between (datetime("); got != 2 {
