@@ -43,7 +43,12 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Run unit tests (with race detector)
+      - name: Install kql-guard
+        run: |
+          curl -fsSL -o /usr/local/bin/kql-guard https://github.com/microsoft/kql-guard/releases/download/v0.2.0/kql-guard-linux-x64
+          chmod +x /usr/local/bin/kql-guard
+
+      - name: Run unit tests (with race detector and kql-guard validation)
         run: go test -race -v ./...
 
       - name: Verify build

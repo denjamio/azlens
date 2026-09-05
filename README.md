@@ -18,9 +18,10 @@ Install the latest release directly to your `PATH`:
 curl -sSL https://raw.githubusercontent.com/denjamio/azlens/main/install.sh | bash
 ```
 
-Or build locally with Docker (zero host dependencies required):
+Or build locally with Docker Compose (zero host dependencies required):
 ```bash
-make build
+docker compose run --rm build   # or: make build
+docker compose run --rm check   # run linter + tests + kql-guard
 ```
 
 ---

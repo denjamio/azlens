@@ -5,6 +5,18 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.15] - 2026-09-05
+
+### Added
+
+- **Offline KQL AST Validation with Microsoft `kql-guard`**:
+  - Integrated `microsoft/kql-guard` (v0.2.0) into unit tests via `pkg/kql/kqlguard_test.go`, verifying offline that every generated KQL query has 0 syntax errors (`KQL001`) and 0 dangerous or unwindowed query shapes (cost score 0).
+  - Added `kql-guard` installation and automated validation to the GitHub Actions CI pipeline (`.github/workflows/ci.yml`).
+- **Unified Docker Development and Testing Environment**:
+  - Added multi-stage `Dockerfile` with `dev` target providing Go 1.23, `golangci-lint` (v1.61.0), `kql-guard` (v0.2.0), and git.
+  - Added `docker-compose.yml` with named cache volumes (`go-mod-cache`, `go-build-cache`) providing instant, reproducible `test`, `lint`, `check`, `build`, and `dev` workflows with zero host dependencies.
+  - Updated `Makefile` to route commands through Docker Compose.
+
 ## [1.1.14] - 2026-09-05
 
 ### Fixed

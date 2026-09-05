@@ -1,0 +1,64 @@
+services:
+  # Base development shell with Go 1.23, golangci-lint, and kql-guard
+  dev:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /app
+    entrypoint: /bin/bash
+
+  # Run full test suite (unit tests + race detector + kql-guard AST validation)
+  test:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /app
+    command: go test -race -v ./...
+
+  # Run static analysis and linting
+  lint:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /app
+    command: golangci-lint run
+
+  # Run full quality gate (lint + test + kql-guard)
+  check:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /app
+    command: sh -c "golangci-lint run && go test -race -v ./..."
+
+  # Compile standalone binary to bin/azlens
+  build:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /app
+    command: sh -c "mkdir -p bin && CGO_ENABLED=0 go build -ldflags='-s -w' -o bin/azlens ./cmd/azlens"
+
+volumes:
+  go-mod-cache:
+  go-build-cache:

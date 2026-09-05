@@ -1,7 +1,6 @@
-.PHONY: all build install test lint clean
+.PHONY: all build install test lint check dev clean
 
-INSTALL_DIR ?= /usr/local/bin
-DOCKER_BUILDER = docker run --rm -v $(PWD):/app -w /app golang:1.23-alpine
+COMPOSE ?= docker compose
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0-dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -14,23 +13,31 @@ LDFLAGS = -s -w \
 
 all: build
 
-# Build static binary using Go inside Docker (no host Go required)
+# Build standalone binary inside isolated container (no host tools required)
 build:
 	@mkdir -p bin
-	$(DOCKER_BUILDER) sh -c "CGO_ENABLED=0 GOOS=linux go build -ldflags='$(LDFLAGS)' -o bin/azlens ./cmd/azlens"
+	$(COMPOSE) run --rm build
 	@echo "✓ Compiled standalone binary: bin/azlens"
 
-# Install directly into system PATH
+# Install directly into system PATH via install.sh
 install:
 	./install.sh
 
-# Run test suite inside Docker
+# Run unit tests + race detector + kql-guard AST validation inside container
 test:
-	$(DOCKER_BUILDER) go test -v ./...
+	$(COMPOSE) run --rm test
 
-# Run gofmt + go vet inside Docker (no host Go required)
+# Run golangci-lint inside container
 lint:
-	$(DOCKER_BUILDER) sh -c "test -z \"$$(gofmt -l .)\" || { echo 'gofmt issues found:'; gofmt -l .; exit 1; } && go vet ./..."
+	$(COMPOSE) run --rm lint
+
+# Run full quality gate (linter + tests + kql-guard)
+check:
+	$(COMPOSE) run --rm check
+
+# Open an interactive bash shell in the dev container
+dev:
+	$(COMPOSE) run --rm dev
 
 clean:
 	rm -rf bin/
