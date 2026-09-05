@@ -5,6 +5,14 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-05
+
+### Changed
+
+- **Target Wrapper Omission & Symmetrical Profiles (`insights.name` & `logs.workspace_id`)**: Inlined `Profile.Target` (`yaml:",inline"`) to allow completely omitting the `target:` wrapper across profile definitions. Profiles now declare `insights.name` and `logs.workspace_id` directly, perfectly matching the symmetrical structure of `shared:` (`shared.insights` and `shared.logs`).
+- **Comprehensive Shared Authentication Examples**: Added full examples of `insights.resource_group`, `insights.directory_id`, `insights.subscription_id`, `logs.directory_id`, and `logs.subscription_id` under `shared` in documentation and configuration references.
+- **Strict Formatting & Comment Placement**: Standardized comments to reside exclusively at the top of configuration files or above definition blocks/fields, removing all trailing inline comments from definition lines in configuration templates, examples, and schemas.
+
 ## [1.1.0] - 2026-09-05
 
 ### Added
@@ -19,10 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Target Wrapper Omission & Symmetrical Profiles (`insights.name` & `logs.workspace_id`)**: Inlined `Profile.Target` to allow completely omitting the `target:` wrapper across profile definitions. Profiles now declare `insights.name` and `logs.workspace_id` directly, perfectly aligning with the symmetrical structure of `shared:` (`shared.insights` and `shared.logs`).
-- **Comprehensive Shared Authentication Examples**: Added full examples of `insights.resource_group`, `insights.directory_id`, `insights.subscription_id`, `logs.directory_id`, and `logs.subscription_id` under `shared` in documentation and configuration references.
 - **Service Parameter Renaming (`role_name`)**: Renamed `role` to `role_name` across `shared.services`, `ServiceDef`, and profiles for unambiguous alignment with Azure Application Insights `cloud_RoleName`.
-- **Strict Formatting & Comment Placement**: Standardized comments to reside exclusively at the top of configuration files or above definition blocks/fields, removing all trailing inline comments from definition lines in configuration templates, examples, and schemas.
 - **Mobile-Friendly Architecture Diagram**: Replaced GitHub-problematic Mermaid block with a responsive Unicode tree diagram that renders natively without JavaScript on GitHub Mobile (iOS and Android), desktop, and CLI terminals.
 
 ### Removed
