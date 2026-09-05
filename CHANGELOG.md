@@ -5,6 +5,16 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.13] - 2026-09-05
+
+### Changed
+
+- **Documentation & Command Consistency**:
+  - Restored `queries` and `slow-logs` as transparent aliases to `azlens inspect slow-queries` in `cmd/inspect.go`, ensuring seamless compatibility with all command references.
+  - Aligned `--service` / `-s` flag description in `cmd/root.go` to state "(sets role_name and database filters)", reflecting the elimination of pod filtering.
+  - Updated `StarterConfigTemplate` in `pkg/config/config.go` and `azlens.yaml` reference in `README.md` to declare `database:` strictly under each service in `shared.services.<service>` (matching dual-layer tenancy validation rules) and removed obsolete `pod:` declarations.
+  - Synchronized `README.md` command examples, service catalog documentation, and help hints with the actual codebase.
+
 ## [1.1.12] - 2026-09-05
 
 ### Changed

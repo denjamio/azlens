@@ -374,10 +374,10 @@ const StarterConfigTemplate = `# AzLens Configuration (azlens.yaml)
 #
 # ARCHITECTURE & USAGE GUIDE:
 # 1. Team-Shared Config: Commit this file to git. It is the single source of truth.
-# 2. Multi-Tenancy: 'shared.logs.database' and an active service are mandatory to ensure
-#    isolated telemetry queries across database and application telemetry.
+# 2. Multi-Tenancy: 'database' under each service in 'shared.services' and an active service are mandatory
+#    to ensure isolated telemetry queries across database and application telemetry.
 # 3. Microservice Catalog: Declare services under 'shared.services' with their App Insights
-#    cloud_RoleName ('role_name') and pod token base ('pod', without deployment hashes).
+#    cloud_RoleName ('role_name') and tenant database name ('database').
 # 4. Targeting: Target any service using '-s <name>' / '--service <name>'. Defaults to 'defaults.service'.
 # 5. Sessions: azlens leverages 'az' CLI authentication directly. No credentials are saved on disk.
 
@@ -404,11 +404,10 @@ shared:
   logs:
     directory_id: ""
     subscription_id: ""
-    database: ""
   services:
     checkout:
       role_name: checkout-service
-      pod: checkout-service
+      database: checkout_db
 
   # Quality gate policy shared by every profile (per-profile overrides allowed)
   thresholds:

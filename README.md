@@ -135,12 +135,9 @@ azlens inspect endpoints 30m -n 10 -s checkout
 azlens inspect dependencies 1h --type SQL -s checkout
 azlens inspect dependencies 1h --type all -s checkout
 
-# Database queries and slow logs by latency impact
-azlens inspect queries 2h -s checkout
-
-# Database engine slow query logs (MySqlSlowLogs in Log Analytics)
-azlens inspect slow-logs 2h
-azlens inspect slow-logs 2h --grouped
+# Database engine slow query logs ordered by duration descending (MySqlSlowLogs in Log Analytics)
+azlens inspect slow-queries 2h -s checkout
+# (Supported aliases: azlens inspect queries, azlens inspect slow-logs)
 
 # Detect N+1 queries across endpoints
 azlens inspect n-plus-one 1h -s checkout
@@ -250,8 +247,8 @@ AzLens follows **Convention over Configuration**. The config file is the single 
 # Explanatory comments are consolidated in this header block.
 # - defaults: operational defaults (profile, service, window, limit, output)
 # - shared: targets, credentials, services, and policies declared once
-# - shared.logs.database: MySQL slow query logs tenant database (required)
-# - shared.services: maps service names to role_name (cloud_RoleName) and pod (cloud_RoleInstance)
+# - shared.services.<service>.database: MySQL slow query logs tenant database (required per service)
+# - shared.services: maps service names to role_name (cloud_RoleName) and database
 # - profiles.*.insights.name: App Insights resource name or App ID GUID
 # - profiles.*.logs.workspace_id: Log Analytics workspace Customer ID GUID
 # ─────────────────────────────────────────────────────────────────────────────
@@ -274,19 +271,18 @@ shared:
   logs:
     directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     subscription_id: "22222222-dddd-eeee-ffff-222222222222"
-    database: "orders_db"
 
   # Service catalog: maps logical services to physical telemetry targets
   services:
     checkout:
       role_name: checkout-service
-      pod: checkout-app
+      database: checkout_db
     orders:
       role_name: order-service
-      pod: order-app
+      database: orders_db
     billing:
       role_name: billing-service
-      pod: billing-worker
+      database: billing_db
 
   thresholds:
     p95_latency_warn_pct: 15.0
@@ -313,12 +309,12 @@ profiles:
 
 ### Singular Service Flag (`-s` / `--service`)
 - Target any service by name: `-s <name>` or `--service <name>`.
-- The CLI automatically looks up the service in `shared.services` to apply the exact `cloud_RoleName` and `cloud_RoleInstance` filters.
-- **Ad-hoc fallback**: If you pass a service name not present in the catalog (`-s custom-job`), AzLens uses `custom-job` for both role_name and pod matching.
+- The CLI automatically looks up the service in `shared.services` to apply the exact `cloud_RoleName` and target `database` filters.
+- **Ad-hoc fallback**: If you pass a service name not present in the catalog (`-s custom-job`), AzLens uses `custom-job` for `role_name` matching.
 
 ### Dual-Layer Tenancy Enforcement
 To guarantee multi-tenant safety and prevent unscoped cross-tenant queries:
-1. **Config Validation**: `shared.logs.database` and an active service/role_name are mandatory (`SeverityError`). Newly installed or non-telemetry commands (`--help`, `version`, `config init`, `config profiles`, `config path`) remain lazy and non-blocking.
+1. **Config Validation**: `service.database` (`shared.services.<service>.database`) and an active service/role_name are mandatory (`SeverityError`). Newly installed or non-telemetry commands (`--help`, `version`, `config init`, `config profiles`, `config path`) remain lazy and non-blocking.
 2. **KQL Query Firewall**: In `pkg/kql/builder.go`, application queries (`requests`, `dependencies`, `exceptions`, `traces`) refuse to build if no role filter is present (`ErrMissingRole`), and database slow log queries (`MySqlSlowLogs`) refuse to build without a database filter (`ErrMissingDatabase`).
 
 ### Profile Resolution Precedence

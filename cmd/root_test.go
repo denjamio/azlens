@@ -318,6 +318,8 @@ func TestAllInspectSubcommandsWithMock(t *testing.T) {
 		{"inspect", "endpoints", "30m", "--mock"},
 		{"inspect", "dependencies", "30m", "--mock"},
 		{"inspect", "slow-queries", "30m", "--mock"},
+		{"inspect", "queries", "30m", "--mock"},
+		{"inspect", "slow-logs", "30m", "--mock"},
 		{"inspect", "n-plus-one", "30m", "--mock"},
 		{"inspect", "breakdown", "30m", "--mock"},
 		{"inspect", "errors", "30m", "--mock"},

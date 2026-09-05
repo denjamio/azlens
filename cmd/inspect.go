@@ -69,7 +69,7 @@ by operational impact rather than raw metrics alone.
 Views:
   endpoints     - API endpoints and routes with latency percentiles (P50, P90, P95, P99) and error rates
   dependencies  - External services, databases, Redis, and HTTP dependency calls
-  slow-queries  - Database engine slow query logs grouped by SQL fingerprint (aliases: queries, slow-logs; use --raw for individual executions)
+  slow-queries  - Database engine slow query logs ordered by duration descending (aliases: queries, slow-logs)
   n-plus-one    - Detect endpoints with excessive SQL calls per request (N+1 queries)
   breakdown     - Endpoint latency breakdown across Database, External APIs, Cache, and App Code
   errors        - Grouped exceptions, HTTP 5xx errors, and affected endpoints
@@ -106,8 +106,9 @@ var inspectDependenciesCmd = &cobra.Command{
 }
 
 var inspectSlowQueriesCmd = &cobra.Command{
-	Use:   "slow-queries [duration]",
-	Short: "Inspect database engine slow query logs (MySqlSlowLogs)",
+	Use:     "slow-queries [duration]",
+	Aliases: []string{"queries", "slow-logs"},
+	Short:   "Inspect database engine slow query logs (MySqlSlowLogs)",
 	Long: `Inspect database engine slow query logs (MySqlSlowLogs in Log Analytics).
 Displays individual slow query log executions ordered by execution duration descending.`,
 	Args: cobra.MaximumNArgs(1),

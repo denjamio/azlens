@@ -7,7 +7,7 @@ import (
 	"github.com/denjamio/azlens/pkg/domain"
 )
 
-// CapabilityEvaluator assesses the 8 observability capabilities and computes
+// CapabilityEvaluator assesses the 5 observability capabilities and computes
 // overall environment health (Section 7 & 9).
 type CapabilityEvaluator struct{}
 
