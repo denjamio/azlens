@@ -421,4 +421,3 @@ func TestCorrelator_ExceptionRegressionMappedToWatching(t *testing.T) {
 		t.Errorf("unexpected watching summary: %s", watching[0].Summary)
 	}
 }
-

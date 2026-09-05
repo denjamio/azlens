@@ -266,4 +266,3 @@ func TestAzCliClientSandbox(t *testing.T) {
 		t.Errorf("expected sandbox directory to be deleted after Close(), but stat returned err=%v", err)
 	}
 }
-

@@ -198,4 +198,3 @@ func TestBuildSnapshot_RealFreshness(t *testing.T) {
 		t.Errorf("expected RequestsLastSeen %v, got %v (should NOT be window end %v)", realLastSeen, *snap.Freshness.RequestsLastSeen, end)
 	}
 }
-

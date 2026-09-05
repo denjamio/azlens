@@ -52,4 +52,3 @@ func TestIsInteractiveTerminal(t *testing.T) {
 	// Just verify it runs without crashing and returns boolean
 	_ = got
 }
-
