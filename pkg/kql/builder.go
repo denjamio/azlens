@@ -164,7 +164,7 @@ func (b *QueryBuilder) buildBaseFilters() string {
 
 	// 5. Exclude synthetic availability test traffic unconditionally (convention over configuration)
 	if strings.EqualFold(b.table, "requests") || strings.EqualFold(b.table, "dependencies") {
-		sb.WriteString("| where isempty(column_ifexists('operation_SyntheticSource', ''))\n")
+		sb.WriteString("| where isempty(operation_SyntheticSource)\n")
 	}
 
 	// 6. Custom Dimensions key-value scoping
@@ -245,7 +245,7 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 	cleanType := strings.ToUpper(strings.TrimSpace(depType))
 	switch cleanType {
 	case "SQL":
-		sb.WriteString("| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'mysql', 'MySQL', 'SQL Server')\n")
+		sb.WriteString("| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')\n")
 	case "HTTP":
 		sb.WriteString("| where type in~ ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice')\n")
 	case "REDIS":
@@ -290,11 +290,8 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
     exceptions
 %s
     | where not(type in ('ActionController::RoutingError', 'NotFoundHttpException', 'Sinatra::NotFound', 'System.OperationCanceledException', 'System.Threading.Tasks.TaskCanceledException', 'Microsoft.AspNetCore.Connections.ConnectionResetException'))
-    | extend RawMsg = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''),
-                      iff(isnotempty(column_ifexists('message', '')), column_ifexists('message', ''),
-                      iff(isnotempty(column_ifexists('innermostMessage', '')), column_ifexists('innermostMessage', ''),
-                      '<empty>')))
-    | project timestamp, type, RawMsg, operation_Name = column_ifexists('operation_Name', '')
+    | extend RawMsg = iff(isnotempty(innermostMessage), innermostMessage, outerMessage)
+    | project timestamp, type, RawMsg, operation_Name
 ),
 (
     requests
@@ -335,7 +332,7 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 | project operation_Id, name, duration
 | join kind=inner (
     dependencies%s
-    | where type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')
+    | where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')
     | summarize SqlCalls = count(), SqlDuration = sum(duration) by operation_Id
 ) on operation_Id
 | summarize 
@@ -369,8 +366,8 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 | join kind=leftouter (
     dependencies%s
     | summarize 
-        SqlTime = sumif(duration, type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')),
-        RedisTime = sumif(duration, type has 'redis' or type has 'memcached'),
+        SqlTime = sumif(duration, type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')),
+        RedisTime = sumif(duration, type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis'),
         HttpExtTime = sumif(duration, type in~ ('HTTP', 'Http (tracked component)', 'Webservice', 'gRPC'))
       by operation_Id
 ) on operation_Id

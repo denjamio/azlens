@@ -5,6 +5,14 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.12] - 2026-09-05
+
+### Changed
+
+- **Native Schema Direct Column Access**: Removed defensive `column_ifexists` overhead for confirmed physical Application Insights schema columns (`operation_Name`, `operation_SyntheticSource`).
+- **Optimized Exception Message Resolution**: Replaced verbose multi-level defensive message extraction with direct, physical `iff(isnotempty(innermostMessage), innermostMessage, outerMessage)`, matching the telemetry pattern where `outerMessage` is always populated and `innermostMessage` contains root cause details when available.
+- **Verified Dependency Taxonomy**: Aligned SQL (`in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server')`), Redis, and HTTP dependency filters across `dependencies`, `n-plus-one`, and `latency-breakdown` queries to match real Application Insights telemetry types.
+
 ## [1.1.11] - 2026-09-05
 
 ### Changed

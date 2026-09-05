@@ -135,7 +135,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 		return TargetQuery{Backend: BackendAppInsights, Err: ErrMissingRole}
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
-	syntheticFilter := "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
+	syntheticFilter := "\n    | where isempty(operation_SyntheticSource)"
 	if topN <= 0 {
 		topN = 15
 	}
@@ -151,13 +151,13 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
         'deprecated in', 'deprecated and will be removed', 'will be removed in',
         'is obsolete', 'CS0618', 'CS0612'
     ))
-    | project timestamp, message, operation_Name = column_ifexists('operation_Name', '')
+    | project timestamp, message, operation_Name
 ),
 (
     exceptions
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s
-    | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or column_ifexists('outerMessage', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or column_ifexists('message', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
-    | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name = column_ifexists('operation_Name', '')
+    | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or outerMessage has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or innermostMessage has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
+    | project timestamp, message = iff(isnotempty(innermostMessage), innermostMessage, outerMessage), operation_Name
 )
 | where isnotempty(message)
 | summarize 
