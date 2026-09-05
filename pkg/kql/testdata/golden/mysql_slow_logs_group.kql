@@ -1,0 +1,24 @@
+MySqlSlowLogs
+| where TimeGenerated between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where Db =~ 'ecommerce_db'
+| extend F0 = tostring(SqlText)
+| extend F1 = replace_regex(F0, @"(?s)/\*.*?\*/", @" ")
+| extend F2 = replace_regex(F1, @"--[^\r\n]*", @" ")
+| extend F3 = replace_regex(F2, @"0x[0-9a-fA-F]+", @"?")
+| extend F4 = replace_regex(F3, @"'(?:[^'\\]|\\.|'')*'", @"'?'")
+| extend F5 = replace_regex(F4, @"""(?:[^""\\]|\\.)*""", @"""?""")
+| extend F6 = replace_regex(F5, @"-?\b\d+(\.\d+)?\b", @"?")
+| extend F7 = replace_regex(F6, @"\?(?:\s*,\s*\?)+", @"?")
+| extend F8 = replace_regex(F7, @"^\s+|\s+$", @"")
+| extend F9 = replace_regex(F8, @"\s+", @" ")
+| extend SqlFingerprint = tolower(F9)
+| summarize
+    Executions = count(),
+    AvgMs = round(avg(QueryDurationMs), 1),
+    MaxMs = max(QueryDurationMs),
+    TotalMs = round(sum(QueryDurationMs), 1),
+    AvgRowsExamined = round(avg(todouble(RowsExamined)), 0),
+    LastSeen = max(TimeGenerated)
+  by SqlFingerprint
+| project SqlFingerprint, Executions, AvgMs, MaxMs, TotalMs, AvgRowsExamined, LastSeen
+| top 15 by TotalMs desc

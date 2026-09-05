@@ -37,7 +37,7 @@ func (d *DependencyLatencyRegressionDetector) Detect(snapshot *domain.Snapshot) 
 			continue
 		}
 
-		if curr.TotalCalls < minCalls && base.TotalCalls < minCalls {
+		if curr.TotalCalls < minCalls || base.TotalCalls < minCalls {
 			continue
 		}
 
@@ -198,6 +198,7 @@ func (d *DependencyFanoutRegressionDetector) Name() string {
 
 func (d *DependencyFanoutRegressionDetector) Detect(snapshot *domain.Snapshot) []domain.Finding {
 	var findings []domain.Finding
+	minCalls := d.cfg.MinSampleCalls
 
 	baseMap := make(map[string]model.FanoutMetric)
 	for _, f := range snapshot.BaselineFanout {
@@ -206,7 +207,7 @@ func (d *DependencyFanoutRegressionDetector) Detect(snapshot *domain.Snapshot) [
 
 	for _, curr := range snapshot.CurrentFanout {
 		base, exists := baseMap[curr.Endpoint]
-		if !exists || curr.AvgSQLCalls < 5.0 {
+		if !exists || curr.AvgSQLCalls < 5.0 || curr.TotalRequests < minCalls || base.TotalRequests < minCalls {
 			continue
 		}
 
@@ -241,6 +242,163 @@ func (d *DependencyFanoutRegressionDetector) Detect(snapshot *domain.Snapshot) [
 				},
 			})
 		}
+	}
+
+	return findings
+}
+
+// SQLFanoutDetector detects endpoints with high database call fan-out across requests.
+type SQLFanoutDetector struct {
+	cfg Config
+}
+
+func NewSQLFanoutDetector(cfg Config) *SQLFanoutDetector {
+	return &SQLFanoutDetector{cfg: cfg}
+}
+
+func (d *SQLFanoutDetector) Name() string {
+	return "SQLFanout"
+}
+
+func (d *SQLFanoutDetector) Detect(snapshot *domain.Snapshot) []domain.Finding {
+	var findings []domain.Finding
+	minCalls := d.cfg.MinSampleCalls
+
+	hasBaseline := len(snapshot.BaselineFanout) > 0
+	baseMap := make(map[string]model.FanoutMetric)
+	for _, f := range snapshot.BaselineFanout {
+		baseMap[f.Endpoint] = f
+	}
+
+	for _, curr := range snapshot.CurrentFanout {
+		if curr.TotalRequests < minCalls {
+			continue
+		}
+
+		p95Calls := curr.P95Calls
+		if p95Calls == 0 {
+			p95Calls = curr.AvgSQLCalls
+		}
+		if p95Calls < 5.0 && curr.MaxSQLCalls < 10 {
+			continue
+		}
+
+		base, inBaseline := baseMap[curr.Endpoint]
+		if hasBaseline && inBaseline {
+			baseP95 := base.P95Calls
+			if baseP95 == 0 {
+				baseP95 = base.AvgSQLCalls
+			}
+			diff := p95Calls - baseP95
+			pct := calcPctChange(baseP95, p95Calls)
+			if diff < 3.0 || pct < 30.0 {
+				continue
+			}
+		}
+
+		sev := "WARNING"
+		if p95Calls >= 15.0 || curr.MaxSQLCalls >= 30 {
+			sev = "CRITICAL"
+		}
+
+		scope := domain.Scope{
+			Endpoint: curr.Endpoint,
+			Role:     snapshot.Scope.Role,
+		}
+
+		findings = append(findings, domain.Finding{
+			Kind:  domain.FindingSQLFanout,
+			Scope: scope,
+			Summary: fmt.Sprintf("High SQL fan-out on '%s': p95=%.1f calls/req, max=%d calls (avg %.1fms SQL time)",
+				curr.Endpoint, p95Calls, curr.MaxSQLCalls, curr.AvgSQLDurationMs),
+			Severity:    sev,
+			SampleCount: curr.TotalRequests,
+			Evidence: []domain.Evidence{
+				{
+					Signal:  "SQL calls distribution (p95)",
+					Current: domain.Value{Val: p95Calls, Text: fmt.Sprintf("%.1f calls/req", p95Calls)},
+					Scope:   scope,
+				},
+				{
+					Signal:  "Max SQL calls per request",
+					Current: domain.Value{Val: float64(curr.MaxSQLCalls), Text: fmt.Sprintf("%d calls", curr.MaxSQLCalls)},
+					Scope:   scope,
+				},
+			},
+		})
+	}
+
+	return findings
+}
+
+// NPlusOneCandidateDetector detects deterministic N+1 query candidates by requiring
+// evidence of repeated query shapes within individual requests (Section 6.2).
+type NPlusOneCandidateDetector struct {
+	cfg Config
+}
+
+func NewNPlusOneCandidateDetector(cfg Config) *NPlusOneCandidateDetector {
+	return &NPlusOneCandidateDetector{cfg: cfg}
+}
+
+func (d *NPlusOneCandidateDetector) Name() string {
+	return "NPlusOneCandidate"
+}
+
+func (d *NPlusOneCandidateDetector) Detect(snapshot *domain.Snapshot) []domain.Finding {
+	var findings []domain.Finding
+
+	for _, cand := range snapshot.CurrentNPlusOne {
+		// Minimum sample requirement
+		if cand.TotalRequests < 5 {
+			continue
+		}
+
+		// Thresholds per spec: RepeatedShapeRatio >= 40.0% and MaxRepeatedShape >= 5
+		if cand.AvgRepeatedRatio < 40.0 || cand.MaxRepeatedShape < 5 {
+			continue
+		}
+
+		sev := "WARNING"
+		if cand.AvgRepeatedRatio >= 70.0 || cand.MaxRepeatedShape >= 15 {
+			sev = "CRITICAL"
+		}
+
+		scope := domain.Scope{
+			Endpoint: cand.Endpoint,
+			Role:     snapshot.Scope.Role,
+		}
+
+		shapeDesc := cand.SampleRepeatedShape
+		if shapeDesc == "" {
+			shapeDesc = "repeated query shape"
+		}
+
+		findings = append(findings, domain.Finding{
+			Kind:  domain.FindingNPlusOneCandidate,
+			Scope: scope,
+			Summary: fmt.Sprintf("Deterministic N+1 query candidate on '%s': repeated shape %q executed up to %d times/request (%.1f%% repeated calls)",
+				cand.Endpoint, shapeDesc, cand.MaxRepeatedShape, cand.AvgRepeatedRatio),
+			Severity:    sev,
+			SampleCount: cand.TotalRequests,
+			Evidence: []domain.Evidence{
+				{
+					Signal:  "Repeated query shape",
+					Current: domain.Value{Text: shapeDesc},
+					Scope:   scope,
+				},
+				{
+					Signal:  "Max repeated executions per request",
+					Current: domain.Value{Val: float64(cand.MaxRepeatedShape), Text: fmt.Sprintf("%d executions", cand.MaxRepeatedShape)},
+					Scope:   scope,
+				},
+				{
+					Signal:  "Repeated shape ratio",
+					Current: domain.Value{Val: cand.AvgRepeatedRatio, Unit: "%", Text: fmt.Sprintf("%.1f%%", cand.AvgRepeatedRatio)},
+					Scope:   scope,
+				},
+			},
+		})
 	}
 
 	return findings

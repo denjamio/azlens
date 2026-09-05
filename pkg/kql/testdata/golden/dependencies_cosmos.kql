@@ -1,0 +1,15 @@
+dependencies
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+| where type in~ ('Azure DocumentDB', 'Cosmos', 'CosmosDB')
+| summarize 
+    TotalCalls = count(),
+    FailedCalls = countif(success == false),
+    AvgDuration = avg(duration),
+    MinDuration = min(duration),
+    MaxDuration = max(duration),
+    P = percentiles_array(duration, 50, 90, 95, 99)
+  by Type = type, Target = target, Dependency = name
+| extend P50 = todouble(P[0]), P90 = todouble(P[1]), P95 = todouble(P[2]), P99 = todouble(P[3]), ErrorRate = iff(TotalCalls > 0, round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2), 0.0)
+| project Type, Target, Dependency, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate
+| top 15 by P95 desc

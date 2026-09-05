@@ -1,0 +1,40 @@
+requests
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+| where isempty(operation_SyntheticSource)
+| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'
+| summarize 
+    ShapeCalls = count(), 
+    ShapeDuration = sum(duration) 
+  by operation_Id, QueryShape = strcat(target, ': ', name)
+| summarize 
+    TotalSqlCalls = sum(ShapeCalls),
+    DistinctShapes = count(),
+    RepeatedShapeCalls = sumif(ShapeCalls, ShapeCalls > 1),
+    MaxRepeatedShapeCalls = max(ShapeCalls),
+    RepeatedShapeDuration = sumif(ShapeDuration, ShapeCalls > 1),
+    TopRepeatedShape = anyif(QueryShape, ShapeCalls > 1)
+  by operation_Id
+| extend RepeatedShapeRatio = round(100.0 * toreal(RepeatedShapeCalls) / toreal(TotalSqlCalls), 1)
+| where TotalSqlCalls >= 5 and MaxRepeatedShapeCalls >= 3
+| join kind=inner (
+    requests
+    | where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+    | where cloud_RoleName =~ 'order-service'
+    | where success == true
+    | project operation_Id, Endpoint = name, duration
+) on operation_Id
+| summarize 
+    TotalRequests = count(),
+    AvgSqlCalls = round(avg(TotalSqlCalls), 1),
+    MaxSqlCalls = max(TotalSqlCalls),
+    AvgRepeatedCalls = round(avg(RepeatedShapeCalls), 1),
+    MaxRepeatedShape = max(MaxRepeatedShapeCalls),
+    AvgRepeatedRatio = round(avg(RepeatedShapeRatio), 1),
+    SampleRepeatedShape = any(TopRepeatedShape),
+    AvgRepeatedDuration = round(avg(RepeatedShapeDuration), 1),
+    AvgEndpointDuration = round(avg(duration), 1)
+  by Endpoint
+| where AvgRepeatedRatio >= 40.0 and MaxRepeatedShape >= 5
+| project Endpoint, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgRepeatedCalls, MaxRepeatedShape, AvgRepeatedRatio, SampleRepeatedShape, AvgRepeatedDuration, AvgEndpointDuration
+| top 15 by MaxRepeatedShape desc

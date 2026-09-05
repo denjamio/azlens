@@ -36,7 +36,7 @@ func (d *RequestLatencyRegressionDetector) Detect(snapshot *domain.Snapshot) []d
 		}
 
 		// Noise policy: minimum sample requirement
-		if curr.TotalCalls < minCalls && base.TotalCalls < minCalls {
+		if curr.TotalCalls < minCalls || base.TotalCalls < minCalls {
 			continue
 		}
 
@@ -78,7 +78,7 @@ func (d *RequestLatencyRegressionDetector) Detect(snapshot *domain.Snapshot) []d
 	if len(findings) == 0 && snapshot.BaselineOverall != nil {
 		base := *snapshot.BaselineOverall
 		curr := snapshot.CurrentOverall
-		if curr.TotalCalls >= minCalls {
+		if curr.TotalCalls >= minCalls && base.TotalCalls >= minCalls {
 			p95Pct := calcPctChange(base.Latency.P95, curr.Latency.P95)
 			if p95Pct >= d.cfg.LatencyWarnPct {
 				sev := "WARNING"
@@ -138,7 +138,7 @@ func (d *RequestErrorRegressionDetector) Detect(snapshot *domain.Snapshot) []dom
 			continue
 		}
 
-		if curr.TotalCalls < minCalls && base.TotalCalls < minCalls {
+		if curr.TotalCalls < minCalls || base.TotalCalls < minCalls {
 			continue
 		}
 
@@ -180,7 +180,7 @@ func (d *RequestErrorRegressionDetector) Detect(snapshot *domain.Snapshot) []dom
 	if len(findings) == 0 && snapshot.BaselineOverall != nil {
 		base := *snapshot.BaselineOverall
 		curr := snapshot.CurrentOverall
-		if curr.TotalCalls >= minCalls {
+		if curr.TotalCalls >= minCalls && base.TotalCalls >= minCalls {
 			errDelta := curr.ErrorRate - base.ErrorRate
 			if errDelta >= d.cfg.ErrorRateWarnDelta {
 				sev := "WARNING"
@@ -319,7 +319,7 @@ func (d *ExceptionRegressionDetector) Detect(snapshot *domain.Snapshot) []domain
 			continue
 		}
 
-		if base.Count < d.cfg.MinSampleCalls && curr.Count < d.cfg.MinSampleCalls {
+		if base.Count < d.cfg.MinSampleCalls || curr.Count < d.cfg.MinSampleCalls {
 			continue
 		}
 

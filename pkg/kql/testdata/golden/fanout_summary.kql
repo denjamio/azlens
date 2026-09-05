@@ -1,0 +1,30 @@
+requests
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+| where isempty(operation_SyntheticSource)
+| where success == true
+| project operation_Id, name, duration
+| join kind=inner (
+    dependencies
+    | where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+    | where cloud_RoleName =~ 'order-service'
+    | where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'
+    | summarize SqlCalls = count(), SqlDuration = sum(duration) by operation_Id
+) on operation_Id
+| summarize 
+    TotalRequests = count(),
+    AvgSqlCalls = round(avg(SqlCalls), 1),
+    P_Calls = percentiles_array(SqlCalls, 50, 75, 90, 95, 99),
+    MaxSqlCalls = max(SqlCalls),
+    AvgSQLDuration = round(avg(SqlDuration), 1),
+    AvgEndpointDuration = round(avg(duration), 1)
+  by Endpoint = name
+| extend 
+    P50_Calls = todouble(P_Calls[0]),
+    P75_Calls = todouble(P_Calls[1]),
+    P90_Calls = todouble(P_Calls[2]),
+    P95_Calls = todouble(P_Calls[3]),
+    P99_Calls = todouble(P_Calls[4])
+| where P95_Calls > 1.0 or MaxSqlCalls >= 5 or AvgSqlCalls > 1.0
+| project Endpoint, TotalRequests, AvgSqlCalls, P50_Calls, P75_Calls, P90_Calls, P95_Calls, P99_Calls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
+| top 15 by P95_Calls desc

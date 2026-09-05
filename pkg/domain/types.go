@@ -156,6 +156,8 @@ const (
 	FindingDependencyLatencyRegression FindingKind = "dependency_latency_regression"
 	FindingDependencyErrorRegression   FindingKind = "dependency_error_regression"
 	FindingDependencyFanoutRegression  FindingKind = "dependency_fanout_regression"
+	FindingSQLFanout                   FindingKind = "sql_fanout"
+	FindingNPlusOneCandidate           FindingKind = "n_plus_one_candidate"
 	FindingTelemetryStale              FindingKind = "telemetry_stale"
 	FindingAvailabilityFailure         FindingKind = "availability_failure"
 )

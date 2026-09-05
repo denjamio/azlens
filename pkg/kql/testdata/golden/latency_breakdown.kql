@@ -1,0 +1,35 @@
+requests
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+| where isempty(operation_SyntheticSource)
+| project operation_Id, name, duration
+| join kind=leftouter (
+    dependencies
+    | where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+    | where cloud_RoleName =~ 'order-service'
+    | summarize 
+        SqlTime = sumif(duration, type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'),
+        RedisTime = sumif(duration, type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'),
+        HttpExtTime = sumif(duration, type in~ ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice') or type has 'http')
+      by operation_Id
+) on operation_Id
+| extend TotalDepTime = coalesce(SqlTime, 0.0) + coalesce(RedisTime, 0.0) + coalesce(HttpExtTime, 0.0)
+| extend ResidualRequestTime = max_of(0.0, duration - TotalDepTime)
+| extend OverlapDetected = iff(TotalDepTime > duration, true, false)
+| summarize 
+    AvgTotal = avg(duration),
+    AvgSql = avg(coalesce(SqlTime, 0.0)),
+    AvgHttp = avg(coalesce(HttpExtTime, 0.0)),
+    AvgRedis = avg(coalesce(RedisTime, 0.0)),
+    AvgResidual = avg(ResidualRequestTime),
+    OverlapCount = countif(OverlapDetected == true)
+  by Endpoint = name
+| extend 
+    AvgTotalMs = round(AvgTotal, 1),
+    PctDatabase = iff(AvgTotal > 0, round(100.0 * AvgSql / AvgTotal, 1), 0.0),
+    PctExternalApi = iff(AvgTotal > 0, round(100.0 * AvgHttp / AvgTotal, 1), 0.0),
+    PctCache = iff(AvgTotal > 0, round(100.0 * AvgRedis / AvgTotal, 1), 0.0),
+    PctResidual = iff(AvgTotal > 0, round(100.0 * AvgResidual / AvgTotal, 1), 0.0),
+    HasOverlap = iff(OverlapCount > 0, true, false)
+| project Endpoint, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctResidual, HasOverlap
+| top 15 by AvgTotalMs desc

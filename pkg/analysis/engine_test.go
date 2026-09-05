@@ -268,3 +268,87 @@ func TestScenarioM_QueryFailurePropagatesReason(t *testing.T) {
 		t.Errorf("expected status message to contain the underlying query error, got: %q", res.StatusMessage)
 	}
 }
+
+// Scenario N - Cross-service causal isolation: A regressed dependency on service B
+// must NOT be attributed as the cause of an endpoint degradation on service A.
+func TestCrossServiceCausalIsolation(t *testing.T) {
+	snap := newTestSnapshot("order-service")
+	now := time.Now()
+	snap.Freshness.RequestsLastSeen = &now
+
+	// Service A (order-service) endpoint degrades
+	snap.BaselineEndpoints = []model.RequestMetric{
+		{Name: "POST /orders", TotalCalls: 500, ErrorRate: 0.2, Latency: model.LatencyPercentiles{P95: 150.0}},
+	}
+	snap.CurrentEndpoints = []model.RequestMetric{
+		{Name: "POST /orders", TotalCalls: 500, ErrorRate: 0.2, Latency: model.LatencyPercentiles{P95: 500.0}},
+	}
+	snap.CurrentOverall = model.RequestMetric{TotalCalls: 1000}
+
+	// Service B has a regressed dependency
+	correlator := analysis.NewCorrelator()
+	findings := []domain.Finding{
+		{
+			Kind:  domain.FindingRequestLatencyRegression,
+			Scope: domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
+			Summary: "POST /orders p95 latency increased by 233%",
+			SampleCount: 500,
+			Evidence: []domain.Evidence{
+				{
+					Signal:  "p95 latency",
+					Current: domain.Value{Val: 500.0, Unit: "ms", Text: "500ms"},
+					Baseline: &domain.Value{Val: 150.0, Unit: "ms", Text: "150ms"},
+					Change: &domain.Change{Delta: 350.0, Pct: 233.0},
+					Scope: domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
+				},
+			},
+		},
+		{
+			Kind:  domain.FindingDependencyLatencyRegression,
+			Scope: domain.Scope{Role: "inventory-service", Target: "inventory-db"},
+			Summary: "SQL dependency 'inventory-db' p95 increased by 300%",
+			SampleCount: 800,
+			Evidence: []domain.Evidence{
+				{
+					Signal:  "dependency p95 latency",
+					Current: domain.Value{Val: 1200.0, Unit: "ms", Text: "1200ms"},
+					Baseline: &domain.Value{Val: 300.0, Unit: "ms", Text: "300ms"},
+					Change: &domain.Change{Delta: 900.0, Pct: 300.0},
+					Scope: domain.Scope{Role: "inventory-service", Target: "inventory-db"},
+				},
+			},
+		},
+	}
+
+	problems, _ := correlator.Correlate(snap, findings)
+
+	// We expect 2 separate problems: order-service degradation and inventory-service dependency degradation
+	if len(problems) != 2 {
+		t.Fatalf("expected 2 isolated problems, got %d", len(problems))
+	}
+
+	// Verify order-service problem does NOT have inventory-db as Cause
+	var orderProb *domain.Problem
+	var depProb *domain.Problem
+	for i := range problems {
+		if problems[i].Scope.Endpoint == "POST /orders" {
+			orderProb = &problems[i]
+		} else if problems[i].Scope.Target == "inventory-db" {
+			depProb = &problems[i]
+		}
+	}
+
+	if orderProb == nil {
+		t.Fatalf("missing order-service problem")
+	}
+	if orderProb.Cause != nil {
+		t.Errorf("expected order-service problem to have nil Cause (cross-service isolation), but got: %+v", orderProb.Cause)
+	}
+
+	if depProb == nil {
+		t.Fatalf("missing independent inventory-service dependency problem")
+	}
+	if depProb.Scope.Role != "inventory-service" {
+		t.Errorf("expected inventory-service role, got %s", depProb.Scope.Role)
+	}
+}

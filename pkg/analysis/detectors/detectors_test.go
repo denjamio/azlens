@@ -166,3 +166,85 @@ func TestMinimumSampleCallsNoisePolicy(t *testing.T) {
 		t.Fatalf("expected 0 findings due to sample size < 5, got %d: %+v", len(findings), findings)
 	}
 }
+
+func TestMinimumSampleCallsAsymmetric(t *testing.T) {
+	snap := newTestSnapshot()
+	// Baseline has 2 calls (< min 10), current has 50 calls
+	snap.BaselineEndpoints = []model.RequestMetric{
+		{Name: "POST /sporadic", TotalCalls: 2, ErrorRate: 0.0, Latency: model.LatencyPercentiles{P95: 50.0}},
+	}
+	snap.CurrentEndpoints = []model.RequestMetric{
+		{Name: "POST /sporadic", TotalCalls: 50, ErrorRate: 10.0, Latency: model.LatencyPercentiles{P95: 500.0}},
+	}
+
+	cfg := detectors.DefaultConfig() // default MinSampleCalls is 10
+	registry := detectors.NewDefaultRegistry(cfg)
+	findings := registry.Run(snap)
+
+	for _, f := range findings {
+		if f.Kind == domain.FindingRequestLatencyRegression || f.Kind == domain.FindingRequestErrorRegression {
+			t.Fatalf("expected 0 regression findings due to baseline sample size < 10, got finding: %+v", f)
+		}
+	}
+}
+
+func TestSQLFanoutDetector(t *testing.T) {
+	snap := newTestSnapshot()
+	snap.CurrentFanout = []model.FanoutMetric{
+		{
+			Endpoint:              "GET /api/v1/catalog",
+			TotalRequests:         150,
+			AvgSQLCalls:           12.0,
+			P95Calls:              14.0,
+			MaxSQLCalls:           22,
+			AvgSQLDurationMs:      45.0,
+			AvgEndpointDurationMs: 65.0,
+		},
+	}
+
+	cfg := detectors.DefaultConfig()
+	d := detectors.NewSQLFanoutDetector(cfg)
+	findings := d.Detect(snap)
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 SQL fanout finding, got %d", len(findings))
+	}
+	if findings[0].Kind != domain.FindingSQLFanout {
+		t.Errorf("expected FindingSQLFanout, got %s", findings[0].Kind)
+	}
+	if findings[0].Scope.Endpoint != "GET /api/v1/catalog" {
+		t.Errorf("expected endpoint GET /api/v1/catalog, got %s", findings[0].Scope.Endpoint)
+	}
+}
+
+func TestNPlusOneCandidateDetector(t *testing.T) {
+	snap := newTestSnapshot()
+	snap.CurrentNPlusOne = []model.NPlusOneCandidate{
+		{
+			Endpoint:              "GET /api/v1/users/badges",
+			TotalRequests:         120,
+			AvgSQLCalls:           15.0,
+			MaxSQLCalls:           25,
+			AvgRepeatedCalls:      12.0,
+			MaxRepeatedShape:      18,
+			AvgRepeatedRatio:      80.0,
+			SampleRepeatedShape:   "db-prod: SELECT * FROM badges WHERE user_id = @id",
+			AvgRepeatedDurationMs: 50.0,
+			AvgEndpointDurationMs: 70.0,
+		},
+	}
+
+	cfg := detectors.DefaultConfig()
+	d := detectors.NewNPlusOneCandidateDetector(cfg)
+	findings := d.Detect(snap)
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 N+1 candidate finding, got %d", len(findings))
+	}
+	if findings[0].Kind != domain.FindingNPlusOneCandidate {
+		t.Errorf("expected FindingNPlusOneCandidate, got %s", findings[0].Kind)
+	}
+	if findings[0].Severity != "CRITICAL" {
+		t.Errorf("expected CRITICAL severity for 80%% repeated ratio, got %s", findings[0].Severity)
+	}
+}

@@ -45,6 +45,21 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 		}
 	}
 
+	// Count distinct degraded endpoints per role to prevent ambiguous causal assignment
+	degradedEndpointsPerRole := make(map[string]map[string]bool)
+	for _, f := range findings {
+		if f.Kind == domain.FindingRequestLatencyRegression || f.Kind == domain.FindingRequestErrorRegression {
+			role := strings.ToLower(f.Scope.Role)
+			ep := f.Scope.Endpoint
+			if ep != "" {
+				if degradedEndpointsPerRole[role] == nil {
+					degradedEndpointsPerRole[role] = make(map[string]bool)
+				}
+				degradedEndpointsPerRole[role][ep] = true
+			}
+		}
+	}
+
 	// 1. Scenario B & D: Correlate Endpoint Regressions with Dependencies or Exceptions
 	for _, latIdx := range latencyFindings {
 		if consumed[latIdx] {
@@ -63,10 +78,11 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 			}
 		}
 
-		// Look for regressed dependency as likely cause
+		// Look for causally linked regressed dependency
+		totalDegraded := len(degradedEndpointsPerRole[strings.ToLower(latFinding.Scope.Role)])
 		var matchedDep *domain.Finding
 		for _, depIdx := range depLatencyFindings {
-			if !consumed[depIdx] {
+			if !consumed[depIdx] && isLinkedDependency(latFinding.Scope, &findings[depIdx], totalDegraded) {
 				matchedDep = &findings[depIdx]
 				consumed[depIdx] = true
 				break
@@ -74,7 +90,7 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 		}
 		if matchedDep == nil {
 			for _, depIdx := range depErrorFindings {
-				if !consumed[depIdx] {
+				if !consumed[depIdx] && isLinkedDependency(latFinding.Scope, &findings[depIdx], totalDegraded) {
 					matchedDep = &findings[depIdx]
 					consumed[depIdx] = true
 					break
@@ -82,10 +98,10 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 			}
 		}
 
-		// Look for new exception as likely cause
+		// Look for new exception with matching scope
 		var matchedExc *domain.Finding
 		for _, excIdx := range newExceptionFindings {
-			if !consumed[excIdx] && (findings[excIdx].Severity != "LOW" || isMatchingScope(latFinding.Scope, findings[excIdx].Scope)) {
+			if !consumed[excIdx] && isMatchingScope(latFinding.Scope, findings[excIdx].Scope) {
 				matchedExc = &findings[excIdx]
 				consumed[excIdx] = true
 				break
@@ -107,17 +123,18 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 		// Look for matching new exception
 		var matchedExc *domain.Finding
 		for _, excIdx := range newExceptionFindings {
-			if !consumed[excIdx] {
+			if !consumed[excIdx] && isMatchingScope(errFinding.Scope, findings[excIdx].Scope) {
 				matchedExc = &findings[excIdx]
 				consumed[excIdx] = true
 				break
 			}
 		}
 
-		// Look for matching dep error
+		// Look for causally linked dep error
+		totalDegraded := len(degradedEndpointsPerRole[strings.ToLower(errFinding.Scope.Role)])
 		var matchedDep *domain.Finding
 		for _, depIdx := range depErrorFindings {
-			if !consumed[depIdx] {
+			if !consumed[depIdx] && isLinkedDependency(errFinding.Scope, &findings[depIdx], totalDegraded) {
 				matchedDep = &findings[depIdx]
 				consumed[depIdx] = true
 				break
@@ -149,8 +166,12 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 				StartedAt: f.StartedAt,
 				Scope:     f.Scope,
 			})
-		case domain.FindingDependencyLatencyRegression, domain.FindingDependencyErrorRegression, domain.FindingDependencyFanoutRegression:
+		case domain.FindingDependencyLatencyRegression, domain.FindingDependencyErrorRegression, domain.FindingDependencyFanoutRegression, domain.FindingSQLFanout, domain.FindingNPlusOneCandidate:
 			// Independent dependency problem
+			actionSummary := fmt.Sprintf("Inspect %s calls", f.Scope.Target)
+			if f.Scope.Target == "" && f.Scope.Endpoint != "" {
+				actionSummary = fmt.Sprintf("Inspect database calls on %s", f.Scope.Endpoint)
+			}
 			prob := domain.Problem{
 				Kind:     domain.ProblemKindDegradation,
 				Priority: 2,
@@ -158,7 +179,7 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 				Summary:  f.Summary,
 				Symptoms: []domain.Finding{f},
 				Action: &domain.Action{
-					Summary: fmt.Sprintf("Inspect %s calls", f.Scope.Target),
+					Summary: actionSummary,
 					Command: &domain.Command{
 						Display: fmt.Sprintf("azlens inspect dependencies -s %s", f.Scope.Role),
 					},
@@ -186,7 +207,47 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 	return problems, watching
 }
 
+// isLinkedDependency enforces endpoint-level and service isolation causal attribution
+func isLinkedDependency(endpointScope domain.Scope, depFinding *domain.Finding, totalDegradedEndpointsInService int) bool {
+	if depFinding == nil {
+		return false
+	}
+
+	// Service / Role isolation: MUST belong to the same service / role
+	if endpointScope.Role != "" && depFinding.Scope.Role != "" {
+		if !strings.EqualFold(endpointScope.Role, depFinding.Scope.Role) {
+			return false
+		}
+	} else if endpointScope.Service != "" && depFinding.Scope.Service != "" {
+		if !strings.EqualFold(endpointScope.Service, depFinding.Scope.Service) {
+			return false
+		}
+	} else if endpointScope.Role != "" || depFinding.Scope.Role != "" {
+		return false
+	}
+
+	// If the dependency finding has an explicit endpoint, it MUST match
+	if depFinding.Scope.Endpoint != "" {
+		if endpointScope.Endpoint == "" {
+			return false
+		}
+		return strings.EqualFold(depFinding.Scope.Endpoint, endpointScope.Endpoint) ||
+			strings.Contains(endpointScope.Endpoint, depFinding.Scope.Endpoint) ||
+			strings.Contains(depFinding.Scope.Endpoint, endpointScope.Endpoint)
+	}
+
+	// Service-level dependency without explicit endpoint:
+	// Only link if this is the only degraded endpoint in the service.
+	return totalDegradedEndpointsInService <= 1
+}
+
 func isMatchingScope(a, b domain.Scope) bool {
+	if a.Role != "" && b.Role != "" && !strings.EqualFold(a.Role, b.Role) {
+		return false
+	}
+	if a.Service != "" && b.Service != "" && !strings.EqualFold(a.Service, b.Service) {
+		return false
+	}
 	if a.Endpoint != "" && b.Endpoint != "" {
 		return a.Endpoint == b.Endpoint || strings.Contains(a.Endpoint, b.Endpoint) || strings.Contains(b.Endpoint, a.Endpoint)
 	}

@@ -58,6 +58,8 @@ type DependencyMetric struct {
 type ErrorSummary struct {
 	// Type represents the exception type or status (e.g. "System.NullReferenceException", "500 Internal Server Error")
 	Type string `json:"type"`
+	// Source indicates origin ("exception" or "request_5xx")
+	Source string `json:"source,omitempty"`
 	// Message contains the error message or innermostMessage
 	Message string `json:"message"`
 	// Count is the number of occurrences
@@ -195,13 +197,33 @@ type SlowLogGroup struct {
 	LastSeen        time.Time `json:"last_seen"`
 }
 
-// FanoutMetric measures N+1 and database fan-out per endpoint
+// FanoutMetric measures database fan-out call distribution per endpoint
 type FanoutMetric struct {
 	Endpoint              string  `json:"endpoint"`
 	TotalRequests         int64   `json:"total_requests"`
 	AvgSQLCalls           float64 `json:"avg_sql_calls"`
+	P50Calls              float64 `json:"p50_calls,omitempty"`
+	P75Calls              float64 `json:"p75_calls,omitempty"`
+	P90Calls              float64 `json:"p90_calls,omitempty"`
+	P95Calls              float64 `json:"p95_calls,omitempty"`
+	P99Calls              float64 `json:"p99_calls,omitempty"`
 	MaxSQLCalls           int64   `json:"max_sql_calls"`
 	AvgSQLDurationMs      float64 `json:"avg_sql_duration_ms"`
+	AvgEndpointDurationMs float64 `json:"avg_endpoint_duration_ms"`
+}
+
+// NPlusOneCandidate represents evidence-backed N+1 query candidates
+// where repeated query shapes were observed within individual requests (Section 6.2).
+type NPlusOneCandidate struct {
+	Endpoint              string  `json:"endpoint"`
+	TotalRequests         int64   `json:"total_requests"`
+	AvgSQLCalls           float64 `json:"avg_sql_calls"`
+	MaxSQLCalls           int64   `json:"max_sql_calls"`
+	AvgRepeatedCalls      float64 `json:"avg_repeated_calls"`
+	MaxRepeatedShape      int64   `json:"max_repeated_shape"`
+	AvgRepeatedRatio      float64 `json:"avg_repeated_ratio"`
+	SampleRepeatedShape   string  `json:"sample_repeated_shape"`
+	AvgRepeatedDurationMs float64 `json:"avg_repeated_duration_ms"`
 	AvgEndpointDurationMs float64 `json:"avg_endpoint_duration_ms"`
 }
 
@@ -212,7 +234,9 @@ type LatencyBreakdown struct {
 	PctDatabase    float64 `json:"pct_database"`
 	PctExternalAPI float64 `json:"pct_external_api"`
 	PctCache       float64 `json:"pct_cache"`
+	PctResidual    float64 `json:"pct_residual"`
 	PctAppCode     float64 `json:"pct_app_code"`
+	HasOverlap     bool    `json:"has_overlap"`
 }
 
 // DeprecationSummary represents grouped framework and library deprecation warnings

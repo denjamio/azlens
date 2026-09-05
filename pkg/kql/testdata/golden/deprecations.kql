@@ -1,0 +1,30 @@
+union isfuzzy=true
+(
+    traces
+    | where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+    | where cloud_RoleName =~ 'order-service'
+    | where message has_any ("deprecated", "deprecation", "deprecations", "obsolete", "RemovedInDjango")
+    | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*" or message startswith "SET ")
+    | where (severityLevel >= 2) or (message has_any (
+        'DEPRECATION WARNING', 'DeprecationWarning', 'PendingDeprecationWarning',
+        'RemovedInDjango', '[DEP', '[DEPRECATION]', 'is deprecated', 'has been deprecated',
+        'deprecated in', 'deprecated and will be removed', 'will be removed in',
+        'is obsolete', 'CS0618', 'CS0612'
+    ))
+    | project timestamp, message, operation_Name
+),
+(
+    exceptions
+    | where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+    | where cloud_RoleName =~ 'order-service'
+    | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or outerMessage has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or innermostMessage has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
+    | project timestamp, message = iff(isnotempty(innermostMessage), innermostMessage, outerMessage), operation_Name
+)
+| where isnotempty(message)
+| summarize 
+    Count = count(),
+    FirstSeen = min(timestamp),
+    LastSeen = max(timestamp),
+    AffectedEndpoints = make_set(operation_Name, 5)
+  by Deprecation = substring(message, 0, 200)
+| top 15 by Count desc

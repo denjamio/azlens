@@ -1,0 +1,30 @@
+union isfuzzy=true
+(
+    exceptions
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+    | extend Source = 'exception'
+    | extend RawMsg = coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")
+    | project timestamp, Source, type, RawMsg, operation_Name
+),
+(
+    requests
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+| where isempty(operation_SyntheticSource)
+    | where success == false and (toint(resultCode) >= 500 or isempty(resultCode))
+    | extend Source = 'request_5xx'
+    | extend type = iff(isempty(resultCode), 'HTTP 5xx', strcat('HTTP ', resultCode))
+    | extend RawMsg = coalesce(name, "<empty>")
+    | project timestamp, Source, type, RawMsg, operation_Name = name
+)
+| summarize 
+    Count = count(),
+    SampleMessage = any(RawMsg),
+    Source = any(Source),
+    FirstSeen = min(timestamp),
+    LastSeen = max(timestamp),
+    AffectedPaths = make_set(operation_Name, 10)
+  by Type = type
+| project Type, Source, Message = SampleMessage, Count, FirstSeen, LastSeen, AffectedPaths
+| top 15 by Count desc

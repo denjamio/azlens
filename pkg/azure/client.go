@@ -44,6 +44,7 @@ type AzureClient interface {
 	QuerySlowDependencies(ctx context.Context, start, end time.Time, depType string, topN int) ([]model.DependencyMetric, error)
 	QueryExceptions(ctx context.Context, start, end time.Time, topN int) ([]model.ErrorSummary, error)
 	QueryFanout(ctx context.Context, start, end time.Time, topN int) ([]model.FanoutMetric, error)
+	QueryNPlusOneCandidates(ctx context.Context, start, end time.Time, topN int) ([]model.NPlusOneCandidate, error)
 	QueryLatencyBreakdown(ctx context.Context, start, end time.Time, topN int) ([]model.LatencyBreakdown, error)
 	QueryDeprecations(ctx context.Context, start, end time.Time, topN int) ([]model.DeprecationSummary, error)
 	QueryMySQLSlowLogs(ctx context.Context, start, end time.Time, dbName string, topN int) ([]model.SlowLogEntry, error)
@@ -576,6 +577,18 @@ func (c *AzCliClient) QueryFanout(ctx context.Context, start, end time.Time, top
 	return parseFanoutTable(&res.Tables[0]), nil
 }
 
+func (c *AzCliClient) QueryNPlusOneCandidates(ctx context.Context, start, end time.Time, topN int) ([]model.NPlusOneCandidate, error) {
+	p := c.opts.Profile
+	res, err := c.executeKQL(ctx, kql.BuildNPlusOneCandidateQuery(start, end, p.Target, topN))
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Tables) == 0 {
+		return nil, nil
+	}
+	return parseNPlusOneTable(&res.Tables[0]), nil
+}
+
 func (c *AzCliClient) QueryLatencyBreakdown(ctx context.Context, start, end time.Time, topN int) ([]model.LatencyBreakdown, error) {
 	p := c.opts.Profile
 	res, err := c.executeKQL(ctx, kql.BuildLatencyBreakdownQuery(start, end, p.Target, topN))
@@ -588,18 +601,79 @@ func (c *AzCliClient) QueryLatencyBreakdown(ctx context.Context, start, end time
 		return results, nil
 	}
 
+	colMap := make(map[string]int, len(res.Tables[0].Columns))
+	for i, col := range res.Tables[0].Columns {
+		colMap[strings.ToLower(col.Name)] = i
+	}
+	getIdx := func(names ...string) int {
+		for _, n := range names {
+			if idx, ok := colMap[strings.ToLower(n)]; ok {
+				return idx
+			}
+		}
+		return -1
+	}
+
+	idxEndpoint := getIdx("endpoint")
+	idxAvgTotal := getIdx("avgtotalms", "avgtotal", "duration")
+	idxDb := getIdx("pctdatabase", "pctdb")
+	idxExt := getIdx("pctexternalapi", "pctext")
+	idxCache := getIdx("pctcache")
+	idxRes := getIdx("pctresidual", "pctappcode")
+	idxOverlap := getIdx("hasoverlap")
+
 	for _, row := range res.Tables[0].Rows {
 		if len(row) < 6 {
 			continue
 		}
-		results = append(results, model.LatencyBreakdown{
-			Endpoint:       fmt.Sprintf("%v", row[0]),
-			AvgDurationMs:  toFloat(row[1]),
-			PctDatabase:    toFloat(row[2]),
-			PctExternalAPI: toFloat(row[3]),
-			PctCache:       toFloat(row[4]),
-			PctAppCode:     toFloat(row[5]),
-		})
+		lb := model.LatencyBreakdown{}
+		if idxEndpoint >= 0 && idxEndpoint < len(row) {
+			lb.Endpoint = fmt.Sprintf("%v", row[idxEndpoint])
+		} else {
+			lb.Endpoint = fmt.Sprintf("%v", row[0])
+		}
+		if idxAvgTotal >= 0 && idxAvgTotal < len(row) {
+			lb.AvgDurationMs = toFloat(row[idxAvgTotal])
+		} else {
+			lb.AvgDurationMs = toFloat(row[1])
+		}
+		if idxDb >= 0 && idxDb < len(row) {
+			lb.PctDatabase = toFloat(row[idxDb])
+		} else {
+			lb.PctDatabase = toFloat(row[2])
+		}
+		if idxExt >= 0 && idxExt < len(row) {
+			lb.PctExternalAPI = toFloat(row[idxExt])
+		} else {
+			lb.PctExternalAPI = toFloat(row[3])
+		}
+		if idxCache >= 0 && idxCache < len(row) {
+			lb.PctCache = toFloat(row[idxCache])
+		} else {
+			lb.PctCache = toFloat(row[4])
+		}
+		if idxRes >= 0 && idxRes < len(row) {
+			val := toFloat(row[idxRes])
+			lb.PctResidual = val
+			lb.PctAppCode = val
+		} else {
+			val := toFloat(row[5])
+			lb.PctResidual = val
+			lb.PctAppCode = val
+		}
+		if idxOverlap >= 0 && idxOverlap < len(row) && row[idxOverlap] != nil {
+			switch ov := row[idxOverlap].(type) {
+			case bool:
+				lb.HasOverlap = ov
+			case string:
+				lb.HasOverlap = strings.EqualFold(ov, "true")
+			case float64:
+				lb.HasOverlap = ov > 0
+			case int64:
+				lb.HasOverlap = ov > 0
+			}
+		}
+		results = append(results, lb)
 	}
 	return results, nil
 }
@@ -870,49 +944,239 @@ func parseDepsTable(t *AzQueryTable) []model.DependencyMetric {
 	return results
 }
 
-// parseExceptionsTable parses grouped exception rows: type, normalized message,
+// parseExceptionsTable parses grouped exception rows: type, source, normalized message,
 // count, first/last seen, and the affected operation paths returned by the query
 func parseExceptionsTable(t *AzQueryTable) []model.ErrorSummary {
 	var results []model.ErrorSummary
+	if len(t.Rows) == 0 {
+		return results
+	}
+	colMap := make(map[string]int, len(t.Columns))
+	for i, col := range t.Columns {
+		colMap[strings.ToLower(col.Name)] = i
+	}
+	getIdx := func(names ...string) int {
+		for _, n := range names {
+			if idx, ok := colMap[strings.ToLower(n)]; ok {
+				return idx
+			}
+		}
+		return -1
+	}
+
+	idxType := getIdx("type")
+	idxSource := getIdx("source")
+	idxMsg := getIdx("message", "samplemessage")
+	idxCount := getIdx("count")
+	idxFirstSeen := getIdx("firstseen")
+	idxLastSeen := getIdx("lastseen")
+	idxPaths := getIdx("affectedpaths")
+
 	for _, row := range t.Rows {
 		if len(row) < 5 {
 			continue
 		}
-		var affectedPaths []string
-		if len(row) >= 6 {
-			if paths, ok := row[5].([]interface{}); ok {
-				for _, p := range paths {
-					affectedPaths = append(affectedPaths, fmt.Sprintf("%v", p))
+		e := model.ErrorSummary{}
+		if idxType >= 0 && idxType < len(row) {
+			e.Type = fmt.Sprintf("%v", row[idxType])
+		} else {
+			e.Type = fmt.Sprintf("%v", row[0])
+		}
+		if idxSource >= 0 && idxSource < len(row) && row[idxSource] != nil {
+			e.Source = fmt.Sprintf("%v", row[idxSource])
+		}
+		if idxMsg >= 0 && idxMsg < len(row) {
+			e.Message = fmt.Sprintf("%v", row[idxMsg])
+		} else if len(row) > 1 {
+			e.Message = fmt.Sprintf("%v", row[1])
+		}
+		if idxCount >= 0 && idxCount < len(row) {
+			e.Count = toInt64(row[idxCount])
+		} else if len(row) > 2 {
+			e.Count = toInt64(row[2])
+		}
+		if idxFirstSeen >= 0 && idxFirstSeen < len(row) {
+			e.FirstSeen = parseTime(row[idxFirstSeen])
+		} else if len(row) > 3 {
+			e.FirstSeen = parseTime(row[3])
+		}
+		if idxLastSeen >= 0 && idxLastSeen < len(row) {
+			e.LastSeen = parseTime(row[idxLastSeen])
+		} else if len(row) > 4 {
+			e.LastSeen = parseTime(row[4])
+		}
+		var paths []string
+		pathIdx := idxPaths
+		if pathIdx < 0 && len(row) >= 6 {
+			pathIdx = len(row) - 1
+		}
+		if pathIdx >= 0 && pathIdx < len(row) {
+			if rawPaths, ok := row[pathIdx].([]interface{}); ok {
+				for _, p := range rawPaths {
+					paths = append(paths, fmt.Sprintf("%v", p))
 				}
 			}
 		}
-		results = append(results, model.ErrorSummary{
-			Type:          fmt.Sprintf("%v", row[0]),
-			Message:       fmt.Sprintf("%v", row[1]),
-			Count:         toInt64(row[2]),
-			FirstSeen:     parseTime(row[3]),
-			LastSeen:      parseTime(row[4]),
-			AffectedPaths: affectedPaths,
-		})
+		e.AffectedPaths = paths
+		results = append(results, e)
 	}
 	return results
 }
 
-// parseFanoutTable parses N+1 / database fan-out rows
+// parseFanoutTable parses database fan-out rows
 func parseFanoutTable(t *AzQueryTable) []model.FanoutMetric {
 	var results []model.FanoutMetric
+	if len(t.Rows) == 0 {
+		return results
+	}
+	colMap := make(map[string]int, len(t.Columns))
+	for i, col := range t.Columns {
+		colMap[strings.ToLower(col.Name)] = i
+	}
+	getIdx := func(names ...string) int {
+		for _, n := range names {
+			if idx, ok := colMap[strings.ToLower(n)]; ok {
+				return idx
+			}
+		}
+		return -1
+	}
+
+	idxEndpoint := getIdx("endpoint")
+	idxRequests := getIdx("totalrequests", "requests")
+	idxAvgSql := getIdx("avgsqlcalls")
+	idxP50 := getIdx("p50_calls", "p50")
+	idxP75 := getIdx("p75_calls", "p75")
+	idxP90 := getIdx("p90_calls", "p90")
+	idxP95 := getIdx("p95_calls", "p95")
+	idxP99 := getIdx("p99_calls", "p99")
+	idxMaxSql := getIdx("maxsqlcalls")
+	idxAvgSqlDur := getIdx("avgsqlduration")
+	idxAvgEpDur := getIdx("avgendpointduration")
+
 	for _, row := range t.Rows {
 		if len(row) < 6 {
 			continue
 		}
-		results = append(results, model.FanoutMetric{
-			Endpoint:              fmt.Sprintf("%v", row[0]),
-			TotalRequests:         toInt64(row[1]),
-			AvgSQLCalls:           toFloat(row[2]),
-			MaxSQLCalls:           toInt64(row[3]),
-			AvgSQLDurationMs:      toFloat(row[4]),
-			AvgEndpointDurationMs: toFloat(row[5]),
-		})
+		m := model.FanoutMetric{}
+		if idxEndpoint >= 0 && idxEndpoint < len(row) {
+			m.Endpoint = fmt.Sprintf("%v", row[idxEndpoint])
+		} else {
+			m.Endpoint = fmt.Sprintf("%v", row[0])
+		}
+		if idxRequests >= 0 && idxRequests < len(row) {
+			m.TotalRequests = toInt64(row[idxRequests])
+		} else {
+			m.TotalRequests = toInt64(row[1])
+		}
+		if idxAvgSql >= 0 && idxAvgSql < len(row) {
+			m.AvgSQLCalls = toFloat(row[idxAvgSql])
+		} else {
+			m.AvgSQLCalls = toFloat(row[2])
+		}
+		if idxP50 >= 0 && idxP50 < len(row) {
+			m.P50Calls = toFloat(row[idxP50])
+		}
+		if idxP75 >= 0 && idxP75 < len(row) {
+			m.P75Calls = toFloat(row[idxP75])
+		}
+		if idxP90 >= 0 && idxP90 < len(row) {
+			m.P90Calls = toFloat(row[idxP90])
+		}
+		if idxP95 >= 0 && idxP95 < len(row) {
+			m.P95Calls = toFloat(row[idxP95])
+		}
+		if idxP99 >= 0 && idxP99 < len(row) {
+			m.P99Calls = toFloat(row[idxP99])
+		}
+		if idxMaxSql >= 0 && idxMaxSql < len(row) {
+			m.MaxSQLCalls = toInt64(row[idxMaxSql])
+		} else if len(row) > 3 {
+			m.MaxSQLCalls = toInt64(row[3])
+		}
+		if idxAvgSqlDur >= 0 && idxAvgSqlDur < len(row) {
+			m.AvgSQLDurationMs = toFloat(row[idxAvgSqlDur])
+		} else if len(row) > 4 {
+			m.AvgSQLDurationMs = toFloat(row[4])
+		}
+		if idxAvgEpDur >= 0 && idxAvgEpDur < len(row) {
+			m.AvgEndpointDurationMs = toFloat(row[idxAvgEpDur])
+		} else if len(row) > 5 {
+			m.AvgEndpointDurationMs = toFloat(row[5])
+		}
+		results = append(results, m)
+	}
+	return results
+}
+
+// parseNPlusOneTable parses deterministic N+1 candidate rows with repeated query shape evidence
+func parseNPlusOneTable(t *AzQueryTable) []model.NPlusOneCandidate {
+	var results []model.NPlusOneCandidate
+	if len(t.Rows) == 0 {
+		return results
+	}
+	colMap := make(map[string]int, len(t.Columns))
+	for i, col := range t.Columns {
+		colMap[strings.ToLower(col.Name)] = i
+	}
+	getIdx := func(names ...string) int {
+		for _, n := range names {
+			if idx, ok := colMap[strings.ToLower(n)]; ok {
+				return idx
+			}
+		}
+		return -1
+	}
+
+	idxEndpoint := getIdx("endpoint")
+	idxRequests := getIdx("totalrequests")
+	idxAvgSql := getIdx("avgsqlcalls")
+	idxMaxSql := getIdx("maxsqlcalls")
+	idxAvgRepeated := getIdx("avgrepeatedcalls")
+	idxMaxShape := getIdx("maxrepeatedshape")
+	idxAvgRatio := getIdx("avgrepeatedratio")
+	idxSampleShape := getIdx("samplerepeatedshape")
+	idxAvgRepeatedDur := getIdx("avgrepeatedduration")
+	idxAvgEpDur := getIdx("avgendpointduration")
+
+	for _, row := range t.Rows {
+		if len(row) < 7 {
+			continue
+		}
+		c := model.NPlusOneCandidate{}
+		if idxEndpoint >= 0 && idxEndpoint < len(row) {
+			c.Endpoint = fmt.Sprintf("%v", row[idxEndpoint])
+		} else {
+			c.Endpoint = fmt.Sprintf("%v", row[0])
+		}
+		if idxRequests >= 0 && idxRequests < len(row) {
+			c.TotalRequests = toInt64(row[idxRequests])
+		}
+		if idxAvgSql >= 0 && idxAvgSql < len(row) {
+			c.AvgSQLCalls = toFloat(row[idxAvgSql])
+		}
+		if idxMaxSql >= 0 && idxMaxSql < len(row) {
+			c.MaxSQLCalls = toInt64(row[idxMaxSql])
+		}
+		if idxAvgRepeated >= 0 && idxAvgRepeated < len(row) {
+			c.AvgRepeatedCalls = toFloat(row[idxAvgRepeated])
+		}
+		if idxMaxShape >= 0 && idxMaxShape < len(row) {
+			c.MaxRepeatedShape = toInt64(row[idxMaxShape])
+		}
+		if idxAvgRatio >= 0 && idxAvgRatio < len(row) {
+			c.AvgRepeatedRatio = toFloat(row[idxAvgRatio])
+		}
+		if idxSampleShape >= 0 && idxSampleShape < len(row) && row[idxSampleShape] != nil {
+			c.SampleRepeatedShape = fmt.Sprintf("%v", row[idxSampleShape])
+		}
+		if idxAvgRepeatedDur >= 0 && idxAvgRepeatedDur < len(row) {
+			c.AvgRepeatedDurationMs = toFloat(row[idxAvgRepeatedDur])
+		}
+		if idxAvgEpDur >= 0 && idxAvgEpDur < len(row) {
+			c.AvgEndpointDurationMs = toFloat(row[idxAvgEpDur])
+		}
+		results = append(results, c)
 	}
 	return results
 }

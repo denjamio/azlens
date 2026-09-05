@@ -1,0 +1,24 @@
+requests
+| where timestamp between (datetime('2026-09-01T00:00:00Z') .. datetime('2026-09-02T00:00:00Z'))
+| where cloud_RoleName =~ 'order-service'
+| where isempty(operation_SyntheticSource)
+| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info'))
+| where isempty(customDimensions['User-Agent']) or not(tostring(customDimensions['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))
+| summarize 
+    TotalCalls = count(),
+    FailedCalls = countif(success == false),
+    AvgDuration = avg(duration),
+    MinDuration = min(duration),
+    MaxDuration = max(duration),
+    P = percentiles_array(duration, 50, 75, 90, 95, 99),
+    Count2xx = countif(toint(resultCode) >= 200 and toint(resultCode) < 300),
+    Count4xx = countif(toint(resultCode) >= 400 and toint(resultCode) < 500),
+    Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false))
+| extend 
+    P50 = todouble(P[0]),
+    P75 = todouble(P[1]),
+    P90 = todouble(P[2]),
+    P95 = todouble(P[3]),
+    P99 = todouble(P[4]),
+    ErrorRate = iff(TotalCalls > 0, round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2), 0.0)
+| project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx

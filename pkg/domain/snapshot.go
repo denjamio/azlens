@@ -32,18 +32,20 @@ type Snapshot struct {
 	Timestamp time.Time      `json:"timestamp"`
 
 	// Baseline window telemetry (when comparing against baseline)
-	BaselineOverall      *model.RequestMetric     `json:"baseline_overall,omitempty"`
-	BaselineEndpoints    []model.RequestMetric    `json:"baseline_endpoints,omitempty"`
-	BaselineDependencies []model.DependencyMetric `json:"baseline_dependencies,omitempty"`
-	BaselineExceptions   []model.ErrorSummary     `json:"baseline_exceptions,omitempty"`
-	BaselineFanout       []model.FanoutMetric     `json:"baseline_fanout,omitempty"`
+	BaselineOverall      *model.RequestMetric      `json:"baseline_overall,omitempty"`
+	BaselineEndpoints    []model.RequestMetric     `json:"baseline_endpoints,omitempty"`
+	BaselineDependencies []model.DependencyMetric  `json:"baseline_dependencies,omitempty"`
+	BaselineExceptions   []model.ErrorSummary      `json:"baseline_exceptions,omitempty"`
+	BaselineFanout       []model.FanoutMetric      `json:"baseline_fanout,omitempty"`
+	BaselineNPlusOne     []model.NPlusOneCandidate `json:"baseline_nplusone,omitempty"`
 
 	// Current window telemetry
-	CurrentOverall      model.RequestMetric      `json:"current_overall"`
-	CurrentEndpoints    []model.RequestMetric    `json:"current_endpoints"`
-	CurrentDependencies []model.DependencyMetric `json:"current_dependencies"`
-	CurrentExceptions   []model.ErrorSummary     `json:"current_exceptions"`
-	CurrentFanout       []model.FanoutMetric     `json:"current_fanout"`
+	CurrentOverall      model.RequestMetric       `json:"current_overall"`
+	CurrentEndpoints    []model.RequestMetric     `json:"current_endpoints"`
+	CurrentDependencies []model.DependencyMetric  `json:"current_dependencies"`
+	CurrentExceptions   []model.ErrorSummary      `json:"current_exceptions"`
+	CurrentFanout       []model.FanoutMetric      `json:"current_fanout"`
+	CurrentNPlusOne     []model.NPlusOneCandidate `json:"current_nplusone,omitempty"`
 
 	// Availability & Database Slow Logs telemetry
 	Availability []AvailabilityMetric `json:"availability,omitempty"`
@@ -67,6 +69,7 @@ func NewSnapshot(profile ProfileContext, scope Scope, window WindowContext) *Sna
 		CurrentDependencies:    make([]model.DependencyMetric, 0),
 		CurrentExceptions:      make([]model.ErrorSummary, 0),
 		CurrentFanout:          make([]model.FanoutMetric, 0),
+		CurrentNPlusOne:        make([]model.NPlusOneCandidate, 0),
 		Availability:           make([]AvailabilityMetric, 0),
 		SlowLogs:               make([]model.SlowLogGroup, 0),
 		ConfiguredCapabilities: make(map[CapabilityType]bool),

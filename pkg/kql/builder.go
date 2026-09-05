@@ -27,6 +27,7 @@ const (
 
 // TargetQuery represents a fully constructed KQL statement bound to its target backend
 type TargetQuery struct {
+	ID      string
 	Query   string
 	Backend Backend
 	Err     error
@@ -190,7 +191,7 @@ func probeExclusionClause() string {
 // percentile() calls.
 func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
 	if err := b.checkTenancyFirewall(); err != nil {
-		return TargetQuery{Backend: b.backend, Err: err}
+		return TargetQuery{ID: QueryIDRequestsSummary, Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
 	q := base + probeExclusionClause() + `| summarize 
@@ -209,16 +210,16 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     P90 = todouble(P[2]),
     P95 = todouble(P[3]),
     P99 = todouble(P[4]),
-    ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+    ErrorRate = iff(TotalCalls > 0, round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2), 0.0)
 | project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx`
-	return TargetQuery{Query: q, Backend: b.backend}
+	return TargetQuery{ID: QueryIDRequestsSummary, Query: q, Backend: b.backend}
 }
 
 // BuildEndpointsSummary generates per-endpoint latency percentiles and error rates,
 // returning the top N by P95 (top-N heap instead of a full sort)
 func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
 	if err := b.checkTenancyFirewall(); err != nil {
-		return TargetQuery{Backend: b.backend, Err: err}
+		return TargetQuery{ID: QueryIDRequestsEndpoints, Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
 	q := base + probeExclusionClause() + fmt.Sprintf(`| summarize 
@@ -229,35 +230,31 @@ func (b *QueryBuilder) BuildEndpointsSummary() TargetQuery {
     MaxDuration = max(duration),
     P = percentiles_array(duration, 50, 75, 90, 95, 99)
   by Endpoint = name
-| extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend P50 = todouble(P[0]), P75 = todouble(P[1]), P90 = todouble(P[2]), P95 = todouble(P[3]), P99 = todouble(P[4]), ErrorRate = iff(TotalCalls > 0, round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2), 0.0)
 | project Endpoint, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate
 | top %d by P95 desc`, b.limit)
-	return TargetQuery{Query: q, Backend: b.backend}
+	return TargetQuery{ID: QueryIDRequestsEndpoints, Query: q, Backend: b.backend}
 }
 
 // BuildDependenciesSummary generates slow database / HTTP calls summary
 func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
+	qid := QueryIDDependenciesAll
+	switch strings.ToUpper(strings.TrimSpace(depType)) {
+	case CategorySQL:
+		qid = QueryIDDependenciesSQL
+	case CategoryHTTP:
+		qid = QueryIDDependenciesHTTP
+	case CategoryRedis:
+		qid = QueryIDDependenciesRedis
+	case CategoryCosmos, "COSMOSDB":
+		qid = QueryIDDependenciesCosmos
+	}
 	if err := b.checkTenancyFirewall(); err != nil {
-		return TargetQuery{Backend: b.backend, Err: err}
+		return TargetQuery{ID: qid, Backend: b.backend, Err: err}
 	}
 	var sb strings.Builder
 	sb.WriteString(b.buildBaseClauses())
-
-	cleanType := strings.ToUpper(strings.TrimSpace(depType))
-	switch cleanType {
-	case "SQL":
-		sb.WriteString("| where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'\n")
-	case "HTTP":
-		sb.WriteString("| where type in~ ('HTTP', 'Http (tracked component)', 'gRPC', 'Webservice') or type has 'http'\n")
-	case "REDIS":
-		sb.WriteString("| where type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'\n")
-	case "COSMOS", "COSMOSDB":
-		sb.WriteString("| where type in~ ('Azure DocumentDB', 'Cosmos', 'CosmosDB')\n")
-	case "", "ALL":
-		// all dependency types
-	default:
-		sb.WriteString(fmt.Sprintf("| where type =~ '%s'\n", sanitize(depType)))
-	}
+	sb.WriteString(DependencyCategoryFilter(depType))
 
 	sb.WriteString(fmt.Sprintf(`| summarize 
     TotalCalls = count(),
@@ -267,20 +264,18 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
     MaxDuration = max(duration),
     P = percentiles_array(duration, 50, 90, 95, 99)
   by Type = type, Target = target, Dependency = name
-| extend P50 = todouble(P[0]), P90 = todouble(P[1]), P95 = todouble(P[2]), P99 = todouble(P[3]), ErrorRate = round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2)
+| extend P50 = todouble(P[0]), P90 = todouble(P[1]), P95 = todouble(P[2]), P99 = todouble(P[3]), ErrorRate = iff(TotalCalls > 0, round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2), 0.0)
 | project Type, Target, Dependency, TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P90, P95, P99, ErrorRate
 | top %d by P95 desc`, b.limit))
 
-	return TargetQuery{Query: sb.String(), Backend: b.backend}
+	return TargetQuery{ID: qid, Query: sb.String(), Backend: b.backend}
 }
 
 // BuildExceptionsSummary groups exceptions and HTTP 5xx requests by structured type,
-// returning real sample messages and affected routes without regex overhead. HTTP 5xx
-// responses that never produced exception telemetry are synthesized from the
-// requests table as "HTTP <code>" signatures.
+// returning real sample messages, source origin (exception vs request_5xx), and affected routes.
 func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 	if err := b.checkTenancyFirewall(); err != nil {
-		return TargetQuery{Backend: b.backend, Err: err}
+		return TargetQuery{ID: QueryIDExceptionsSummary, Backend: b.backend, Err: err}
 	}
 	exceptionsBase := b.buildBaseFilters()
 	reqBuilder := mustBuilder("requests").WithTimeRange(b.startTime, b.endTime).WithTarget(b.target)
@@ -289,63 +284,131 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 	q := fmt.Sprintf(`union isfuzzy=true
 (
     exceptions
-%s    | extend RawMsg = coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")
-    | project timestamp, type, RawMsg, operation_Name
+%s    | extend Source = 'exception'
+    | extend RawMsg = coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")
+    | project timestamp, Source, type, RawMsg, operation_Name
 ),
 (
     requests
 %s    | where success == false and (toint(resultCode) >= 500 or isempty(resultCode))
+    | extend Source = 'request_5xx'
     | extend type = iff(isempty(resultCode), 'HTTP 5xx', strcat('HTTP ', resultCode))
     | extend RawMsg = coalesce(name, "<empty>")
-    | project timestamp, type, RawMsg, operation_Name = name
+    | project timestamp, Source, type, RawMsg, operation_Name = name
 )
 | summarize 
     Count = count(),
     SampleMessage = any(RawMsg),
+    Source = any(Source),
     FirstSeen = min(timestamp),
     LastSeen = max(timestamp),
     AffectedPaths = make_set(operation_Name, 10)
   by Type = type
-| project Type, Message = SampleMessage, Count, FirstSeen, LastSeen, AffectedPaths
+| project Type, Source, Message = SampleMessage, Count, FirstSeen, LastSeen, AffectedPaths
 | top %d by Count desc`, exceptionsBase, requestsBase, b.limit)
-	return TargetQuery{Query: q, Backend: b.backend}
+	return TargetQuery{ID: QueryIDExceptionsSummary, Query: q, Backend: b.backend}
 }
 
-// BuildFanoutSummary measures N+1 and SQL fan-out by crossing requests with dependencies
+// BuildFanoutSummary measures SQL fan-out distribution across endpoints
 func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 	if err := b.checkTenancyFirewall(); err != nil {
-		return TargetQuery{Backend: b.backend, Err: err}
+		return TargetQuery{ID: QueryIDFanoutSQL, Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
 	depFilters := ""
 	if !b.startTime.IsZero() && !b.endTime.IsZero() {
 		depFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
 			FormatTime(b.startTime), FormatTime(b.endTime))
+	}
+	if strings.TrimSpace(b.target.RoleName) != "" {
+		depFilters += fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", b.target.RoleName))
 	}
 	q := base + fmt.Sprintf(`| where success == true
 | project operation_Id, name, duration
 | join kind=inner (
     dependencies%s
-    | where type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'
+    | where %s
     | summarize SqlCalls = count(), SqlDuration = sum(duration) by operation_Id
 ) on operation_Id
 | summarize 
     TotalRequests = count(),
     AvgSqlCalls = round(avg(SqlCalls), 1),
+    P_Calls = percentiles_array(SqlCalls, 50, 75, 90, 95, 99),
     MaxSqlCalls = max(SqlCalls),
     AvgSQLDuration = round(avg(SqlDuration), 1),
     AvgEndpointDuration = round(avg(duration), 1)
   by Endpoint = name
-| where AvgSqlCalls > 1.0
-| project Endpoint, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
-| top %d by AvgSqlCalls desc`, depFilters, b.limit)
-	return TargetQuery{Query: q, Backend: b.backend}
+| extend 
+    P50_Calls = todouble(P_Calls[0]),
+    P75_Calls = todouble(P_Calls[1]),
+    P90_Calls = todouble(P_Calls[2]),
+    P95_Calls = todouble(P_Calls[3]),
+    P99_Calls = todouble(P_Calls[4])
+| where P95_Calls > 1.0 or MaxSqlCalls >= 5 or AvgSqlCalls > 1.0
+| project Endpoint, TotalRequests, AvgSqlCalls, P50_Calls, P75_Calls, P90_Calls, P95_Calls, P99_Calls, MaxSqlCalls, AvgSQLDuration, AvgEndpointDuration
+| top %d by P95_Calls desc`, depFilters, SQLDependencyPredicate(), b.limit)
+	return TargetQuery{ID: QueryIDFanoutSQL, Query: q, Backend: b.backend}
 }
 
-// BuildLatencyBreakdown breaks down request time across dependencies and app compute
+// BuildNPlusOneCandidateSummary detects deterministic N+1 candidates by requiring evidence
+// of repeated SQL query shapes within single requests (Section 6.2).
+func (b *QueryBuilder) BuildNPlusOneCandidateSummary() TargetQuery {
+	if err := b.checkTenancyFirewall(); err != nil {
+		return TargetQuery{ID: QueryIDNPlusOneCandidate, Backend: b.backend, Err: err}
+	}
+	depBase := b.buildBaseClauses()
+	reqFilters := ""
+	if !b.startTime.IsZero() && !b.endTime.IsZero() {
+		reqFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
+			FormatTime(b.startTime), FormatTime(b.endTime))
+	}
+	if strings.TrimSpace(b.target.RoleName) != "" {
+		reqFilters += fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", b.target.RoleName))
+	}
+
+	q := depBase + fmt.Sprintf(`| where %s
+| summarize 
+    ShapeCalls = count(), 
+    ShapeDuration = sum(duration) 
+  by operation_Id, QueryShape = strcat(target, ': ', name)
+| summarize 
+    TotalSqlCalls = sum(ShapeCalls),
+    DistinctShapes = count(),
+    RepeatedShapeCalls = sumif(ShapeCalls, ShapeCalls > 1),
+    MaxRepeatedShapeCalls = max(ShapeCalls),
+    RepeatedShapeDuration = sumif(ShapeDuration, ShapeCalls > 1),
+    TopRepeatedShape = anyif(QueryShape, ShapeCalls > 1)
+  by operation_Id
+| extend RepeatedShapeRatio = round(100.0 * toreal(RepeatedShapeCalls) / toreal(TotalSqlCalls), 1)
+| where TotalSqlCalls >= 5 and MaxRepeatedShapeCalls >= 3
+| join kind=inner (
+    requests%s
+    | where success == true
+    | project operation_Id, Endpoint = name, duration
+) on operation_Id
+| summarize 
+    TotalRequests = count(),
+    AvgSqlCalls = round(avg(TotalSqlCalls), 1),
+    MaxSqlCalls = max(TotalSqlCalls),
+    AvgRepeatedCalls = round(avg(RepeatedShapeCalls), 1),
+    MaxRepeatedShape = max(MaxRepeatedShapeCalls),
+    AvgRepeatedRatio = round(avg(RepeatedShapeRatio), 1),
+    SampleRepeatedShape = any(TopRepeatedShape),
+    AvgRepeatedDuration = round(avg(RepeatedShapeDuration), 1),
+    AvgEndpointDuration = round(avg(duration), 1)
+  by Endpoint
+| where AvgRepeatedRatio >= 40.0 and MaxRepeatedShape >= 5
+| project Endpoint, TotalRequests, AvgSqlCalls, MaxSqlCalls, AvgRepeatedCalls, MaxRepeatedShape, AvgRepeatedRatio, SampleRepeatedShape, AvgRepeatedDuration, AvgEndpointDuration
+| top %d by MaxRepeatedShape desc`, SQLDependencyPredicate(), reqFilters, b.limit)
+
+	return TargetQuery{ID: QueryIDNPlusOneCandidate, Query: q, Backend: b.backend}
+}
+
+// BuildLatencyBreakdown breaks down request time across dependencies and residual compute,
+// explicitly flagging concurrent dependency overlap (Section 7).
 func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 	if err := b.checkTenancyFirewall(); err != nil {
-		return TargetQuery{Backend: b.backend, Err: err}
+		return TargetQuery{ID: QueryIDLatencyBreakdown, Backend: b.backend, Err: err}
 	}
 	base := b.buildBaseClauses()
 	depFilters := ""
@@ -353,32 +416,39 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 		depFilters += fmt.Sprintf("\n    | where timestamp between (datetime('%s') .. datetime('%s'))",
 			FormatTime(b.startTime), FormatTime(b.endTime))
 	}
+	if strings.TrimSpace(b.target.RoleName) != "" {
+		depFilters += fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", b.target.RoleName))
+	}
 	q := base + fmt.Sprintf(`| project operation_Id, name, duration
 | join kind=leftouter (
     dependencies%s
     | summarize 
-        SqlTime = sumif(duration, type in~ ('SQL', 'Azure SQL', 'SqlServer', 'PostgreSQL', 'postgres', 'postgresql', 'mysql', 'MySQL', 'SQL Server') or type has 'sql' or type has 'postgres' or type has 'mysql'),
-        RedisTime = sumif(duration, type in~ ('Redis', 'Azure Redis', 'Memcached') or type has 'redis' or type has 'memcached'),
-        HttpExtTime = sumif(duration, type in~ ('HTTP', 'Http (tracked component)', 'Webservice', 'gRPC') or type has 'http')
+        SqlTime = sumif(duration, %s),
+        RedisTime = sumif(duration, %s),
+        HttpExtTime = sumif(duration, %s)
       by operation_Id
 ) on operation_Id
-| extend AppComputeTime = duration - (coalesce(SqlTime, 0.0) + coalesce(RedisTime, 0.0) + coalesce(HttpExtTime, 0.0))
+| extend TotalDepTime = coalesce(SqlTime, 0.0) + coalesce(RedisTime, 0.0) + coalesce(HttpExtTime, 0.0)
+| extend ResidualRequestTime = max_of(0.0, duration - TotalDepTime)
+| extend OverlapDetected = iff(TotalDepTime > duration, true, false)
 | summarize 
     AvgTotal = avg(duration),
     AvgSql = avg(coalesce(SqlTime, 0.0)),
     AvgHttp = avg(coalesce(HttpExtTime, 0.0)),
     AvgRedis = avg(coalesce(RedisTime, 0.0)),
-    AvgApp = avg(coalesce(AppComputeTime, 0.0))
+    AvgResidual = avg(ResidualRequestTime),
+    OverlapCount = countif(OverlapDetected == true)
   by Endpoint = name
 | extend 
     AvgTotalMs = round(AvgTotal, 1),
     PctDatabase = iff(AvgTotal > 0, round(100.0 * AvgSql / AvgTotal, 1), 0.0),
     PctExternalApi = iff(AvgTotal > 0, round(100.0 * AvgHttp / AvgTotal, 1), 0.0),
     PctCache = iff(AvgTotal > 0, round(100.0 * AvgRedis / AvgTotal, 1), 0.0),
-    PctAppCode = iff(AvgTotal > 0, round(100.0 * AvgApp / AvgTotal, 1), 0.0)
-| project Endpoint, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctAppCode
-| top %d by AvgTotalMs desc`, depFilters, b.limit)
-	return TargetQuery{Query: q, Backend: b.backend}
+    PctResidual = iff(AvgTotal > 0, round(100.0 * AvgResidual / AvgTotal, 1), 0.0),
+    HasOverlap = iff(OverlapCount > 0, true, false)
+| project Endpoint, AvgTotalMs, PctDatabase, PctExternalApi, PctCache, PctResidual, HasOverlap
+| top %d by AvgTotalMs desc`, depFilters, SQLDependencyPredicate(), RedisDependencyPredicate(), HTTPDependencyPredicate(), b.limit)
+	return TargetQuery{ID: QueryIDLatencyBreakdown, Query: q, Backend: b.backend}
 }
 
 // Sanitize removes characters that could alter KQL expression semantics

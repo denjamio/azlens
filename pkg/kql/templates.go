@@ -73,7 +73,7 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 | project TimeGenerated, QueryDurationMs, RowsExamined, RowsSent, SqlText
 | top %d by QueryDurationMs desc`, FormatTime(start), FormatTime(end), dbFilter, topN)
 
-	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
+	return TargetQuery{ID: QueryIDMySQLSlowLogs, Query: query, Backend: BackendLogAnalytics}
 }
 
 // BuildMySQLSlowLogsGroupedQuery builds KQL query aggregating MySQL Flexible
@@ -85,7 +85,7 @@ func BuildMySQLSlowLogsQuery(start, end time.Time, dbName string, topN int) Targ
 // first).
 func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN int) TargetQuery {
 	if strings.TrimSpace(dbName) == "" {
-		return TargetQuery{Backend: BackendLogAnalytics, Err: ErrMissingDatabase}
+		return TargetQuery{ID: QueryIDMySQLSlowLogsGrouped, Backend: BackendLogAnalytics, Err: ErrMissingDatabase}
 	}
 	dbFilter := fmt.Sprintf("\n| where Db =~ '%s'", sanitize(dbName))
 	if topN <= 0 {
@@ -108,16 +108,25 @@ func BuildMySQLSlowLogsGroupedQuery(start, end time.Time, dbName string, topN in
 | project SqlFingerprint, Executions, AvgMs, MaxMs, TotalMs, AvgRowsExamined, LastSeen
 | top %d by TotalMs desc`, FormatTime(start), FormatTime(end), dbFilter, buildFingerprintExtends(), lastStep, topN)
 
-	return TargetQuery{Query: query, Backend: BackendLogAnalytics}
+	return TargetQuery{ID: QueryIDMySQLSlowLogsGrouped, Query: query, Backend: BackendLogAnalytics}
 }
 
-// BuildFanoutSummaryQuery builds KQL query for SQL fan-out & N+1 detection
+// BuildFanoutSummaryQuery builds KQL query for SQL fan-out metrics
 func BuildFanoutSummaryQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
 	b := mustBuilder("requests")
 	return b.WithTimeRange(start, end).
 		WithTarget(target).
 		WithLimit(topN).
 		BuildFanoutSummary()
+}
+
+// BuildNPlusOneCandidateQuery builds KQL query for deterministic N+1 query detection
+func BuildNPlusOneCandidateQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
+	b := mustBuilder("requests")
+	return b.WithTimeRange(start, end).
+		WithTarget(target).
+		WithLimit(topN).
+		BuildNPlusOneCandidateSummary()
 }
 
 // BuildLatencyBreakdownQuery builds KQL query for latency breakdown across DB, APIs, cache, and app code
@@ -132,7 +141,7 @@ func BuildLatencyBreakdownQuery(start, end time.Time, target config.TargetConfig
 // BuildDeprecationsQuery builds high-performance, noise-filtered KQL query to find deprecation warnings
 func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, topN int) TargetQuery {
 	if strings.TrimSpace(target.RoleName) == "" {
-		return TargetQuery{Backend: BackendAppInsights, Err: ErrMissingRole}
+		return TargetQuery{ID: QueryIDTracesDeprecations, Backend: BackendAppInsights, Err: ErrMissingRole}
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
 	if topN <= 0 {
@@ -168,5 +177,5 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 | top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter,
 		FormatTime(start), FormatTime(end), roleFilter, topN)
 
-	return TargetQuery{Query: query, Backend: BackendAppInsights}
+	return TargetQuery{ID: QueryIDTracesDeprecations, Query: query, Backend: BackendAppInsights}
 }
