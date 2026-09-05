@@ -11,7 +11,7 @@ import (
 
 // completeServiceValue builds a cobra flag completion function that completes
 // --service / -s with the service names declared in the config file
-// (shared.services + profile target.services).
+// (shared.services + profile services).
 func completeServiceValue() func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		cfg, err := config.LoadConfig(configPathFlag)

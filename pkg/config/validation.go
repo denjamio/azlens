@@ -49,7 +49,7 @@ func (p *Profile) Validate() []ValidationIssue {
 	// 3. Service targeting check (mandatory microservice isolation)
 	if strings.TrimSpace(p.Target.Service) == "" && strings.TrimSpace(p.Target.RoleName) == "" {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.service",
+			Field:    "service",
 			Severity: SeverityError,
 			Message:  "Target service is not configured. Service targeting is mandatory to isolate microservice telemetry and prevent unbounded scans.",
 			Hint:     "Configure 'defaults.service: <service-name>', declare services under 'shared.services', or specify '--service <name>' / '-s <name>'.",
@@ -59,20 +59,20 @@ func (p *Profile) Validate() []ValidationIssue {
 	// 4. Workspace check (Log Analytics, optional)
 	if strings.TrimSpace(p.Target.Logs.WorkspaceID) == "" {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.logs.workspace_id",
+			Field:    "logs.workspace_id",
 			Severity: SeverityInfo,
 			Message:  "Log Analytics workspace Customer ID is not set.",
-			Hint:     "Set 'target.logs.workspace_id' to your Log Analytics workspace GUID to inspect database slow logs (MySqlSlowLogs).",
+			Hint:     "Set 'logs.workspace_id' in the active profile (or shared) to your Log Analytics workspace GUID to inspect database slow logs (MySqlSlowLogs).",
 		})
 	}
 
 	// 5. Probes exclusion check
 	if !p.Target.ExcludesProbes() {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.exclude_probes",
+			Field:    "shared.exclude_probes",
 			Severity: SeverityWarning,
 			Message:  "exclude_probes is false; Kubernetes liveness/readiness probes will be included in telemetry.",
-			Hint:     "Frequent /healthz or kube-probe requests can skew P95 latency and call volume. Set 'target.exclude_probes: true'.",
+			Hint:     "Frequent /healthz or kube-probe requests can skew P95 latency and call volume. Set 'shared.exclude_probes: true'.",
 		})
 	}
 

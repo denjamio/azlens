@@ -31,20 +31,22 @@ shared:
 profiles:
   prod:
     name: Production
-    subscription_id: sub-prod
-    resource_group: rg-prod
-    workspace_id: ws-prod
-    target:
-      insights_name: app-prod
-      service: checkout
+    insights:
+      name: app-prod
+      subscription_id: sub-prod
+      resource_group: rg-prod
+    logs:
+      workspace_id: ws-prod
+    service: checkout
   staging:
     name: Staging
-    subscription_id: sub-staging
-    resource_group: rg-staging
-    workspace_id: ws-staging
-    target:
-      insights_name: app-staging
-      service: checkout-staging
+    insights:
+      name: app-staging
+      subscription_id: sub-staging
+      resource_group: rg-staging
+    logs:
+      workspace_id: ws-staging
+    service: checkout-staging
 `
 	if err := os.WriteFile(filepath.Join(dir, "azlens.yaml"), []byte(cfgContent), 0644); err != nil {
 		t.Fatalf("failed to write test azlens.yaml: %v", err)

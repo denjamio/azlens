@@ -415,7 +415,7 @@ defaults:
 # ─── Shared target ────────────────────────────────────────────────────────
 # Declare ONCE everything that does NOT vary across environments.
 # Profiles below inherit every field here and only declare what differs
-# (typically insights_name and logs.workspace_id).
+# (typically insights.name and logs.workspace_id).
 shared:
   insights:
     resource_group: ""

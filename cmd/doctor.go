@@ -175,7 +175,7 @@ var doctorCmd = &cobra.Command{
 			backends = append(backends, reporter.BackendStatus{
 				Name:      "Telemetry Backend",
 				Available: false,
-				Details:   "neither insights_name nor logs.workspace_id configured",
+				Details:   "neither insights.name nor logs.workspace_id configured",
 			})
 		}
 		docResult.Backends = backends

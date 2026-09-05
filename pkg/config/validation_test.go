@@ -39,10 +39,10 @@ func TestProfileValidation(t *testing.T) {
 		if iss.Field == "shared.logs.database" && iss.Severity == SeverityError {
 			hasDatabaseErr = true
 		}
-		if iss.Field == "target.service" && iss.Severity == SeverityError {
+		if iss.Field == "service" && iss.Severity == SeverityError {
 			hasServiceErr = true
 		}
-		if iss.Field == "target.exclude_probes" && iss.Severity == SeverityWarning {
+		if iss.Field == "shared.exclude_probes" && iss.Severity == SeverityWarning {
 			hasProbesWarn = true
 		}
 		if iss.Field == "thresholds.p95_latency" && iss.Severity == SeverityError {

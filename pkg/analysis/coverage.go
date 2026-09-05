@@ -139,7 +139,11 @@ func (c *CapabilityEvaluator) DetermineHealthState(
 				return domain.HealthStateUnknown, msg
 			}
 			if stat.State == domain.CapabilityStateUnavailable {
-				return domain.HealthStateUnknown, "Application telemetry query failed. AzLens cannot determine current application health."
+				msg := "Application telemetry query failed. AzLens cannot determine current application health."
+				if stat.Reason != "" {
+					msg = fmt.Sprintf("Application telemetry query failed: %s\n\nAzLens cannot determine current application health.", stat.Reason)
+				}
+				return domain.HealthStateUnknown, msg
 			}
 		}
 	}

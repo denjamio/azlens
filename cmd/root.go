@@ -198,7 +198,7 @@ into clear, actionable stories with supporting evidence and next actions.`,
 		resolver := NewDefaultResolver(effDefaults)
 		resolvedOutput := resolver.ResolveOutput(cmd, outputFlag)
 
-		// 4. Resolve active service: CLI flag --service > profile target.service > defaults.service
+		// 4. Resolve active service: CLI flag --service > profile service > defaults.service
 		targetService := serviceFlag
 		if targetService == "" {
 			targetService = prof.Target.Service

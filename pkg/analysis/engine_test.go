@@ -1,6 +1,8 @@
 package analysis_test
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,5 +248,23 @@ func TestScenarioG_SlowLogsCoverage(t *testing.T) {
 	}
 	if !slowLogAvailable {
 		t.Errorf("expected database_slow_logs to be marked available")
+	}
+}
+
+// Scenario M - Query failure propagates reason in status message
+func TestScenarioM_QueryFailurePropagatesReason(t *testing.T) {
+	snap := newTestSnapshot("checkout")
+	queryErr := errors.New("azure cli command failed: resource not found")
+	snap.QueryErrors[domain.CapabilityRequests] = queryErr
+
+	engine := analysis.NewEngine(detectors.DefaultConfig())
+	res := engine.Analyze(snap)
+
+	if res.State != domain.HealthStateUnknown {
+		t.Fatalf("expected state unknown for query failure, got %s", res.State)
+	}
+
+	if !strings.Contains(res.StatusMessage, "azure cli command failed: resource not found") {
+		t.Errorf("expected status message to contain the underlying query error, got: %q", res.StatusMessage)
 	}
 }

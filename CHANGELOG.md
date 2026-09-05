@@ -5,6 +5,14 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-09-05
+
+### Changed
+
+- **Validation Field & Hint Purge of Legacy `target.`**: Cleaned up all diagnostic validation issue fields, warning messages, and actionable hints to use canonical config paths (`service`, `shared.exclude_probes`, `logs.workspace_id`) instead of the obsolete `target.` prefix (`target.exclude_probes`, `target.service`, `target.logs.workspace_id`).
+- **Telemetry Query Error Transparency**: Fixed error swallowing when application telemetry queries fail (`CapabilityStateUnavailable`) in `coverage.DetermineHealthState` — the underlying error reason (`stat.Reason` / `qErr`) is now transparently displayed in terminal and Markdown status messages rather than being hidden behind a generic failure string.
+- **Removed Obsolete `target.insights_name` / `insights_name` References**: Updated Azure resource lookup failure hints and doctor diagnostics to refer directly to `insights.name` (matching the profile and shared config schema), purging all remaining `insights_name` and `target.insights_name` references from code, error messages, and scenario tests.
+
 ## [1.1.1] - 2026-09-05
 
 ### Changed
