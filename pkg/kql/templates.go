@@ -150,7 +150,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
     | where not(message startswith "SELECT" or message startswith "INSERT" or message startswith "UPDATE" or message startswith "DELETE" or message startswith "/*" or message startswith "SET ")
     | where (severityLevel >= 2) or (message has_any (
         'DEPRECATION WARNING', 'DeprecationWarning', 'PendingDeprecationWarning',
-        'RemovedInDjango', '[DEP', 'is deprecated', 'has been deprecated',
+        'RemovedInDjango', '[DEP', '[DEPRECATION]', 'is deprecated', 'has been deprecated',
         'deprecated in', 'deprecated and will be removed', 'will be removed in',
         'is obsolete', 'CS0618', 'CS0612', 'Since rails'
     ))
