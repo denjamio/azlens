@@ -231,13 +231,6 @@ into clear, actionable stories with supporting evidence and next actions.`,
 			}
 		}
 
-		if debugFlag {
-			fmt.Fprintf(os.Stderr, "[azlens:debug] Active Profile: %s\n", activeProfileName)
-			if targetService != "" {
-				fmt.Fprintf(os.Stderr, "[azlens:debug] Target Service: %s (RoleName: %s, Database: %s)\n", targetService, prof.Target.RoleName, prof.Target.Logs.Database)
-			}
-		}
-
 		// 6. Inject the runtime for the executing command
 		cmd.SetContext(context.WithValue(cmd.Context(), runtimeContextKey{}, &appRuntime{
 			Config:      cfg,

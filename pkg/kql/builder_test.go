@@ -345,20 +345,17 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	if !strings.Contains(q, "union isfuzzy=true") {
 		t.Errorf("expected exceptions + requests union, got: %s", q)
 	}
-	if !strings.Contains(q, "ActionController::RoutingError") {
-		t.Errorf("expected bot 404 routing filter in exceptions query, got: %s", q)
+	if strings.Contains(q, "ActionController::RoutingError") {
+		t.Errorf("exceptions query should be stack-agnostic and not contain ActionController::RoutingError, got: %s", q)
 	}
 	if !strings.Contains(q, "toint(resultCode) >= 500") || !strings.Contains(q, "strcat('HTTP ', resultCode)") {
 		t.Errorf("expected HTTP 5xx synthesis from requests, got: %s", q)
 	}
-	if !strings.Contains(q, "ClientClosedRequest") {
-		t.Errorf("expected client drop filter in exceptions query, got: %s", q)
+	if strings.Contains(q, "ClientClosedRequest") {
+		t.Errorf("exceptions query should be stack-agnostic and not contain ClientClosedRequest, got: %s", q)
 	}
 	if !strings.Contains(q, "coalesce(iff(isnotempty(innermostMessage)") {
 		t.Errorf("expected coalesce for RawMsg in exceptions query, got: %s", q)
-	}
-	if !strings.Contains(q, "where isempty(RawMsg) or not(RawMsg has_any") {
-		t.Errorf("expected null-safe noise filter in exceptions query, got: %s", q)
 	}
 	if !strings.Contains(q, "operation_Name = name") {
 		t.Errorf("expected requests branch to project operation_Name = name, got: %s", q)

@@ -419,10 +419,6 @@ func (c *AzCliClient) executeKQL(ctx context.Context, tq kql.TargetQuery) (*AzQu
 	if err != nil {
 		return nil, err
 	}
-	if c.opts.Debug {
-		fmt.Fprintf(os.Stderr, "[azlens:debug] Target Backend: %s | Subscription: %s | Directory: %s\n", tq.Backend, targetSub, directoryID)
-		fmt.Fprintf(os.Stderr, "[azlens:debug] CLI Command: az %s\n", strings.Join(args, " "))
-	}
 	if err := c.ensureActiveSubscription(ctx, targetSub, directoryID); err != nil {
 		return nil, err
 	}
@@ -462,10 +458,6 @@ func (c *AzCliClient) executeKQLBatch(ctx context.Context, queries []kql.TargetQ
 	args, targetSub, directoryID, err := routeForTargetQuery(c.opts.Profile, batchTarget)
 	if err != nil {
 		return nil, err
-	}
-	if c.opts.Debug {
-		fmt.Fprintf(os.Stderr, "[azlens:debug] Target Backend: %s | Subscription: %s | Directory: %s\n", targetBackend, targetSub, directoryID)
-		fmt.Fprintf(os.Stderr, "[azlens:debug] CLI Command: az %s\n", strings.Join(args, " "))
 	}
 
 	if err := c.ensureActiveSubscription(ctx, targetSub, directoryID); err != nil {

@@ -334,7 +334,7 @@ AzLens integrates directly with the official Azure CLI (`az`):
 ## ⚡ High-Performance KQL Engine
 
 1. **Batched KQL Invocations**: Parallel single-request telemetry bundles minimize Azure CLI round trips.
-2. **Noise Filtering**: Automatically drops client aborts (`ClientClosedRequest`), bot scans, and health probes.
+2. **Noise Filtering**: Automatically drops synthetic availability traffic and health probes.
 3. **Partition Pruning**: Pushes time-range boundaries to root subqueries to avoid scanning full tables.
 4. **Token Indexing**: Uses KQL `has` / `has_any` to exploit Azure's inverted term index.
 5. **Strict Sanitization**: Neutralizes quote injection, escapes statement separators, and validates table whitelist.

@@ -5,6 +5,17 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.17] - 2026-09-05
+
+### Changed
+
+- **Clean Stack-Agnostic Error Queries (`BuildExceptionsSummary`)**:
+  - Removed hardcoded framework exception classes (`ActionController::RoutingError`, `NotFoundHttpException`, `Sinatra::NotFound`, `System.OperationCanceledException`, `System.Threading.Tasks.TaskCanceledException`, `Microsoft.AspNetCore.Connections.ConnectionResetException`) and hardcoded client drop string patterns (`ClientClosedRequest`, `broken pipe`, `connection reset by peer`, `context canceled`, `request canceled`) from the built-in KQL query.
+  - The query is now purely stack-agnostic across any backend language/framework (Go, Java, Python, Node.js, .NET, Rust, PHP, Ruby).
+  - Custom noise exclusion rules will be introduced as configurable options in `azlens.yaml` (`shared.ignore_errors`) on the roadmap.
+- **Streamlined `--debug` Output**:
+  - Simplified `--debug` / `-d` logging to output exclusively the executed KQL query statements (`[azlens:query]` / `[azlens:batch-query]`) without repeating the redundant Azure CLI command invocation or profile/target details.
+
 ## [1.1.16] - 2026-09-05
 
 ### Added

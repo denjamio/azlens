@@ -289,20 +289,16 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 	q := fmt.Sprintf(`union isfuzzy=true
 (
     exceptions
-%s
-    | where not(type in ('ActionController::RoutingError', 'NotFoundHttpException', 'Sinatra::NotFound', 'System.OperationCanceledException', 'System.Threading.Tasks.TaskCanceledException', 'Microsoft.AspNetCore.Connections.ConnectionResetException'))
-    | extend RawMsg = coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")
+%s    | extend RawMsg = coalesce(iff(isnotempty(innermostMessage), innermostMessage, outerMessage), message, type, "<empty>")
     | project timestamp, type, RawMsg, operation_Name
 ),
 (
     requests
-%s
-    | where success == false and (toint(resultCode) >= 500 or isempty(resultCode))
+%s    | where success == false and (toint(resultCode) >= 500 or isempty(resultCode))
     | extend type = iff(isempty(resultCode), 'HTTP 5xx', strcat('HTTP ', resultCode))
     | extend RawMsg = coalesce(name, "<empty>")
     | project timestamp, type, RawMsg, operation_Name = name
 )
-| where isempty(RawMsg) or not(RawMsg has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
 | summarize 
     Count = count(),
     SampleMessage = any(RawMsg),
