@@ -5,6 +5,13 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-09-05
+
+### Fixed
+
+- **Eliminated `BadArgumentError` on Dependencies Queries**: In Azure Monitor Application Insights, outbound `dependencies` records lack an `operation_Name` column (health check probes are strictly inbound HTTP requests). The query builder now restricts health probe exclusions to `requests` and `exceptions` (using defensive `column_ifexists('operation_Name', '')`), preventing `BadArgumentError: The request had some invalid properties` from failing window metrics queries during `azlens 24h`, `azlens inspect`, and deployment checks.
+- **Defensive Column Resolution in Deprecations Query**: Wrapped `operation_Name` in `BuildDeprecationsQuery` with `column_ifexists('operation_Name', '')` to ensure query stability across custom or sparse Application Insights workspace schemas.
+
 ## [1.1.3] - 2026-09-05
 
 ### Changed

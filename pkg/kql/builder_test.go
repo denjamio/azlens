@@ -83,6 +83,9 @@ func TestDependenciesTaxonomy(t *testing.T) {
 	if !strings.Contains(sqlQuery, "'Azure SQL'") || !strings.Contains(sqlQuery, "'PostgreSQL'") {
 		t.Errorf("expected SQL taxonomy to include Azure SQL and PostgreSQL, got: %s", sqlQuery)
 	}
+	if strings.Contains(sqlQuery, "operation_Name") {
+		t.Errorf("dependencies table in Azure Application Insights does not have operation_Name column, got: %s", sqlQuery)
+	}
 }
 
 func TestSanitizeNeutralizesKQLInjection(t *testing.T) {
@@ -342,8 +345,8 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	if !strings.Contains(q, "<UUID>") || !strings.Contains(q, "<ID>") {
 		t.Errorf("expected dynamic ID normalization in exceptions query, got: %s", q)
 	}
-	if !strings.Contains(q, "operation_Name has_any") {
-		t.Errorf("expected probe exclusion on operation_Name, got: %s", q)
+	if !strings.Contains(q, "column_ifexists('operation_Name', '') has_any") {
+		t.Errorf("expected probe exclusion with column_ifexists on operation_Name, got: %s", q)
 	}
 	// Both union branches must be partition-pruned by the same time window
 	if got := strings.Count(q, "timestamp between (datetime("); got != 2 {

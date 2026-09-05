@@ -180,8 +180,8 @@ func (b *QueryBuilder) buildBaseFilters() string {
 	// 6. Exclude health check probes unconditionally across all standard stacks and orchestrators
 	if strings.EqualFold(b.table, "requests") {
 		sb.WriteString("| where not(name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
-	} else if !strings.EqualFold(b.table, "MySqlSlowLogs") {
-		sb.WriteString("| where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
+	} else if strings.EqualFold(b.table, "exceptions") {
+		sb.WriteString("| where not(column_ifexists('operation_Name', '') has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))\n")
 	}
 
 	// 7. Custom Dimensions key-value scoping
@@ -300,7 +300,7 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
                       iff(isnotempty(column_ifexists('message', '')), column_ifexists('message', ''),
                       iff(isnotempty(column_ifexists('innermostMessage', '')), column_ifexists('innermostMessage', ''),
                       '<empty>')))
-    | project timestamp, type, RawMsg, operation_Name
+    | project timestamp, type, RawMsg, operation_Name = column_ifexists('operation_Name', '')
 ),
 (
     requests

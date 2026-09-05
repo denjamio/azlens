@@ -137,7 +137,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
 	}
 	roleFilter := fmt.Sprintf("\n    | where %s", equalityExpr("cloud_RoleName", target.RoleName))
 	syntheticFilter := "\n    | where isempty(column_ifexists('operation_SyntheticSource', ''))"
-	probeFilter := "\n    | where not(operation_Name has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))"
+	probeFilter := "\n    | where not(column_ifexists('operation_Name', '') has_any ('/healthz', '/readyz', '/livez', '/startupz', '/health', '/healthcheck', '/ping', '/status', '/ready', '/live', '/up', 'rails/health', 'HealthController', '/actuator/health', '/actuator/info') or tostring(column_ifexists('customDimensions', dynamic(null))['User-Agent']) has_any ('kube-probe', 'GoogleHC', 'ELB-HealthChecker', 'ReadyForTraffic', 'Consul', 'Prometheus'))"
 
 	if topN <= 0 {
 		topN = 15
@@ -154,13 +154,13 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
         'deprecated in', 'deprecated and will be removed', 'will be removed in',
         'is obsolete', 'CS0618', 'CS0612'
     ))
-    | project timestamp, message, operation_Name
+    | project timestamp, message, operation_Name = column_ifexists('operation_Name', '')
 ),
 (
     exceptions
     | where timestamp between (datetime('%s') .. datetime('%s'))%s%s%s
     | where type has_any ("deprecated", "deprecation", "obsolete", "deprecat", "RemovedInDjango") or column_ifexists('outerMessage', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango") or column_ifexists('message', '') has_any ("deprecated", "deprecation", "obsolete", "RemovedInDjango")
-    | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name
+    | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name = column_ifexists('operation_Name', '')
 )
 | where isnotempty(message)
 | extend NormalizedMsg = replace_regex(message, @":\d+", @":<line>")
