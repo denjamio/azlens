@@ -273,11 +273,10 @@ func (b *QueryBuilder) BuildDependenciesSummary(depType string) TargetQuery {
 	return TargetQuery{Query: sb.String(), Backend: b.backend}
 }
 
-// BuildExceptionsSummary groups exceptions and HTTP 5xx requests by type,
-// normalized message, and affected routes, filtering client/bot noise. HTTP 5xx
+// BuildExceptionsSummary groups exceptions and HTTP 5xx requests by structured type,
+// returning real sample messages and affected routes without regex overhead. HTTP 5xx
 // responses that never produced exception telemetry are synthesized from the
-// requests table as "HTTP <code>" signatures, so services that fail without
-// throwing tracked exceptions still surface in 'top errors'.
+// requests table as "HTTP <code>" signatures.
 func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
 	if err := b.checkTenancyFirewall(); err != nil {
 		return TargetQuery{Backend: b.backend, Err: err}
@@ -306,13 +305,14 @@ func (b *QueryBuilder) BuildExceptionsSummary() TargetQuery {
     | project timestamp, type, RawMsg, operation_Name
 )
 | where not(RawMsg has_any ('ClientClosedRequest', 'broken pipe', 'connection reset by peer', 'context canceled', 'request canceled'))
-| extend CleanMessage = replace_regex(replace_regex(RawMsg, @"[0-9a-fA-F-]{36}", @"<UUID>"), @"\b\d{2,}\b", @"<ID>")
 | summarize 
     Count = count(),
+    SampleMessage = any(RawMsg),
     FirstSeen = min(timestamp),
     LastSeen = max(timestamp),
     AffectedPaths = make_set(operation_Name, 10)
-  by type, CleanMessage
+  by type
+| project type, Message = SampleMessage, Count, FirstSeen, LastSeen, AffectedPaths
 | top %d by Count desc`, exceptionsBase, requestsBase, b.limit)
 	return TargetQuery{Query: q, Backend: b.backend}
 }

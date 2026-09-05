@@ -311,8 +311,11 @@ func TestBuildDeprecationsQuery(t *testing.T) {
 	if !strings.Contains(q, "message startswith \"SELECT\"") {
 		t.Errorf("expected SQL noise filter in deprecations query, got: %s", q)
 	}
-	if !strings.Contains(q, ":<line>") {
-		t.Errorf("expected line number normalization in deprecations query, got: %s", q)
+	if strings.Contains(q, "replace_regex") {
+		t.Errorf("deprecations query should not contain regex normalization, got: %s", q)
+	}
+	if !strings.Contains(q, "substring(message, 0, 200)") {
+		t.Errorf("expected substring grouping in deprecations query, got: %s", q)
 	}
 }
 
@@ -336,8 +339,14 @@ func TestBuildExceptionsSummaryNoiseFiltering(t *testing.T) {
 	if !strings.Contains(q, "ClientClosedRequest") {
 		t.Errorf("expected client drop filter in exceptions query, got: %s", q)
 	}
-	if !strings.Contains(q, "<UUID>") || !strings.Contains(q, "<ID>") {
-		t.Errorf("expected dynamic ID normalization in exceptions query, got: %s", q)
+	if strings.Contains(q, "replace_regex") {
+		t.Errorf("exceptions query should not contain regex normalization, got: %s", q)
+	}
+	if !strings.Contains(q, "SampleMessage = any(RawMsg)") {
+		t.Errorf("expected native sample message extraction in exceptions query, got: %s", q)
+	}
+	if !strings.Contains(q, "by type") {
+		t.Errorf("expected grouping by structured type, got: %s", q)
 	}
 	// Both union branches must be partition-pruned by the same time window
 	if got := strings.Count(q, "timestamp between (datetime("); got != 2 {

@@ -161,15 +161,12 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
     | project timestamp, message = iff(isnotempty(column_ifexists('outerMessage', '')), column_ifexists('outerMessage', ''), column_ifexists('message', '')), operation_Name = column_ifexists('operation_Name', '')
 )
 | where isnotempty(message)
-| extend NormalizedMsg = replace_regex(message, @":\d+", @":<line>")
-| extend NormalizedMsg = replace_regex(NormalizedMsg, @"\(node:\d+\)", @"(node:<pid>)")
-| extend NormalizedMsg = replace_regex(NormalizedMsg, @"0x[0-9a-fA-F]+", @"0x<hex>")
-| summarize
+| summarize 
     Count = count(),
     FirstSeen = min(timestamp),
     LastSeen = max(timestamp),
     AffectedEndpoints = make_set(operation_Name, 5)
-  by CleanMessage = substring(NormalizedMsg, 0, 250)
+  by CleanMessage = substring(message, 0, 200)
 | top %d by Count desc`, FormatTime(start), FormatTime(end), roleFilter, syntheticFilter,
 		FormatTime(start), FormatTime(end), roleFilter, syntheticFilter, topN)
 

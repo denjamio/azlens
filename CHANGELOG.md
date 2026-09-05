@@ -5,6 +5,15 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - 2026-09-05
+
+### Changed
+
+- **Eliminated Regex Normalization in Favor of Native Structured Telemetry Fields**: Removed all `replace_regex` evaluation from `BuildExceptionsSummary` and `BuildDeprecationsQuery`.
+  - In `exceptions`: Grouping is now anchored on the canonical, structured `type` column (e.g. `ActiveRecord::RecordNotFound`, `NullPointerException`, `HTTP 500`), extracting authentic sample messages via `SampleMessage = any(RawMsg)` and tracking affected endpoints with `AffectedPaths = make_set(operation_Name, 10)` without artificial `<UUID>` / `<ID>` masking.
+  - In `deprecations`: Removed sequential line/PID/hex regex passes in favor of native, zero-regex prefix slicing (`substring(message, 0, 200)`), capitalizing on static framework deprecation headers.
+  - Zero regex engine overhead in Kusto, cleaner human-readable queries, and instant vectorized query execution.
+
 ## [1.1.6] - 2026-09-05
 
 ### Changed
