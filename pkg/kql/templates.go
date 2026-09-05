@@ -152,7 +152,7 @@ func BuildDeprecationsQuery(start, end time.Time, target config.TargetConfig, to
         'DEPRECATION WARNING', 'DeprecationWarning', 'PendingDeprecationWarning',
         'RemovedInDjango', '[DEP', '[DEPRECATION]', 'is deprecated', 'has been deprecated',
         'deprecated in', 'deprecated and will be removed', 'will be removed in',
-        'is obsolete', 'CS0618', 'CS0612', 'Since rails'
+        'is obsolete', 'CS0618', 'CS0612'
     ))
     | project timestamp, message, operation_Name
 ),
