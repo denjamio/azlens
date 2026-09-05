@@ -137,7 +137,7 @@ Exit codes:
 		// Scenario J: Insufficient baseline period
 		minRequiredCalls := rt.Profile.Thresholds.MinSampleCalls
 		if minRequiredCalls <= 0 {
-			minRequiredCalls = 5
+			minRequiredCalls = 10
 		}
 		if baseErr != nil || baseWM.Overall.TotalCalls < minRequiredCalls {
 			snapshot.CapabilityStates[domain.CapabilityRequests] = domain.CapabilityStateUnavailable

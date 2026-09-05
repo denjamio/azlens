@@ -284,7 +284,7 @@ shared:
     p95_latency_crit_pct: 30.0
     error_rate_warn_delta: 1.0
     error_rate_crit_delta: 3.0
-    min_sample_calls: 5
+    min_sample_calls: 10
 
 profiles:
   prod:

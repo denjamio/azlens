@@ -177,7 +177,7 @@ func TestMinimumSampleCallsAsymmetric(t *testing.T) {
 		{Name: "POST /sporadic", TotalCalls: 50, ErrorRate: 10.0, Latency: model.LatencyPercentiles{P95: 500.0}},
 	}
 
-	cfg := detectors.DefaultConfig() // default MinSampleCalls is 5
+	cfg := detectors.DefaultConfig() // default MinSampleCalls is 10
 	registry := detectors.NewDefaultRegistry(cfg)
 	findings := registry.Run(snap)
 

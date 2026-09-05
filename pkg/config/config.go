@@ -338,7 +338,7 @@ func DefaultConfig() *Config {
 				LatencyCritPct:     30.0,
 				ErrorRateWarnDelta: 1.0,
 				ErrorRateCritDelta: 3.0,
-				MinSampleCalls:     5,
+				MinSampleCalls:     10,
 			},
 		},
 		Profiles: map[string]Profile{
@@ -358,7 +358,7 @@ func DefaultConfig() *Config {
 					LatencyCritPct:     50.0,
 					ErrorRateWarnDelta: 2.0,
 					ErrorRateCritDelta: 5.0,
-					MinSampleCalls:     5,
+					MinSampleCalls:     10,
 				},
 			},
 			"dev": {
@@ -415,7 +415,7 @@ shared:
     p95_latency_crit_pct: 30.0
     error_rate_warn_delta: 1.0
     error_rate_crit_delta: 3.0
-    min_sample_calls: 5
+    min_sample_calls: 10
 
 # Environment targets: only what differs per environment
 # - insights.name: App Insights resource name or App ID GUID

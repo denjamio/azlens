@@ -203,7 +203,7 @@ shared:
   thresholds:
     p95_latency_warn_pct: 15.0
     p95_latency_crit_pct: 30.0
-    min_sample_calls: 5
+    min_sample_calls: 10
 
 profiles:
   prod:
@@ -257,7 +257,7 @@ profiles:
 	if prod.Target.CustomDimensions["team"] != "platform" {
 		t.Errorf("expected shared custom_dimensions inherited, got: %v", prod.Target.CustomDimensions)
 	}
-	if prod.Thresholds.LatencyWarnPct != 15.0 || prod.Thresholds.MinSampleCalls != 5 {
+	if prod.Thresholds.LatencyWarnPct != 15.0 || prod.Thresholds.MinSampleCalls != 10 {
 		t.Errorf("expected shared thresholds inherited by prod, got: %+v", prod.Thresholds)
 	}
 
@@ -269,7 +269,7 @@ profiles:
 	if staging.Target.RoleName != "billing-service" {
 		t.Errorf("expected profile role_name override to win over shared, got %v", staging.Target.RoleName)
 	}
-	if staging.Thresholds.LatencyWarnPct != 25.0 || staging.Thresholds.MinSampleCalls != 5 {
+	if staging.Thresholds.LatencyWarnPct != 25.0 || staging.Thresholds.MinSampleCalls != 10 {
 		t.Errorf("expected staging threshold override to win with rest inherited, got: %+v", staging.Thresholds)
 	}
 	if staging.Target.Pod != "order-service" || staging.Target.Logs.Database != "backend_ror" {
