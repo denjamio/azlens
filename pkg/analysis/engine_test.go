@@ -172,15 +172,8 @@ func TestScenarioE_AvailabilityFailure(t *testing.T) {
 	snap := newTestSnapshot("backend")
 	now := time.Now()
 	snap.Freshness.RequestsLastSeen = &now
-
-	snap.Availability = []domain.AvailabilityMetric{
-		{
-			TestName:    "checkout-synthetic-probe",
-			TotalTests:  50,
-			FailedTests: 10,
-			SuccessRate: 80.0,
-		},
-	}
+	snap.CurrentOverall.TotalCalls = 100
+	snap.CurrentOverall.HTTP5xx = 20
 
 	engine := analysis.NewEngine(detectors.DefaultConfig())
 	res := engine.Analyze(snap)
@@ -352,3 +345,80 @@ func TestCrossServiceCausalIsolation(t *testing.T) {
 		t.Errorf("expected inventory-service role, got %s", depProb.Scope.Role)
 	}
 }
+
+func TestCorrelator_NoPanicOnDependencyWithoutBaselineChange(t *testing.T) {
+	snap := newTestSnapshot("order-service")
+	correlator := analysis.NewCorrelator()
+
+	findings := []domain.Finding{
+		{
+			Kind:        domain.FindingRequestLatencyRegression,
+			Scope:       domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
+			Severity:    "CRITICAL",
+			SampleCount: 1000,
+			Evidence: []domain.Evidence{
+				{
+					Signal:   "p95 latency",
+					Current:  domain.Value{Val: 1500.0, Text: "1500ms"},
+					Baseline: &domain.Value{Val: 200.0, Text: "200ms"},
+					Change:   &domain.Change{Delta: 1300.0, Pct: 650.0},
+					Scope:    domain.Scope{Role: "order-service", Endpoint: "POST /orders"},
+				},
+			},
+		},
+		{
+			Kind:        domain.FindingDependencyErrorRegression,
+			Scope:       domain.Scope{Role: "order-service", Target: "payment-gw"},
+			Severity:    "CRITICAL",
+			SampleCount: 500,
+			Evidence: []domain.Evidence{
+				{
+					Signal:  "dependency error rate",
+					Current: domain.Value{Val: 25.0, Text: "25.0%"},
+					// Deliberately nil Change (no baseline)
+					Change: nil,
+					Scope:  domain.Scope{Role: "order-service", Target: "payment-gw"},
+				},
+			},
+		},
+	}
+
+	// Must not panic!
+	problems, _ := correlator.Correlate(snap, findings)
+	if len(problems) != 1 {
+		t.Fatalf("expected 1 correlated problem, got %d", len(problems))
+	}
+	if problems[0].Cause == nil {
+		t.Fatalf("expected correlated cause, got nil")
+	}
+	if problems[0].Cause.Summary != "payment-gw" {
+		t.Errorf("expected cause 'payment-gw', got %q", problems[0].Cause.Summary)
+	}
+}
+
+func TestCorrelator_ExceptionRegressionMappedToWatching(t *testing.T) {
+	snap := newTestSnapshot("order-service")
+	correlator := analysis.NewCorrelator()
+
+	findings := []domain.Finding{
+		{
+			Kind:        domain.FindingExceptionRegression,
+			Scope:       domain.Scope{Role: "order-service", Endpoint: "GET /health"},
+			Summary:     "Exception TimeoutException increased +150% (20 -> 50)",
+			Severity:    "WARNING",
+			SampleCount: 50,
+		},
+	}
+
+	problems, watching := correlator.Correlate(snap, findings)
+	if len(problems) != 0 {
+		t.Errorf("expected 0 problems for orphan exception regression, got %d", len(problems))
+	}
+	if len(watching) != 1 {
+		t.Fatalf("expected 1 watching item, got %d", len(watching))
+	}
+	if watching[0].Summary != "Exception TimeoutException increased +150% (20 -> 50)" {
+		t.Errorf("unexpected watching summary: %s", watching[0].Summary)
+	}
+}
+

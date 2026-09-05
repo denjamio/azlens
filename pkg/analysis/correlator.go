@@ -151,8 +151,8 @@ func (c *Correlator) Correlate(snapshot *domain.Snapshot, findings []domain.Find
 			continue
 		}
 		switch f.Kind {
-		case domain.FindingNewException:
-			// Scenario C: Low impact new exception -> Worth Watching!
+		case domain.FindingNewException, domain.FindingExceptionRegression:
+			// Scenario C: Low impact exception finding -> Worth Watching!
 			started := f.StartedAt
 			timeStr := ""
 			if started != nil && !started.IsZero() {
@@ -340,9 +340,26 @@ func buildEndpointProblem(
 	if depFinding != nil {
 		symptoms = append(symptoms, *depFinding)
 		depTarget := depFinding.Scope.Target
+
+		var depSignal string
+		if len(depFinding.Evidence) > 0 {
+			ev := depFinding.Evidence[0]
+			if ev.Change != nil && ev.Change.Pct != 0 {
+				depSignal = fmt.Sprintf("dependency p95 increased %.0f%%", ev.Change.Pct)
+			} else if ev.Change != nil && ev.Change.Delta != 0 {
+				depSignal = fmt.Sprintf("dependency error rate increased %.1fpp", ev.Change.Delta)
+			} else if ev.Current.Text != "" {
+				depSignal = fmt.Sprintf("dependency failure rate at %s", ev.Current.Text)
+			} else {
+				depSignal = "downstream dependency degraded"
+			}
+		} else {
+			depSignal = "downstream dependency degraded"
+		}
+
 		evidenceList := []domain.Evidence{
 			{
-				Signal: fmt.Sprintf("dependency p95 increased %.0f%%", depFinding.Evidence[0].Change.Pct),
+				Signal: depSignal,
 			},
 			{
 				Signal: "degradation started in the same interval",

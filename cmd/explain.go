@@ -9,11 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/denjamio/azlens/pkg/analysis"
-	"github.com/denjamio/azlens/pkg/analysis/detectors"
 	"github.com/denjamio/azlens/pkg/domain"
 	"github.com/denjamio/azlens/pkg/reporter"
-	"github.com/denjamio/azlens/pkg/telemetry"
 )
 
 // explainCmd represents the explain command (Section 6.2).
@@ -56,18 +53,12 @@ Exact matches win; ambiguous matches return deterministic candidates without gue
 		}
 		windowLabel := formatWindowLabel(start, end)
 
-		// 1. Fetch source-neutral telemetry snapshot
-		builder := telemetry.NewSnapshotBuilder(rt.Client)
-		snap, err := builder.BuildSnapshot(ctx, rt.ProfileName, rt.Profile, start, end, windowLabel)
-		if err != nil && snap == nil {
+		pipeRes, err := runAnalysisPipeline(ctx, rt, start, end, windowLabel)
+		if err != nil {
 			return err
 		}
-
-		// 2. Analyze snapshot
-		detCfg := detectors.ConfigFromThresholds(rt.Profile.Thresholds)
-
-		engine := analysis.NewEngine(detCfg)
-		res := engine.Analyze(snap)
+		snap := pipeRes.Snapshot
+		res := pipeRes.Analysis
 
 		// 3. Resolve subject to target problem or component
 		var configuredServices []string

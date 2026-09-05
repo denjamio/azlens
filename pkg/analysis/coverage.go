@@ -21,7 +21,6 @@ func (c *CapabilityEvaluator) EvaluateCoverage(snapshot *domain.Snapshot) []doma
 		domain.CapabilityRequests,
 		domain.CapabilityDependencies,
 		domain.CapabilityExceptions,
-		domain.CapabilityAvailability,
 		domain.CapabilityDatabaseSlowLogs,
 	}
 
@@ -104,12 +103,6 @@ func (c *CapabilityEvaluator) evaluateCapability(snapshot *domain.Snapshot, capT
 			return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
 		}
 		return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
-
-	case domain.CapabilityAvailability:
-		if len(snapshot.Availability) > 0 {
-			return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateAvailable}
-		}
-		return domain.CapabilityStatus{Capability: capType, State: domain.CapabilityStateNotConfigured}
 
 	case domain.CapabilityDatabaseSlowLogs:
 		if len(snapshot.SlowLogs) > 0 {

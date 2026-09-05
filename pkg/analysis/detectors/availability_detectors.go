@@ -87,26 +87,6 @@ func (d *AvailabilityFailureDetector) Name() string {
 func (d *AvailabilityFailureDetector) Detect(snapshot *domain.Snapshot) []domain.Finding {
 	var findings []domain.Finding
 
-	// Synthetic availability tests
-	for _, a := range snapshot.Availability {
-		if a.FailedTests > 0 || a.SuccessRate < 99.0 {
-			scope := domain.Scope{Role: snapshot.Scope.Role, Target: a.TestName}
-			findings = append(findings, domain.Finding{
-				Kind:     domain.FindingAvailabilityFailure,
-				Scope:    scope,
-				Summary:  fmt.Sprintf("Availability test '%s' degraded (%.1f%% success rate, %d failures)", a.TestName, a.SuccessRate, a.FailedTests),
-				Severity: "CRITICAL",
-				Evidence: []domain.Evidence{
-					{
-						Signal:  "availability success rate",
-						Current: domain.Value{Val: a.SuccessRate, Unit: "%", Text: fmt.Sprintf("%.1f%%", a.SuccessRate)},
-						Scope:   scope,
-					},
-				},
-			})
-		}
-	}
-
 	// Severe HTTP 5xx / 503 degradation
 	curr := snapshot.CurrentOverall
 	if curr.TotalCalls >= d.cfg.MinSampleCalls && curr.HTTP5xx > 0 {

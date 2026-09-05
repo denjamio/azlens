@@ -7,11 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/denjamio/azlens/pkg/analysis"
-	"github.com/denjamio/azlens/pkg/analysis/detectors"
 	"github.com/denjamio/azlens/pkg/domain"
 	"github.com/denjamio/azlens/pkg/reporter"
-	"github.com/denjamio/azlens/pkg/telemetry"
 )
 
 var (
@@ -68,11 +65,12 @@ Exit codes:
 			timeLabel = currStart.Format("15:04")
 		}
 
-		builder := telemetry.NewSnapshotBuilder(rt.Client)
-		snapshot, err := builder.BuildSnapshot(ctx, rt.ProfileName, rt.Profile, currStart, currEnd, fmt.Sprintf("deploy at %s", timeLabel))
-		if err != nil && snapshot == nil {
+		pipeRes, err := runAnalysisPipeline(ctx, rt, currStart, currEnd, fmt.Sprintf("deploy at %s", timeLabel))
+		if err != nil {
 			return err
 		}
+		snapshot := pipeRes.Snapshot
+		res := pipeRes.Analysis
 
 		// Scenario J: Insufficient baseline period or failed baseline query
 		minRequiredCalls := rt.Profile.Thresholds.MinSampleCalls
@@ -82,15 +80,6 @@ Exit codes:
 		insufficientBaseline := snapshot.BaselineOverall == nil || snapshot.BaselineOverall.TotalCalls < minRequiredCalls || snapshot.QueryErrors[domain.CapabilityRequests] != nil
 		if insufficientBaseline {
 			snapshot.CapabilityStates[domain.CapabilityRequests] = domain.CapabilityStateUnavailable
-		}
-
-		// Analyze
-		detCfg := detectors.ConfigFromThresholds(rt.Profile.Thresholds)
-		engine := analysis.NewEngine(detCfg)
-		res := engine.Analyze(snapshot)
-
-		// If baseline was insufficient, mark unknown explicitly (Scenario J)
-		if insufficientBaseline {
 			res.State = domain.HealthStateUnknown
 			res.StatusMessage = "Baseline period has insufficient samples to determine safety."
 		}

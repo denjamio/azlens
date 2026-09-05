@@ -1,159 +1,55 @@
 package cmd
 
 import (
-	"context"
-	"os"
-	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
-
-	"github.com/denjamio/azlens/pkg/config"
 )
 
-// fakeAzAccountShow builds an az stub that emulates 'az account show': exit 0
-// (subscription in session) for allowed IDs, exit 1 otherwise. Any other az
-// invocation fails loudly so unexpected calls surface in tests.
-func fakeAzAccountShow(t *testing.T, allowedSubs []string) string {
-	t.Helper()
-	dir := t.TempDir()
-	listEcho := ""
-	cases := ""
-	for _, s := range allowedSubs {
-		listEcho += "  echo " + s + "\n"
-		cases += "    " + s + ") echo " + s + "; exit 0 ;;\n"
-	}
-	script := "#!/bin/sh\n" +
-		"case \"$*\" in\n" +
-		"  *\"account list\"*)\n" +
-		listEcho +
-		"    exit 0 ;;\n" +
-		"  *\"account set\"*|*\"account show\"*)\n" +
-		"    for s in " + strings.Join(allowedSubs, " ") + "; do\n" +
-		"      case \"$*\" in\n" +
-		"        *\"$s\"*) echo \"$s\"; exit 0 ;;\n" +
-		"      esac\n" +
-		"    done\n" +
-		"    echo SubscriptionNotFound >&2; exit 1 ;;\n" +
-		"esac\n" +
-		"echo \"unexpected az invocation: $@\" >&2; exit 42\n"
-	path := filepath.Join(dir, "az")
-	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-		t.Fatalf("failed writing fake az script: %v", err)
-	}
-	return dir
-}
-
-func TestSubscriptionAccessible(t *testing.T) {
-	stub := fakeAzAccountShow(t, []string{"sub-ok"})
-	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	ok, err := subscriptionAccessible(context.Background(), "sub-ok", "tenant-ok")
-	if err != nil || !ok {
-		t.Errorf("expected subscription 'sub-ok' accessible, got ok=%v err=%v", ok, err)
-	}
-
-	ok, err = subscriptionAccessible(context.Background(), "sub-missing", "tenant-missing")
-	if err != nil {
-		t.Errorf("expected nil error for missing subscription (needs login), got: %v", err)
-	}
-	if ok {
-		t.Errorf("expected subscription 'sub-missing' to be inaccessible")
-	}
-}
-
-func TestConfiguredSubscriptionsDedup(t *testing.T) {
-	prof := config.Profile{
-		Target: config.TargetConfig{
-			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
-			Logs:     config.LogsConfig{SubscriptionID: "sub-b"},
+func TestAzLoginArgs(t *testing.T) {
+	tests := []struct {
+		tenant string
+		want   []string
+	}{
+		{
+			tenant: "",
+			want:   []string{"login"},
+		},
+		{
+			tenant: "my-tenant-guid",
+			want:   []string{"login", "--tenant", "my-tenant-guid"},
 		},
 	}
-	got := configuredSubscriptions(prof)
-	if len(got) != 2 || got[0] != "sub-a" || got[1] != "sub-b" {
-		t.Errorf("expected [sub-a sub-b], got %v", got)
-	}
 
-	same := config.Profile{
-		Target: config.TargetConfig{
-			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
-			Logs:     config.LogsConfig{SubscriptionID: "sub-a"},
-		},
-	}
-	got = configuredSubscriptions(same)
-	if len(got) != 1 || got[0] != "sub-a" {
-		t.Errorf("expected deduplicated [sub-a], got %v", got)
-	}
-
-	empty := configuredSubscriptions(config.Profile{})
-	if len(empty) != 0 {
-		t.Errorf("expected no subscriptions, got %v", empty)
+	for _, tt := range tests {
+		got := azLoginArgs(tt.tenant)
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("azLoginArgs(%q) = %v, want %v", tt.tenant, got, tt.want)
+		}
 	}
 }
 
-func TestEnsureSubscriptionSessions(t *testing.T) {
-	t.Run("all accessible", func(t *testing.T) {
-		stub := fakeAzAccountShow(t, []string{"sub-a", "sub-b"})
-		t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-		prof := config.Profile{Target: config.TargetConfig{
-			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
-			Logs:     config.LogsConfig{SubscriptionID: "sub-b"},
-		}}
-		if err := ensureSubscriptionSessions(prof); err != nil {
-			t.Errorf("expected nil error when all subscriptions are in session, got: %v", err)
-		}
-	})
-
-	t.Run("no subscriptions configured", func(t *testing.T) {
-		// Without the stub in PATH: no az invocation must happen at all
-		prof := config.Profile{Target: config.TargetConfig{
-			Insights: config.InsightsConfig{Name: "app-only"},
-		}}
-		if err := ensureSubscriptionSessions(prof); err != nil {
-			t.Errorf("expected nil error with no configured subscriptions, got: %v", err)
-		}
-	})
-
-	t.Run("missing subscription on non-tty fails fast with hint", func(t *testing.T) {
-		stub := fakeAzAccountShow(t, []string{"sub-a"})
-		t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-		// Test stdin/stdout are pipes (not char devices), so the interactive
-		// 'az login' launch must be skipped and the run must fail fast
-		prof := config.Profile{Target: config.TargetConfig{
-			Insights: config.InsightsConfig{SubscriptionID: "sub-a"},
-			Logs:     config.LogsConfig{SubscriptionID: "sub-missing", DirectoryID: "dir-logs"},
-		}}
-		err := ensureSubscriptionSessions(prof)
-		if err == nil {
-			t.Fatalf("expected error for subscription missing from session")
-		}
-		if !strings.Contains(err.Error(), "sub-missing") {
-			t.Errorf("expected error to name the missing subscription:\n%s", err)
-		}
-		if !strings.Contains(err.Error(), "az login --tenant") {
-			t.Errorf("expected actionable login hint in error:\n%s", err)
-		}
-		if !strings.Contains(err.Error(), "dir-logs") {
-			t.Errorf("expected hint to use the configured directory_id:\n%s", err)
-		}
-	})
-}
-
-func TestLoginHint(t *testing.T) {
-	resetRootFlags()
-	defer resetRootFlags()
-
-	// With a directory_id the hint includes az login --tenant <tenant>
-	b := backendSession{subscription: "sub-b", tenant: "dir-b"}
-	want := "az login --tenant dir-b"
-	if got := loginHint(b); got != want {
-		t.Errorf("loginHint mismatch:\n got: %s\nwant: %s", got, want)
+func TestAzLoginCmd(t *testing.T) {
+	cmd := azLoginCmd("tenant-123")
+	if cmd.Path != "az" && !reflect.DeepEqual(cmd.Args, []string{"az", "login", "--tenant", "tenant-123"}) {
+		t.Errorf("unexpected cmd args: %v", cmd.Args)
 	}
 
-	// Without a directory_id the hint falls back to the generic tenant login
-	b = backendSession{subscription: "sub-b"}
-	if got := loginHint(b); got != "az login --tenant <directory-id of sub-b>" {
-		t.Errorf("fallback loginHint mismatch, got: %s", got)
+	var hasOptOut bool
+	for _, env := range cmd.Env {
+		if env == "AZURE_CORE_LOGIN_EXPERIENCE_V2=off" {
+			hasOptOut = true
+			break
+		}
+	}
+	if !hasOptOut {
+		t.Errorf("expected AZURE_CORE_LOGIN_EXPERIENCE_V2=off in cmd.Env")
 	}
 }
+
+func TestIsInteractiveTerminal(t *testing.T) {
+	// In go test running inside pipe or non-tty, this should return false
+	got := isInteractiveTerminal()
+	// Just verify it runs without crashing and returns boolean
+	_ = got
+}
+

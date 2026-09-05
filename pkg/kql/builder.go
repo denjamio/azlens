@@ -272,7 +272,8 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     P = percentiles_array(duration, 50, 75, 90, 95, 99),
     Count2xx = countif(toint(resultCode) >= 200 and toint(resultCode) < 300),
     Count4xx = countif(toint(resultCode) >= 400 and toint(resultCode) < 500),
-    Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false))
+    Count5xx = countif(toint(resultCode) >= 500 or (isempty(resultCode) and success == false)),
+    LastSeen = max(timestamp)
 | extend 
     P50 = todouble(P[0]),
     P75 = todouble(P[1]),
@@ -280,7 +281,7 @@ func (b *QueryBuilder) BuildRequestsSummary() TargetQuery {
     P95 = todouble(P[3]),
     P99 = todouble(P[4]),
     ErrorRate = iff(TotalCalls > 0, round(100.0 * toreal(FailedCalls) / toreal(TotalCalls), 2), 0.0)
-| project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx`
+| project TotalCalls, FailedCalls, AvgDuration, MinDuration, MaxDuration, P50, P75, P90, P95, P99, ErrorRate, Count2xx, Count4xx, Count5xx, LastSeen`
 	return TargetQuery{ID: QueryIDRequestsSummary, Query: q, Backend: b.backend}
 }
 

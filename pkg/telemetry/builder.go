@@ -74,11 +74,13 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	baseEnd := start
 
 	var (
-		wg      sync.WaitGroup
-		baseWM  model.WindowMetrics
-		currWM  model.WindowMetrics
-		baseErr error
-		currErr error
+		wg         sync.WaitGroup
+		baseWM     model.WindowMetrics
+		currWM     model.WindowMetrics
+		baseErr    error
+		currErr    error
+		slowGroups []model.SlowLogGroup
+		slowErr    error
 	)
 
 	fetchCtx, cancelFetch := context.WithCancel(ctx)
@@ -102,6 +104,14 @@ func (b *SnapshotBuilder) BuildSnapshot(
 		}
 	}()
 
+	if prof.Target.Logs.Database != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slowGroups, slowErr = b.client.QueryMySQLSlowLogsGrouped(fetchCtx, start, end, prof.Target.Logs.Database, 15)
+		}()
+	}
+
 	wg.Wait()
 
 	if currErr != nil {
@@ -118,22 +128,23 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	}
 	PopulateSnapshotMetrics(snapshot, pBase, &currWM)
 
-	// Set freshness
+	// Set freshness using actual telemetry timestamp rather than query window boundary
 	if currWM.Overall.TotalCalls > 0 {
-		reqLast := end
+		reqLast := currWM.Overall.LastSeen
 		for _, e := range currWM.Errors {
 			if e.LastSeen.After(reqLast) {
 				reqLast = e.LastSeen
 			}
 		}
-		snapshot.Freshness.RequestsLastSeen = &reqLast
+		if !reqLast.IsZero() {
+			snapshot.Freshness.RequestsLastSeen = &reqLast
+		}
 	}
 
-	// If slow logs are configured, fetch them
+	// Record slow logs telemetry if configured
 	if prof.Target.Logs.Database != "" {
-		slowGroups, err := b.client.QueryMySQLSlowLogsGrouped(ctx, start, end, prof.Target.Logs.Database, 15)
-		if err != nil {
-			snapshot.QueryErrors[domain.CapabilityDatabaseSlowLogs] = err
+		if slowErr != nil {
+			snapshot.QueryErrors[domain.CapabilityDatabaseSlowLogs] = slowErr
 			snapshot.CapabilityStates[domain.CapabilityDatabaseSlowLogs] = domain.CapabilityStateUnavailable
 		} else {
 			snapshot.SlowLogs = slowGroups

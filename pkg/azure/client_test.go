@@ -2,6 +2,8 @@ package azure
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -197,3 +199,71 @@ func TestParseAzQueryOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestAzCliClientSandbox(t *testing.T) {
+	// Create a dummy source .azure dir
+	sourceDir := t.TempDir()
+	profileContent := []byte(`{"installationId": "test-id", "subscriptions": []}`)
+	if err := os.WriteFile(filepath.Join(sourceDir, "azureProfile.json"), profileContent, 0600); err != nil {
+		t.Fatalf("failed to write dummy profile: %v", err)
+	}
+	tokenContent := []byte("dummy-token-cache")
+	if err := os.WriteFile(filepath.Join(sourceDir, "msal_token_cache.bin"), tokenContent, 0600); err != nil {
+		t.Fatalf("failed to write dummy token cache: %v", err)
+	}
+
+	t.Setenv("AZURE_CONFIG_DIR", sourceDir)
+
+	client := NewClient(ClientOptions{
+		IsMock: false,
+	})
+
+	cliClient, ok := client.(*AzCliClient)
+	if !ok {
+		t.Fatalf("expected *AzCliClient, got %T", client)
+	}
+
+	if cliClient.sandboxDir == "" {
+		t.Fatalf("expected sandboxDir to be created")
+	}
+
+	// Verify sandbox directory exists
+	info, err := os.Stat(cliClient.sandboxDir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("expected sandboxDir to be a valid directory, got err=%v", err)
+	}
+
+	// Verify azureProfile.json was copied
+	profileCopy, err := os.ReadFile(filepath.Join(cliClient.sandboxDir, "azureProfile.json"))
+	if err != nil {
+		t.Fatalf("failed to read copied azureProfile.json: %v", err)
+	}
+	if string(profileCopy) != string(profileContent) {
+		t.Errorf("copied profile mismatch: got %s, want %s", string(profileCopy), string(profileContent))
+	}
+
+	// Verify prepareAzCmd injects AZURE_CONFIG_DIR
+	cmd := cliClient.prepareAzCmd(context.Background(), "account", "show")
+	var foundConfigDir bool
+	for _, env := range cmd.Env {
+		if env == "AZURE_CONFIG_DIR="+cliClient.sandboxDir {
+			foundConfigDir = true
+			break
+		}
+	}
+	if !foundConfigDir {
+		t.Errorf("expected cmd.Env to contain AZURE_CONFIG_DIR=%s, got: %v", cliClient.sandboxDir, cmd.Env)
+	}
+
+	sandboxPath := cliClient.sandboxDir
+
+	// Verify Close cleans up sandbox directory
+	if err := cliClient.Close(); err != nil {
+		t.Fatalf("expected Close() to succeed, got: %v", err)
+	}
+
+	if _, err := os.Stat(sandboxPath); !os.IsNotExist(err) {
+		t.Errorf("expected sandbox directory to be deleted after Close(), but stat returned err=%v", err)
+	}
+}
+

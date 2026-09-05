@@ -162,3 +162,40 @@ func TestBuildSnapshotCurrentQueryError(t *testing.T) {
 		t.Errorf("expected QueryErrors to record CapabilityRequests error")
 	}
 }
+
+func TestBuildSnapshot_RealFreshness(t *testing.T) {
+	now := time.Now()
+	start := now.Add(-time.Hour)
+	end := now
+	realLastSeen := now.Add(-12 * time.Minute)
+
+	mock := &mockClient{
+		windowMetricsFn: func(ctx context.Context, s, e time.Time, topN int) (model.WindowMetrics, error) {
+			if azure.IsBaseline(ctx) {
+				return model.WindowMetrics{}, nil
+			}
+			return model.WindowMetrics{
+				Overall: model.RequestMetric{
+					TotalCalls: 100,
+					LastSeen:   realLastSeen,
+				},
+			}, nil
+		},
+	}
+
+	b := telemetry.NewSnapshotBuilder(mock)
+	prof := config.Profile{Target: config.TargetConfig{Service: "test-svc"}}
+
+	snap, err := b.BuildSnapshot(context.Background(), "prod", prof, start, end, "1h")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if snap.Freshness.RequestsLastSeen == nil {
+		t.Fatalf("expected RequestsLastSeen to be set")
+	}
+	if !snap.Freshness.RequestsLastSeen.Equal(realLastSeen) {
+		t.Errorf("expected RequestsLastSeen %v, got %v (should NOT be window end %v)", realLastSeen, *snap.Freshness.RequestsLastSeen, end)
+	}
+}
+

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,6 +86,8 @@ type AzCliClient struct {
 	opts               ClientOptions
 	mu                 sync.Mutex
 	activeSubscription string
+	sandboxDir         string
+	extensionDir       string
 }
 
 // NewClient returns a new AzureClient instance (real or mock)
@@ -92,7 +95,97 @@ func NewClient(opts ClientOptions) AzureClient {
 	if opts.IsMock {
 		return NewMockClient(opts)
 	}
-	return &AzCliClient{opts: opts}
+	client := &AzCliClient{opts: opts}
+	client.initSandbox()
+	return client
+}
+
+// initSandbox creates an isolated ephemeral AZURE_CONFIG_DIR for this client session.
+// This prevents concurrent azlens processes or user CLI commands from colliding over
+// the active subscription context in ~/.azure/azureProfile.json.
+func (c *AzCliClient) initSandbox() {
+	sourceDir := os.Getenv("AZURE_CONFIG_DIR")
+	if sourceDir == "" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			sourceDir = filepath.Join(home, ".azure")
+		}
+	}
+
+	extDir := os.Getenv("AZURE_EXTENSION_DIR")
+	if extDir == "" && sourceDir != "" {
+		extDir = filepath.Join(sourceDir, "cliextensions")
+	}
+	c.extensionDir = extDir
+
+	tmpDir, err := os.MkdirTemp("", "azlens-azure-*")
+	if err != nil {
+		if c.opts.Debug {
+			fmt.Fprintf(os.Stderr, "[azlens:debug] Warning: failed to create azure sandbox temp dir: %v\n", err)
+		}
+		return
+	}
+	c.sandboxDir = tmpDir
+
+	if sourceDir != "" {
+		// Copy azureProfile.json so switching subscription only mutates this sandbox
+		profileSrc := filepath.Join(sourceDir, "azureProfile.json")
+		if data, err := os.ReadFile(profileSrc); err == nil {
+			_ = os.WriteFile(filepath.Join(tmpDir, "azureProfile.json"), data, 0600)
+		}
+
+		// Symlink token caches and configs so no re-login or network token refresh is needed
+		sharedFiles := []string{
+			"msal_token_cache.bin",
+			"msal_token_cache.json",
+			"accessTokens.json",
+			"clouds.config",
+			"versionCheck.json",
+		}
+		for _, f := range sharedFiles {
+			src := filepath.Join(sourceDir, f)
+			dst := filepath.Join(tmpDir, f)
+			if _, err := os.Stat(src); err == nil {
+				if err := os.Symlink(src, dst); err != nil {
+					if data, readErr := os.ReadFile(src); readErr == nil {
+						_ = os.WriteFile(dst, data, 0600)
+					}
+				}
+			}
+		}
+
+		// Symlink cliextensions directory into sandbox
+		srcExt := filepath.Join(sourceDir, "cliextensions")
+		dstExt := filepath.Join(tmpDir, "cliextensions")
+		if _, err := os.Stat(srcExt); err == nil {
+			_ = os.Symlink(srcExt, dstExt)
+		}
+	}
+}
+
+// prepareAzCmd builds an exec.Cmd configured with the ephemeral Azure CLI sandbox environment
+func (c *AzCliClient) prepareAzCmd(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "az", args...)
+	if c.sandboxDir != "" {
+		env := os.Environ()
+		env = append(env, "AZURE_CONFIG_DIR="+c.sandboxDir)
+		if c.extensionDir != "" {
+			env = append(env, "AZURE_EXTENSION_DIR="+c.extensionDir)
+		}
+		cmd.Env = env
+	}
+	return cmd
+}
+
+// Close removes the ephemeral sandbox directory
+func (c *AzCliClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sandboxDir != "" {
+		err := os.RemoveAll(c.sandboxDir)
+		c.sandboxDir = ""
+		return err
+	}
+	return nil
 }
 
 func (c *AzCliClient) GetProfile() config.Profile {
@@ -224,13 +317,13 @@ func (c *AzCliClient) ensureActiveSubscription(ctx context.Context, subID, tenan
 
 	args := []string{"account", "set", "--subscription", subID, "--only-show-errors"}
 
-	cmd := exec.CommandContext(ctx, "az", args...)
+	cmd := c.prepareAzCmd(ctx, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outStr := strings.TrimSpace(string(out))
 		if c.opts.OnAuthRequired != nil && (strings.Contains(outStr, "login") || strings.Contains(outStr, "AADSTS") || strings.Contains(outStr, "not found") || strings.Contains(outStr, "SubscriptionNotFound") || strings.Contains(outStr, "doesn't exist") || strings.Contains(outStr, "does not exist")) {
 			if loginErr := c.opts.OnAuthRequired(tenantID); loginErr == nil {
-				cmdRetry := exec.CommandContext(ctx, "az", args...)
+				cmdRetry := c.prepareAzCmd(ctx, args...)
 				retryOut, retryErr := cmdRetry.CombinedOutput()
 				if retryErr == nil {
 					c.activeSubscription = subID
@@ -287,7 +380,7 @@ func (c *AzCliClient) runAzQueryOnce(ctx context.Context, args []string) (*AzQue
 	// Azure CLI / Knack can properly resolve extension command groups (e.g. monitor log-analytics).
 	cmdArgs := append(append([]string{}, args...), "--only-show-errors")
 
-	cmd := exec.CommandContext(ctx, "az", cmdArgs...)
+	cmd := c.prepareAzCmd(ctx, cmdArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outStr := strings.TrimSpace(string(out))
@@ -915,6 +1008,7 @@ func parseOverallRequestTable(t *AzQueryTable, name string) model.RequestMetric 
 	idx2xx := dec.col("http_2xx", "http2xx")
 	idx4xx := dec.col("http_4xx", "http4xx")
 	idx5xx := dec.col("http_5xx", "http5xx")
+	idxLastSeen := dec.col("lastseen", "timestamp")
 
 	return model.RequestMetric{
 		Name:        name,
@@ -931,9 +1025,10 @@ func parseOverallRequestTable(t *AzQueryTable, name string) model.RequestMetric 
 			P95: dec.floatVal(row, idxP95, 8),
 			P99: dec.floatVal(row, idxP99, 9),
 		},
-		HTTP2xx: dec.int64Val(row, idx2xx, 11),
-		HTTP4xx: dec.int64Val(row, idx4xx, 12),
-		HTTP5xx: dec.int64Val(row, idx5xx, 13),
+		HTTP2xx:  dec.int64Val(row, idx2xx, 11),
+		HTTP4xx:  dec.int64Val(row, idx4xx, 12),
+		HTTP5xx:  dec.int64Val(row, idx5xx, 13),
+		LastSeen: dec.timeVal(row, idxLastSeen, 14),
 	}
 }
 

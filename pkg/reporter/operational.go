@@ -236,15 +236,7 @@ func PrintExplainTerminal(w io.Writer, res *domain.AnalysisResult, problem *doma
 		w = os.Stdout
 	}
 
-	servicePart := ""
-	if svc := resolveScopeServiceName(res.Scope); svc != "" {
-		servicePart = fmt.Sprintf(" · %s", svc)
-	}
-	subjPart := ""
-	if subject != "" {
-		subjPart = fmt.Sprintf(" · %s", subject)
-	}
-	header := fmt.Sprintf("%s%s%s · %s", res.Profile.DisplayName, servicePart, subjPart, res.Window.Label)
+	header := formatContextBanner(res.Profile, res.Scope, res.Window, subject)
 	fmt.Fprintf(w, "\n%s\n\n", header)
 
 	if problem == nil {
@@ -317,15 +309,8 @@ func PrintExplainMarkdown(w io.Writer, res *domain.AnalysisResult, problem *doma
 		w = os.Stdout
 	}
 
-	servicePart := ""
-	if svc := resolveScopeServiceName(res.Scope); svc != "" {
-		servicePart = fmt.Sprintf(" · %s", svc)
-	}
-	subjPart := ""
-	if subject != "" {
-		subjPart = fmt.Sprintf(" · %s", subject)
-	}
-	fmt.Fprintf(w, "# %s%s%s · %s\n\n", res.Profile.DisplayName, servicePart, subjPart, res.Window.Label)
+	header := formatContextBanner(res.Profile, res.Scope, res.Window, subject)
+	fmt.Fprintf(w, "# %s\n\n", header)
 
 	if problem == nil {
 		fmt.Fprintln(w, "No active problems detected for this subject.")
@@ -382,14 +367,11 @@ func PrintDeployTerminal(w io.Writer, res *domain.AnalysisResult, deployTimeLabe
 		w = os.Stdout
 	}
 
-	servicePart := ""
-	if svc := resolveScopeServiceName(res.Scope); svc != "" {
-		servicePart = fmt.Sprintf(" · %s", svc)
+	label := res.Window.Label
+	if deployTimeLabel != "" {
+		label = "deploy at " + deployTimeLabel
 	}
-	header := fmt.Sprintf("%s%s · deploy at %s", res.Profile.DisplayName, servicePart, deployTimeLabel)
-	if deployTimeLabel == "" {
-		header = fmt.Sprintf("%s%s · %s", res.Profile.DisplayName, servicePart, res.Window.Label)
-	}
+	header := formatContextBannerWithLabel(res.Profile, res.Scope, label)
 	fmt.Fprintf(w, "\n%s\n\n", header)
 
 	if res.State == domain.HealthStateUnknown {
@@ -442,14 +424,11 @@ func PrintDeployMarkdown(w io.Writer, res *domain.AnalysisResult, deployTimeLabe
 		w = os.Stdout
 	}
 
-	servicePart := ""
-	if svc := resolveScopeServiceName(res.Scope); svc != "" {
-		servicePart = fmt.Sprintf(" · %s", svc)
+	label := res.Window.Label
+	if deployTimeLabel != "" {
+		label = "deploy at " + deployTimeLabel
 	}
-	header := fmt.Sprintf("%s%s · deploy at %s", res.Profile.DisplayName, servicePart, deployTimeLabel)
-	if deployTimeLabel == "" {
-		header = fmt.Sprintf("%s%s · %s", res.Profile.DisplayName, servicePart, res.Window.Label)
-	}
+	header := formatContextBannerWithLabel(res.Profile, res.Scope, label)
 	fmt.Fprintf(w, "# %s\n\n", header)
 
 	if res.State == domain.HealthStateUnknown {
@@ -587,7 +566,15 @@ func resolveScopeServiceName(scope domain.ScopeContext) string {
 	return scope.Role
 }
 
-func formatContextBanner(prof domain.ProfileContext, scope domain.ScopeContext, win domain.WindowContext) string {
+func formatContextBanner(prof domain.ProfileContext, scope domain.ScopeContext, win domain.WindowContext, extras ...string) string {
+	label := win.Label
+	if label == "" {
+		label = "last 60m"
+	}
+	return formatContextBannerWithLabel(prof, scope, label, extras...)
+}
+
+func formatContextBannerWithLabel(prof domain.ProfileContext, scope domain.ScopeContext, label string, extras ...string) string {
 	name := prof.DisplayName
 	if name == "" {
 		name = prof.Name
@@ -595,15 +582,19 @@ func formatContextBanner(prof domain.ProfileContext, scope domain.ScopeContext, 
 	if name == "" {
 		name = "Production"
 	}
-	servicePart := ""
+	parts := []string{name}
 	if svc := resolveScopeServiceName(scope); svc != "" {
-		servicePart = fmt.Sprintf(" · %s", svc)
+		parts = append(parts, svc)
 	}
-	label := win.Label
-	if label == "" {
-		label = "last 60m"
+	for _, extra := range extras {
+		if extra != "" {
+			parts = append(parts, extra)
+		}
 	}
-	return fmt.Sprintf("%s%s · %s", name, servicePart, label)
+	if label != "" {
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, " · ")
 }
 
 func cleanSubject(raw string) string {

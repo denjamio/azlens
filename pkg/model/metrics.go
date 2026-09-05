@@ -32,6 +32,7 @@ type RequestMetric struct {
 	HTTP4xx   int64              `json:"http_4xx,omitempty"`
 	HTTP5xx   int64              `json:"http_5xx,omitempty"`
 	Latency   LatencyPercentiles `json:"latency"`
+	LastSeen  time.Time          `json:"last_seen,omitempty"`
 }
 
 // DependencyMetric represents database or external API call metrics

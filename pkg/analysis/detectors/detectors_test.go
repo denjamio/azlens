@@ -107,14 +107,8 @@ func TestNewExceptionNoisePolicy(t *testing.T) {
 
 func TestAvailabilityFailureDetector(t *testing.T) {
 	snap := newTestSnapshot()
-	snap.Availability = []domain.AvailabilityMetric{
-		{
-			TestName:    "ping-check",
-			TotalTests:  100,
-			FailedTests: 15,
-			SuccessRate: 85.0,
-		},
-	}
+	snap.CurrentOverall.TotalCalls = 100
+	snap.CurrentOverall.HTTP5xx = 15
 
 	registry := detectors.NewDefaultRegistry(detectors.DefaultConfig())
 	findings := registry.Run(snap)

@@ -12,13 +12,10 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/denjamio/azlens/pkg/analysis"
-	"github.com/denjamio/azlens/pkg/analysis/detectors"
 	"github.com/denjamio/azlens/pkg/azure"
 	"github.com/denjamio/azlens/pkg/config"
 	"github.com/denjamio/azlens/pkg/domain"
 	"github.com/denjamio/azlens/pkg/reporter"
-	"github.com/denjamio/azlens/pkg/telemetry"
 )
 
 var (
@@ -131,33 +128,32 @@ into clear, actionable stories with supporting evidence and next actions.`,
 		}
 		windowLabel := formatWindowLabel(start, end)
 
-		builder := telemetry.NewSnapshotBuilder(rt.Client)
-		snapshot, err := builder.BuildSnapshot(ctx, rt.ProfileName, rt.Profile, start, end, windowLabel)
-		if err != nil && snapshot == nil {
+		res, err := runAnalysisPipeline(ctx, rt, start, end, windowLabel)
+		if err != nil {
 			return err
 		}
 
-		detCfg := detectors.ConfigFromThresholds(rt.Profile.Thresholds)
-
-		engine := analysis.NewEngine(detCfg)
-		res := engine.Analyze(snapshot)
-
 		out := cmd.OutOrStdout()
 		if rt.Output == "json" {
-			_ = reporter.PrintJSON(out, res)
+			_ = reporter.PrintJSON(out, res.Analysis)
 		} else if rt.Output == "markdown" || rt.Output == "md" {
-			reporter.PrintOperationalMarkdown(out, res)
+			reporter.PrintOperationalMarkdown(out, res.Analysis)
 		} else {
-			reporter.PrintOperationalTerminal(out, res)
+			reporter.PrintOperationalTerminal(out, res.Analysis)
 		}
 
-		switch res.State {
+		switch res.Analysis.State {
 		case domain.HealthStateDegraded:
-			return newActionableProblemError("%d problem(s) need attention", len(res.Problems))
+			return newActionableProblemError("%d problem(s) need attention", len(res.Analysis.Problems))
 		case domain.HealthStateUnknown:
 			return newUnknownHealthError("insufficient visibility to determine health")
 		default:
 			return nil
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if rt, ok := cmd.Context().Value(runtimeContextKey{}).(*appRuntime); ok && rt != nil {
+			closeClient(rt.Client)
 		}
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
