@@ -33,6 +33,7 @@ linters:
         - (*os.File).Close
         - (io.Closer).Close
         - (*compress/gzip.Reader).Close
+        - (*archive/zip.ReadCloser).Close
 
 formatters:
   enable:

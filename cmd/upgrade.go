@@ -280,7 +280,7 @@ func extractBinary(assetPath, assetName string, destFile *os.File) error {
 		if err != nil {
 			return err
 		}
-		defer zr.Close()
+		defer func() { _ = zr.Close() }()
 		for _, f := range zr.File {
 			baseName := filepath.Base(f.Name)
 			if baseName == "azlens" || baseName == "azlens.exe" {
@@ -288,7 +288,7 @@ func extractBinary(assetPath, assetName string, destFile *os.File) error {
 				if err != nil {
 					return err
 				}
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				_, err = io.Copy(destFile, rc)
 				return err
 			}

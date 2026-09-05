@@ -460,4 +460,3 @@ func TestBuilderDynamicEndpoints(t *testing.T) {
 		t.Errorf("expected default /healthz to be preserved, got: %s", q)
 	}
 }
-

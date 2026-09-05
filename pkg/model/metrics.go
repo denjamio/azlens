@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-
 // LatencyPercentiles contains calculated percentiles in milliseconds
 type LatencyPercentiles struct {
 	Min float64 `json:"min"`

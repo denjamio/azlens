@@ -569,4 +569,3 @@ func TestMergeDynamicFilters(t *testing.T) {
 		t.Errorf("expected combined IgnoredTypes, got %v", mergedExc.IgnoredTypes)
 	}
 }
-
