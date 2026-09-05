@@ -37,12 +37,18 @@ func (p *Profile) Validate() []ValidationIssue {
 	}
 
 	// 2. Logs database check (mandatory multi-tenancy)
-	if strings.TrimSpace(p.Target.Logs.Database) == "" {
+	hasDatabase := strings.TrimSpace(p.Target.Logs.Database) != ""
+	if !hasDatabase && p.Target.Service != "" {
+		if sDef, ok := p.Target.Services[p.Target.Service]; ok && strings.TrimSpace(sDef.Database) != "" {
+			hasDatabase = true
+		}
+	}
+	if !hasDatabase {
 		issues = append(issues, ValidationIssue{
-			Field:    "shared.logs.database",
+			Field:    "service.database",
 			Severity: SeverityError,
-			Message:  "Logs database (`logs.database`) is not configured. Database is mandatory to ensure tenant isolation.",
-			Hint:     "Set 'shared.logs.database: <dbname>' (e.g. 'backend_ror') in your configuration.",
+			Message:  "Database is not configured for the active service or in shared logs. Database is mandatory to ensure tenant isolation.",
+			Hint:     "Set 'database: <dbname>' under the service in 'shared.services.<service>' or in 'shared.logs.database'.",
 		})
 	}
 

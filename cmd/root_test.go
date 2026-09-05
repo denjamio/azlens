@@ -25,6 +25,7 @@ func resetRootFlags() {
 	inspectLimit = config.DefaultLimit
 	inspectDepType = "all"
 	inspectSlowLogsGrouped = false
+	inspectSlowQueriesRaw = false
 	deployAtTimeFlag = ""
 	RootCmd.SetArgs(nil)
 	RootCmd.SetOut(nil)
@@ -193,23 +194,38 @@ func TestInspectSlowLogsCommand(t *testing.T) {
 	resetRootFlags()
 	defer resetRootFlags()
 
-	// slow-logs must be registered directly under inspectCmd as its own verb
+	// slow-queries must be registered directly under inspectCmd, with slow-logs and queries as aliases
 	found := false
 	for _, c := range inspectCmd.Commands() {
-		if c.Name() == "slow-logs" {
+		if c.Name() == "slow-queries" {
 			found = true
+			if !c.HasAlias("slow-logs") || !c.HasAlias("queries") {
+				t.Errorf("expected slow-queries to have aliases slow-logs and queries, got: %v", c.Aliases)
+			}
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected 'slow-logs' to be a subcommand of 'inspect'")
+		t.Fatalf("expected 'slow-queries' to be a subcommand of 'inspect'")
 	}
 
 	buf := new(bytes.Buffer)
 	RootCmd.SetOut(buf)
+	RootCmd.SetArgs([]string{"inspect", "slow-queries", "1h", "--mock"})
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("expected 'azlens inspect slow-queries 1h --mock' to succeed, got: %v", err)
+	}
+
+	buf.Reset()
 	RootCmd.SetArgs([]string{"inspect", "slow-logs", "1h", "--mock"})
 	if err := RootCmd.Execute(); err != nil {
-		t.Fatalf("expected 'azlens inspect slow-logs 1h --mock' to succeed, got: %v", err)
+		t.Fatalf("expected 'azlens inspect slow-logs 1h --mock' alias to succeed, got: %v", err)
+	}
+
+	buf.Reset()
+	RootCmd.SetArgs([]string{"inspect", "queries", "1h", "--mock"})
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("expected 'azlens inspect queries 1h --mock' alias to succeed, got: %v", err)
 	}
 }
 
@@ -322,6 +338,8 @@ func TestAllInspectSubcommandsWithMock(t *testing.T) {
 		{"inspect", "queries", "30m", "--mock"},
 		{"inspect", "slow-logs", "30m", "--mock"},
 		{"inspect", "slow-logs", "30m", "--grouped", "--mock"},
+		{"inspect", "slow-queries", "30m", "--mock"},
+		{"inspect", "slow-queries", "30m", "--raw", "--mock"},
 		{"inspect", "n-plus-one", "30m", "--mock"},
 		{"inspect", "breakdown", "30m", "--mock"},
 		{"inspect", "errors", "30m", "--mock"},

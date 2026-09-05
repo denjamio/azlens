@@ -208,7 +208,7 @@ into clear, actionable stories with supporting evidence and next actions.`,
 		}
 		prof.Target.Service = targetService
 
-		// Resolve role_name and pod from declared services map or fallback ad-hoc
+		// Resolve role_name, pod, and database from declared services map or fallback ad-hoc
 		if targetService != "" {
 			if sDef, ok := prof.Target.Services[targetService]; ok {
 				role := sDef.RoleName
@@ -219,12 +219,12 @@ into clear, actionable stories with supporting evidence and next actions.`,
 
 				if sDef.Pod != "" {
 					prof.Target.Pod = sDef.Pod
-				} else {
-					prof.Target.Pod = targetService
+				}
+				if sDef.Database != "" {
+					prof.Target.Logs.Database = sDef.Database
 				}
 			} else {
 				prof.Target.RoleName = targetService
-				prof.Target.Pod = targetService
 			}
 		}
 

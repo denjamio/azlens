@@ -18,6 +18,7 @@ var (
 	inspectLimit           int
 	inspectDepType         string
 	inspectSlowLogsGrouped bool
+	inspectSlowQueriesRaw  bool
 )
 
 // resolveInspectLimit resolves the row limit: CLI flag > config defaults > system default
@@ -62,7 +63,7 @@ func runInspectQuery[T any](
 // Question answered: "Show me the evidence."
 var inspectCmd = &cobra.Command{
 	Use:   "inspect <view> [window]",
-	Short: "Inspect operational evidence: endpoints, dependencies, queries, slow-logs, n-plus-one, breakdown, errors, deprecations",
+	Short: "Inspect operational evidence: endpoints, dependencies, slow-queries, n-plus-one, breakdown, errors, deprecations",
 	Long: `Inspect provides direct operational visibility into the underlying telemetry
 driving AzLens analysis. Views represent inspectable operational components, ordered
 by operational impact rather than raw metrics alone.
@@ -70,8 +71,7 @@ by operational impact rather than raw metrics alone.
 Views:
   endpoints     - API endpoints and routes with latency percentiles (P50, P90, P95, P99) and error rates
   dependencies  - External services, databases, Redis, and HTTP dependency calls
-  queries       - Database queries and slow log statements by latency impact
-  slow-logs     - Database engine slow query logs (MySqlSlowLogs in Log Analytics)
+  slow-queries  - Database engine slow query logs grouped by SQL fingerprint (aliases: queries, slow-logs; use --raw for individual executions)
   n-plus-one    - Detect endpoints with excessive SQL calls per request (N+1 queries)
   breakdown     - Endpoint latency breakdown across Database, External APIs, Cache, and App Code
   errors        - Grouped exceptions, HTTP 5xx errors, and affected endpoints
@@ -107,47 +107,44 @@ var inspectDependenciesCmd = &cobra.Command{
 	},
 }
 
-var inspectQueriesCmd = &cobra.Command{
-	Use:   "queries [duration]",
-	Short: "Inspect database queries and slow logs by latency impact",
-	Args:  cobra.MaximumNArgs(1),
+var inspectSlowQueriesCmd = &cobra.Command{
+	Use:     "slow-queries [duration]",
+	Aliases: []string{"queries", "slow-logs"},
+	Short:   "Inspect database engine slow query logs (MySqlSlowLogs) grouped by SQL fingerprint",
+	Long: `Inspect database engine slow query logs (MySqlSlowLogs in Log Analytics).
+By default, slow queries are aggregated by normalized SQL fingerprint: execution count,
+average/max/total duration, and rows examined. Use --raw to inspect individual slowest
+query execution instances.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		limit := resolveInspectLimit(cmd)
 		rt := runtimeFrom(cmd)
-		if rt.Profile.Target.Logs.Database != "" {
+		dbName := rt.Profile.Target.Logs.Database
+
+		// If user requested raw individual executions
+		if inspectSlowQueriesRaw {
 			return runInspectQuery(cmd, args, "slow query logs",
+				func(ctx context.Context, start, end time.Time) ([]model.SlowLogEntry, error) {
+					return rt.Client.QueryMySQLSlowLogs(ctx, start, end, dbName, limit)
+				},
+				reporter.PrintSlowLogsTable, reporter.PrintSlowLogsMarkdown)
+		}
+
+		// Default (and when --grouped is passed): deterministic fingerprint aggregation
+		if dbName != "" {
+			return runInspectQuery(cmd, args, "grouped slow query logs",
 				func(ctx context.Context, start, end time.Time) ([]model.SlowLogGroup, error) {
-					return rt.Client.QueryMySQLSlowLogsGrouped(ctx, start, end, rt.Profile.Target.Logs.Database, limit)
+					return rt.Client.QueryMySQLSlowLogsGrouped(ctx, start, end, dbName, limit)
 				},
 				reporter.PrintSlowLogsGroupTable, reporter.PrintSlowLogsGroupMarkdown)
 		}
+
+		// Fallback to App Insights SQL dependencies if database is not configured
 		return runInspectQuery(cmd, args, "database queries",
 			func(ctx context.Context, start, end time.Time) ([]model.DependencyMetric, error) {
 				return rt.Client.QuerySlowDependencies(ctx, start, end, "SQL", limit)
 			},
 			reporter.PrintDependenciesTable, reporter.PrintDependenciesMarkdown)
-	},
-}
-
-var inspectSlowLogsCmd = &cobra.Command{
-	Use:   "slow-logs [duration]",
-	Short: "Inspect database engine slow query logs (MySqlSlowLogs)",
-	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		limit := resolveInspectLimit(cmd)
-		dbName := runtimeFrom(cmd).Profile.Target.Logs.Database
-		if inspectSlowLogsGrouped {
-			return runInspectQuery(cmd, args, "grouped slow query logs",
-				func(ctx context.Context, start, end time.Time) ([]model.SlowLogGroup, error) {
-					return runtimeFrom(cmd).Client.QueryMySQLSlowLogsGrouped(ctx, start, end, dbName, limit)
-				},
-				reporter.PrintSlowLogsGroupTable, reporter.PrintSlowLogsGroupMarkdown)
-		}
-		return runInspectQuery(cmd, args, "slow query logs",
-			func(ctx context.Context, start, end time.Time) ([]model.SlowLogEntry, error) {
-				return runtimeFrom(cmd).Client.QueryMySQLSlowLogs(ctx, start, end, dbName, limit)
-			},
-			reporter.PrintSlowLogsTable, reporter.PrintSlowLogsMarkdown)
 	},
 }
 
@@ -215,12 +212,12 @@ func init() {
 		return []string{"SQL", "HTTP", "Redis", "Cosmos", "all"}, cobra.ShellCompDirectiveNoFileComp
 	})
 
-	inspectSlowLogsCmd.Flags().BoolVar(&inspectSlowLogsGrouped, "grouped", false, "Aggregate slow logs by normalized SQL fingerprint: execution count, average/max/total duration, and rows examined per query shape")
+	inspectSlowQueriesCmd.Flags().BoolVar(&inspectSlowQueriesRaw, "raw", false, "Inspect individual raw slow query log executions instead of grouped fingerprints")
+	inspectSlowQueriesCmd.Flags().BoolVar(&inspectSlowLogsGrouped, "grouped", true, "Aggregate slow logs by normalized SQL fingerprint (default)")
 
 	inspectCmd.AddCommand(inspectEndpointsCmd)
 	inspectCmd.AddCommand(inspectDependenciesCmd)
-	inspectCmd.AddCommand(inspectQueriesCmd)
-	inspectCmd.AddCommand(inspectSlowLogsCmd)
+	inspectCmd.AddCommand(inspectSlowQueriesCmd)
 	inspectCmd.AddCommand(inspectNPlusOneCmd)
 	inspectCmd.AddCommand(inspectBreakdownCmd)
 	inspectCmd.AddCommand(inspectErrorsCmd)

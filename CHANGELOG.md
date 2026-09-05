@@ -5,6 +5,18 @@ All notable changes to **AzLens** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-09-05
+
+### Added
+
+- **Per-Service Database Targeting (`shared.services.<name>.database`)**: Enabled assigning dedicated database names per microservice under `shared.services.<service>.database`, supporting architectures where distinct microservices connect to different databases on the same or separate servers, falling back to `shared.logs.database` when unspecified.
+
+### Changed
+
+- **Unified `slow-queries` Command with Deterministic Grouping**: Merged `azlens inspect queries` and `azlens inspect slow-logs` into `azlens inspect slow-queries [window]`. Kept deterministic SQL fingerprint aggregation as the default view (reporting execution counts, average/max/total latency, and rows examined), with `--raw` available for inspecting individual slowest execution instances. Preserved `queries` and `slow-logs` as transparent aliases for backward compatibility.
+- **Removed Overly Restrictive Automatic Pod Defaulting**: Fixed an issue where targeting a service without an explicit `pod:` configuration defaulted `Target.Pod` to the service name, inadvertently injecting `cloud_RoleInstance has '<service>'` filters into KQL and discarding all telemetry when pod names or instance IDs did not match the service key. Pod scoping is now strictly applied only when explicitly defined.
+- **Case-Insensitive SQL Type Taxonomy (`in~`) in N+1 & Latency Breakdown**: Updated KQL joins in `BuildFanoutSummary` and `BuildLatencyBreakdown` to use case-insensitive `type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')`, preventing case mismatch filtering in MySQL and PostgreSQL dependencies.
+
 ## [1.1.4] - 2026-09-05
 
 ### Fixed

@@ -54,12 +54,14 @@ type LogsConfig struct {
 // override the shared configuration.
 func BoolPtr(b bool) *bool { return &b }
 
-// ServiceDef maps a service name to its Application Insights targeting dimensions:
+// ServiceDef maps a service name to its Application Insights and database targeting dimensions:
 // - role_name: exact cloud_RoleName in Application Insights
 // - pod: cloud_RoleInstance token base (pod name without deployment hash)
+// - database: target database name for database slow logs (Db in MySqlSlowLogs)
 type ServiceDef struct {
 	RoleName string `yaml:"role_name,omitempty" json:"role_name,omitempty"`
 	Pod      string `yaml:"pod,omitempty" json:"pod,omitempty"`
+	Database string `yaml:"database,omitempty" json:"database,omitempty"`
 }
 
 // TargetConfig encapsulates telemetry destination and filter criteria.

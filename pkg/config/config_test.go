@@ -437,3 +437,61 @@ func TestResolveProfilePrecedence(t *testing.T) {
 		t.Fatalf("expected error when multiple profiles exist without selection, got nil")
 	}
 }
+
+func TestServiceDatabaseConfiguration(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "azlens-svc-db-*.yaml")
+	if err != nil {
+		t.Fatalf("failed creating temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	yamlContent := `
+version: "1.0"
+defaults:
+  profile: prod
+  service: backend
+
+shared:
+  insights:
+    name: "app-shared"
+  logs:
+    workspace_id: "ws-123"
+    database: "default_db"
+  services:
+    backend:
+      role_name: "msw-egm-backend-ror"
+      database: "backend_ror"
+    auth:
+      role_name: "auth-service"
+      database: "auth_db"
+    legacy:
+      role_name: "legacy-service"
+
+profiles:
+  prod:
+    name: "Production"
+`
+	if err := os.WriteFile(tmpFile.Name(), []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed writing temp file: %v", err)
+	}
+
+	cfg, err := LoadConfig(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("failed loading config: %v", err)
+	}
+
+	prod, err := cfg.GetProfile("prod")
+	if err != nil {
+		t.Fatalf("failed getting prod profile: %v", err)
+	}
+
+	if prod.Target.Services["backend"].Database != "backend_ror" {
+		t.Errorf("expected backend service database 'backend_ror', got %q", prod.Target.Services["backend"].Database)
+	}
+	if prod.Target.Services["auth"].Database != "auth_db" {
+		t.Errorf("expected auth service database 'auth_db', got %q", prod.Target.Services["auth"].Database)
+	}
+	if prod.Target.Services["legacy"].Database != "" {
+		t.Errorf("expected legacy service database '', got %q", prod.Target.Services["legacy"].Database)
+	}
+}

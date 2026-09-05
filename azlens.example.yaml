@@ -8,18 +8,18 @@
 #    (typically insights.name and logs.workspace_id).
 #
 # 2. MULTI-TENANCY & SERVICE ISOLATION:
-#    - Multi-tenancy requires 'shared.logs.database' and an active service.
+#    - Multi-tenancy requires an active database (configured per service or in shared.logs.database) and an active service.
 #    - Queries enforce tenant isolation on Log Analytics (database) and App Insights (role_name).
 #    - Application queries require a role_name filter; database queries require a database filter.
 #
 # 3. SERVICE CATALOG:
 #    - 'shared.services' maps logical service names to physical telemetry targets:
 #        role_name: EXACT cloud_RoleName in Application Insights
-#        pod:       cloud_RoleInstance base token without the dynamic replica hash
+#        pod:       (optional) cloud_RoleInstance base token without the dynamic replica hash
+#        database:  (optional) per-service target database for slow logs (Db in MySqlSlowLogs)
 #    - 'defaults.service' specifies the default active service.
 #    - CLI: target any service with '-s <name>' or '--service <name>'.
-#    - Ad-hoc fallback: if '-s <name>' is not defined in services, role_name and pod
-#      both default to '<name>'.
+#    - Ad-hoc fallback: if '-s <name>' is not defined in services, role_name defaults to '<name>'.
 #
 # 4. AZURE SESSIONS & SCRIPTING:
 #    - azlens delegates authentication to the Azure CLI ('az').
@@ -50,12 +50,15 @@ shared:
     checkout:
       role_name: checkout-service
       pod: checkout-app
+      database: checkout_db
     orders:
       role_name: order-service
       pod: order-app
+      database: orders_db
     billing:
       role_name: billing-service
       pod: billing-worker
+      database: billing_db
 
   thresholds:
     p95_latency_warn_pct: 15.0

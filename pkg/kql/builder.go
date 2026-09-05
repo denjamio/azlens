@@ -336,7 +336,7 @@ func (b *QueryBuilder) BuildFanoutSummary() TargetQuery {
 	q := base + fmt.Sprintf(`| where success == true
 | join kind=inner (
     dependencies%s
-    | where type in ('SQL', 'mysql', 'PostgreSQL', 'Azure SQL', 'SqlServer')
+    | where type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')
     | summarize SqlCalls = count(), SqlDuration = sum(duration) by operation_Id
 ) on operation_Id
 | summarize 
@@ -366,7 +366,7 @@ func (b *QueryBuilder) BuildLatencyBreakdown() TargetQuery {
 	q := base + fmt.Sprintf(`| join kind=leftouter (
     dependencies%s
     | summarize 
-        SqlTime = sumif(duration, type in ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer')),
+        SqlTime = sumif(duration, type in~ ('SQL', 'mysql', 'MySQL', 'PostgreSQL', 'postgres', 'Azure SQL', 'SqlServer', 'SQL Server')),
         RedisTime = sumif(duration, type has 'redis'),
         HttpExtTime = sumif(duration, type == 'HTTP')
       by operation_Id

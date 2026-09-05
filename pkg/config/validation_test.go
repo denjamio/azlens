@@ -34,7 +34,7 @@ func TestProfileValidation(t *testing.T) {
 		if iss.Field == "insights.name" && iss.Severity == SeverityError {
 			hasAppErr = true
 		}
-		if iss.Field == "shared.logs.database" && iss.Severity == SeverityError {
+		if (iss.Field == "shared.logs.database" || iss.Field == "service.database") && iss.Severity == SeverityError {
 			hasDatabaseErr = true
 		}
 		if iss.Field == "service" && iss.Severity == SeverityError {
@@ -56,5 +56,28 @@ func TestProfileValidation(t *testing.T) {
 	}
 	if !hasThresholdErr {
 		t.Errorf("expected error for invalid latency threshold")
+	}
+}
+
+func TestProfileValidationWithServiceDatabase(t *testing.T) {
+	prof := Profile{
+		Name: "TestWithServiceDb",
+		Target: TargetConfig{
+			Insights: InsightsConfig{Name: "app-test"},
+			Service:  "backend",
+			Services: map[string]ServiceDef{
+				"backend": {
+					RoleName: "msw-egm-backend-ror",
+					Database: "backend_ror",
+				},
+			},
+		},
+	}
+
+	issues := prof.Validate()
+	for _, iss := range issues {
+		if (iss.Field == "service.database" || iss.Field == "shared.logs.database") && iss.Severity == SeverityError {
+			t.Errorf("expected database on service to satisfy validation, got issue: %+v", iss)
+		}
 	}
 }
