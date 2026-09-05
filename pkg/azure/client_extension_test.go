@@ -53,8 +53,8 @@ func TestMissingExtensionErrorGuidesWithHint(t *testing.T) {
 			name: "app insights",
 			profile: config.Profile{
 				Target: config.TargetConfig{
-					InsightsName: "app-shared-prod",
-					RoleName:     "order-service",
+					Insights: config.InsightsConfig{Name: "app-shared-prod"},
+					RoleName: "order-service",
 				},
 			},
 			run: func(c *AzCliClient, ctx context.Context) error {

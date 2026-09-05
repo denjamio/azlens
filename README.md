@@ -249,9 +249,11 @@ AzLens follows **Convention over Configuration**. The config file is the single 
 # AzLens Configuration Reference (azlens.yaml)
 # Explanatory comments are consolidated in this header block.
 # - defaults: operational defaults (profile, service, window, limit, output)
+# - shared: targets, credentials, services, and policies declared once
 # - shared.logs.database: MySQL slow query logs tenant database (required)
 # - shared.services: maps service names to role_name (cloud_RoleName) and pod (cloud_RoleInstance)
-# - profiles.*.target.insights_name: App Insights resource name or App ID GUID
+# - profiles.*.insights.name: App Insights resource name or App ID GUID
+# - profiles.*.logs.workspace_id: Log Analytics workspace Customer ID GUID
 # ─────────────────────────────────────────────────────────────────────────────
 
 version: "1.0"
@@ -265,7 +267,13 @@ defaults:
 
 # Shared targets: declared ONCE, inherited by all profiles
 shared:
+  insights:
+    resource_group: "rg-shared-prod"
+    directory_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    subscription_id: "11111111-aaaa-bbbb-cccc-111111111111"
   logs:
+    directory_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    subscription_id: "22222222-dddd-eeee-ffff-222222222222"
     database: "orders_db"
 
   # Service catalog: maps logical services to physical telemetry targets
@@ -290,17 +298,17 @@ shared:
 profiles:
   prod:
     name: "Production"
-    target:
-      insights_name: "app-insights-prod"
-      logs:
-        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
+    insights:
+      name: "app-insights-prod"
+    logs:
+      workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
 
   staging:
     name: "Staging"
-    target:
-      insights_name: "app-insights-staging"
-      logs:
-        workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
+    insights:
+      name: "app-insights-staging"
+    logs:
+      workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
 ```
 
 ### Singular Service Flag (`-s` / `--service`)

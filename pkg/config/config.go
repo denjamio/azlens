@@ -35,6 +35,7 @@ type Defaults struct {
 
 // InsightsConfig holds configuration for Application Insights.
 type InsightsConfig struct {
+	Name           string `yaml:"name,omitempty" json:"name,omitempty"`
 	ResourceGroup  string `yaml:"resource_group,omitempty" json:"resource_group,omitempty"`
 	DirectoryID    string `yaml:"directory_id,omitempty" json:"directory_id,omitempty"`
 	SubscriptionID string `yaml:"subscription_id,omitempty" json:"subscription_id,omitempty"`
@@ -66,7 +67,7 @@ type ServiceDef struct {
 //
 // Filter reference (what each option filters in KQL):
 //   - service           -> Resolved service name from shared.services or CLI (-s / --service)
-//   - insights_name     -> App Insights component name or App ID (GUID)
+//   - insights.name     -> App Insights component name or App ID (GUID)
 //   - role_name         -> cloud_RoleName (EXACT microservice name; =~ equality)
 //   - pod               -> cloud_RoleInstance (pod name WITHOUT the deployment hash; token match: has)
 //   - logs.database     -> Db (MySqlSlowLogs in Log Analytics; mandatory tenant filter)
@@ -75,7 +76,6 @@ type ServiceDef struct {
 //   - exclude_probes    -> kube-probe User-Agent + /healthz-style routes
 //   - custom_dimensions -> customDimensions['<key>'] =~ '<value>'
 type TargetConfig struct {
-	InsightsName     string                `yaml:"insights_name,omitempty" json:"insights_name,omitempty"`
 	Insights         InsightsConfig        `yaml:"insights,omitempty" json:"insights,omitempty"`
 	Logs             LogsConfig            `yaml:"logs,omitempty" json:"logs,omitempty"`
 	Service          string                `yaml:"service,omitempty" json:"service,omitempty"`
@@ -101,8 +101,8 @@ func (t TargetConfig) ExcludesProbes() bool { return t.ExcludeProbes != nil && *
 // duplication — profiles should only declare what differs per environment.
 func MergeTarget(shared, override TargetConfig) TargetConfig {
 	merged := shared
-	if override.InsightsName != "" {
-		merged.InsightsName = override.InsightsName
+	if override.Insights.Name != "" {
+		merged.Insights.Name = override.Insights.Name
 	}
 	if override.Insights.ResourceGroup != "" {
 		merged.Insights.ResourceGroup = override.Insights.ResourceGroup
@@ -167,13 +167,34 @@ func MergeTarget(shared, override TargetConfig) TargetConfig {
 	return merged
 }
 
-// Profile represents a specific project or environment telemetry configuration
+// Profile represents a specific project or environment telemetry configuration.
+// Telemetry targets (insights, logs, service, role_name, etc.) are inlined,
+// matching the shared structure, while explicit target: wrappers remain supported.
 type Profile struct {
 	Name   string       `yaml:"name,omitempty" json:"name,omitempty"`
-	Target TargetConfig `yaml:"target,omitempty" json:"target,omitempty"`
+	Target TargetConfig `yaml:",inline" json:"target"`
 	// Per-profile operational overrides (window, since, limit, output)
 	Defaults   Defaults          `yaml:"defaults,omitempty" json:"defaults,omitempty"`
 	Thresholds ProfileThresholds `yaml:"thresholds,omitempty" json:"thresholds,omitempty"`
+}
+
+// UnmarshalYAML supports both omitted target (direct inlined insights and logs)
+// and explicit 'target:' wrappers.
+func (p *Profile) UnmarshalYAML(value *yaml.Node) error {
+	type rawProfile Profile
+	var raw rawProfile
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*p = Profile(raw)
+
+	var wrapper struct {
+		Target TargetConfig `yaml:"target"`
+	}
+	if err := value.Decode(&wrapper); err == nil {
+		p.Target = MergeTarget(p.Target, wrapper.Target)
+	}
+	return nil
 }
 
 // ProfileThresholds defines regression limits for the profile
@@ -420,29 +441,29 @@ shared:
     min_sample_calls: 5
 
 # Environment targets: only what differs per environment
-# - insights_name: App Insights resource name or App ID GUID
+# - insights.name: App Insights resource name or App ID GUID
 # - logs.workspace_id: Log Analytics workspace Customer ID GUID
 profiles:
   prod:
     name: "Production"
-    target:
-      insights_name: ""
-      logs:
-        workspace_id: ""
+    insights:
+      name: ""
+    logs:
+      workspace_id: ""
 
   staging:
     name: "Staging"
-    target:
-      insights_name: ""
-      logs:
-        workspace_id: ""
+    insights:
+      name: ""
+    logs:
+      workspace_id: ""
 
   dev:
     name: "Development"
-    target:
-      insights_name: ""
-      logs:
-        workspace_id: ""
+    insights:
+      name: ""
+    logs:
+      workspace_id: ""
 `
 
 // LoadConfig resolves and loads configuration from explicit path or default search paths

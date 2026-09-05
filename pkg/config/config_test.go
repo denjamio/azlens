@@ -23,10 +23,10 @@ defaults:
 profiles:
   checkout:
     name: "Checkout Service"
-    target:
-      insights_name: "app-checkout-prod"
-      service: "checkout-api"
-      role_name: "checkout-api"
+    insights:
+      name: "app-checkout-prod"
+    service: "checkout-api"
+    role_name: "checkout-api"
     thresholds:
       p95_latency_warn_pct: 18.0
       p95_latency_crit_pct: 35.0
@@ -49,8 +49,8 @@ profiles:
 		t.Fatalf("failed getting default profile: %v", err)
 	}
 
-	if prof.Target.RoleName != "checkout-api" {
-		t.Errorf("expected role_name 'checkout-api', got %v", prof.Target.RoleName)
+	if prof.Target.Insights.Name != "app-checkout-prod" {
+		t.Errorf("expected Insights.Name 'app-checkout-prod', got %v", prof.Target.Insights.Name)
 	}
 	if prof.Thresholds.LatencyCritPct != 35.0 {
 		t.Errorf("expected 35.0 crit threshold, got %f", prof.Thresholds.LatencyCritPct)
@@ -119,19 +119,18 @@ defaults:
 profiles:
   prod:
     name: "Production"
-    target:
-      insights_name: "app-shared-prod"
-      insights:
-        subscription_id: "sub-insights-123"
-      logs:
-        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
-        subscription_id: "sub-logs-456"
-        database: "backend_ror"
-      service: "order-service"
-      role_name: "order-service"
-      pod: "order-service"
-      exclude_synthetic: true
-      exclude_probes: true
+    insights:
+      name: "app-shared-prod"
+      subscription_id: "sub-insights-123"
+    logs:
+      workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
+      subscription_id: "sub-logs-456"
+      database: "backend_ror"
+    service: "order-service"
+    role_name: "order-service"
+    pod: "order-service"
+    exclude_synthetic: true
+    exclude_probes: true
 `
 	if err := os.WriteFile(tmpFile.Name(), []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed writing temp file: %v", err)
@@ -147,8 +146,8 @@ profiles:
 		t.Fatalf("failed getting profile: %v", err)
 	}
 
-	if prof.Target.InsightsName != "app-shared-prod" {
-		t.Errorf("expected Target.InsightsName 'app-shared-prod', got '%s'", prof.Target.InsightsName)
+	if prof.Target.Insights.Name != "app-shared-prod" {
+		t.Errorf("expected Target.Insights.Name 'app-shared-prod', got '%s'", prof.Target.Insights.Name)
 	}
 	if prof.Target.Insights.SubscriptionID != "sub-insights-123" {
 		t.Errorf("expected Target.Insights.SubscriptionID 'sub-insights-123', got '%s'", prof.Target.Insights.SubscriptionID)
@@ -216,21 +215,21 @@ shared:
 profiles:
   prod:
     name: "Production"
-    target:
-      insights_name: "app-shared-prod"
-      logs:
-        workspace_id: "ws-guid-prod"
+    insights:
+      name: "app-shared-prod"
+    logs:
+      workspace_id: "ws-guid-prod"
   staging:
     name: "Staging"
-    target:
-      insights_name: "app-shared-staging"
-      logs:
-        workspace_id: "ws-guid-staging"
-      service: "billing-service"
-      role_name: "billing-service"
-      exclude_probes: false
-      custom_dimensions:
-        team: "staging-oncall"
+    insights:
+      name: "app-shared-staging"
+    logs:
+      workspace_id: "ws-guid-staging"
+    service: "billing-service"
+    role_name: "billing-service"
+    exclude_probes: false
+    custom_dimensions:
+      team: "staging-oncall"
     thresholds:
       p95_latency_warn_pct: 25.0
 `
@@ -248,7 +247,7 @@ profiles:
 	if err != nil {
 		t.Fatalf("failed getting prod profile: %v", err)
 	}
-	if prod.Target.InsightsName != "app-shared-prod" || prod.Target.Logs.WorkspaceID != "ws-guid-prod" {
+	if prod.Target.Insights.Name != "app-shared-prod" || prod.Target.Logs.WorkspaceID != "ws-guid-prod" {
 		t.Errorf("expected prod resource names from profile, got: %+v", prod.Target)
 	}
 	if prod.Target.Insights.SubscriptionID != "sub-insights-shared" {
@@ -340,20 +339,40 @@ shared:
 profiles:
   prod:
     name: "Production"
-    target:
-      insights_name: "app-insights-canonical"
-      role_name: "checkout-service"
+    insights:
+      name: "app-insights-canonical"
+    role_name: "checkout-service"
 `
 	cfg := parseConfigTest(t, canonicalYAML)
 	prof, err := cfg.GetProfile("prod")
 	if err != nil {
 		t.Fatalf("failed getting prod profile: %v", err)
 	}
-	if prof.Target.InsightsName != "app-insights-canonical" {
-		t.Errorf("expected InsightsName 'app-insights-canonical', got %q", prof.Target.InsightsName)
+	if prof.Target.Insights.Name != "app-insights-canonical" {
+		t.Errorf("expected Insights.Name 'app-insights-canonical', got %q", prof.Target.Insights.Name)
 	}
 	if prof.Target.RoleName != "checkout-service" {
 		t.Errorf("expected RoleName 'checkout-service', got %q", prof.Target.RoleName)
+	}
+
+	// Also verify explicit target: wrapper works if provided
+	explicitTargetYAML := `
+version: "1.0"
+profiles:
+  prod:
+    name: "Production"
+    target:
+      insights:
+        name: "app-insights-explicit"
+      role_name: "checkout-service"
+`
+	cfgExplicit := parseConfigTest(t, explicitTargetYAML)
+	profExplicit, err := cfgExplicit.GetProfile("prod")
+	if err != nil {
+		t.Fatalf("failed getting prod profile: %v", err)
+	}
+	if profExplicit.Target.Insights.Name != "app-insights-explicit" {
+		t.Errorf("expected Insights.Name 'app-insights-explicit', got %q", profExplicit.Target.Insights.Name)
 	}
 }
 

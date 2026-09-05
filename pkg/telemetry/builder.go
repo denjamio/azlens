@@ -60,7 +60,7 @@ func (b *SnapshotBuilder) BuildSnapshot(
 	)
 
 	// Mark configured capabilities
-	if prof.Target.InsightsName != "" || prof.Target.Logs.WorkspaceID != "" {
+	if prof.Target.Insights.Name != "" || prof.Target.Logs.WorkspaceID != "" {
 		snapshot.ConfiguredCapabilities[domain.CapabilityRequests] = true
 		snapshot.ConfiguredCapabilities[domain.CapabilityDependencies] = true
 		snapshot.ConfiguredCapabilities[domain.CapabilityExceptions] = true

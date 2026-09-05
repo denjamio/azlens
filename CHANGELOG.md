@@ -19,14 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Target Insights Parameter Flattening (`insights_name`)**: Moved `target.insights.name` to top-level `target.insights_name` so it aligns directly with `service`, `role_name`, `pod`, and `database` parameters.
-- **Service Parameter Renaming (`role_name`)**: Renamed `role` to `role_name` across `shared.services`, `ServiceDef`, and `target` for unambiguous alignment with Azure Application Insights `cloud_RoleName`.
+- **Target Wrapper Omission & Symmetrical Profiles (`insights.name` & `logs.workspace_id`)**: Inlined `Profile.Target` to allow completely omitting the `target:` wrapper across profile definitions. Profiles now declare `insights.name` and `logs.workspace_id` directly, perfectly aligning with the symmetrical structure of `shared:` (`shared.insights` and `shared.logs`).
+- **Comprehensive Shared Authentication Examples**: Added full examples of `insights.resource_group`, `insights.directory_id`, `insights.subscription_id`, `logs.directory_id`, and `logs.subscription_id` under `shared` in documentation and configuration references.
+- **Service Parameter Renaming (`role_name`)**: Renamed `role` to `role_name` across `shared.services`, `ServiceDef`, and profiles for unambiguous alignment with Azure Application Insights `cloud_RoleName`.
 - **Strict Formatting & Comment Placement**: Standardized comments to reside exclusively at the top of configuration files or above definition blocks/fields, removing all trailing inline comments from definition lines in configuration templates, examples, and schemas.
 - **Mobile-Friendly Architecture Diagram**: Replaced GitHub-problematic Mermaid block with a responsive Unicode tree diagram that renders natively without JavaScript on GitHub Mobile (iOS and Android), desktop, and CLI terminals.
 
 ### Removed
 
-- **Removed Legacy Configuration Parameters & Fallbacks**: Removed legacy `role` (replaced by `role_name`), `insights.name` (replaced by `insights_name`), and the legacy `ExitCodeQuality` process exit code alias, eliminating all legacy compatibility branches in configuration schemas and validation.
+- **Removed Legacy Configuration Parameters & Fallbacks**: Removed legacy `role` (replaced by `role_name`), legacy `ExitCodeQuality` process exit code alias, and obsolete configuration parameters, eliminating all legacy compatibility branches in configuration schemas and validation.
 - **Purged `namespace` Dead Code**: Completely removed unused `target.logs.namespace` / `shared.logs.namespace` across the codebase, domain types, and configuration since AzLens exclusively inspects structured APM tables and MySQL slow logs, making `logs.database` the definitive Log Analytics tenant filter.
 - **Removed Deprecated Commands & Aliases**: Completely eliminated legacy commands `azlens top`, `azlens deploy-check`, and `azlens update`.
 - **Removed Kubernetes Infrastructure Stubs**: Removed `azlens inspect runtime` and unqueried infrastructure anomaly detectors (`WorkloadUnavailable`, `RestartBurst`, `OOMKilled`, `ResourceSaturation`), focusing AzLens strictly on the 5 genuine APM capabilities (`requests`, `dependencies`, `exceptions`, `availability`, `database_slow_logs`).

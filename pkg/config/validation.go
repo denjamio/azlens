@@ -27,12 +27,12 @@ func (p *Profile) Validate() []ValidationIssue {
 	var issues []ValidationIssue
 
 	// 1. App Insights check
-	if strings.TrimSpace(p.Target.InsightsName) == "" {
+	if strings.TrimSpace(p.Target.Insights.Name) == "" {
 		issues = append(issues, ValidationIssue{
-			Field:    "target.insights_name",
+			Field:    "insights.name",
 			Severity: SeverityError,
 			Message:  "Application Insights component is not configured.",
-			Hint:     "Configure 'target.insights_name' with your Azure App Insights resource name or App ID.",
+			Hint:     "Configure 'insights.name' with your Azure App Insights resource name or App ID.",
 		})
 	}
 

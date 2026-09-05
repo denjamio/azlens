@@ -46,7 +46,7 @@ var configProfilesCmd = &cobra.Command{
 				activeMark = color.CyanString("(default)")
 			}
 
-			insName := prof.Target.InsightsName
+			insName := prof.Target.Insights.Name
 			if insName == "" {
 				insName = "-"
 			}

@@ -49,8 +49,8 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 	prof := config.Profile{
 		Name: "Batch Test",
 		Target: config.TargetConfig{
-			InsightsName: "app-shared-pro",
 			Insights: config.InsightsConfig{
+				Name:           "app-shared-pro",
 				DirectoryID:    "dir-insights",
 				SubscriptionID: "sub-insights",
 			},
@@ -118,8 +118,8 @@ func TestQueryWindowMetricsBatched(t *testing.T) {
 func TestExecuteKQLBatchMixedBackendRejected(t *testing.T) {
 	prof := config.Profile{
 		Target: config.TargetConfig{
-			InsightsName: "app-shared-pro",
-			Logs:         config.LogsConfig{WorkspaceID: "workspace-guid"},
+			Insights: config.InsightsConfig{Name: "app-shared-pro"},
+			Logs:     config.LogsConfig{WorkspaceID: "workspace-guid"},
 		},
 	}
 

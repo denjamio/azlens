@@ -64,10 +64,10 @@ func checkRequiredAzExtensions(prof config.Profile) error {
 		return nil
 	}
 	needed := make(map[string]bool)
-	if strings.TrimSpace(prof.Target.InsightsName) != "" {
+	if strings.TrimSpace(prof.Target.Insights.Name) != "" {
 		needed["application-insights"] = true
 	}
-	if strings.TrimSpace(prof.Target.Logs.WorkspaceID) != "" || strings.TrimSpace(prof.Target.InsightsName) == "" {
+	if strings.TrimSpace(prof.Target.Logs.WorkspaceID) != "" || strings.TrimSpace(prof.Target.Insights.Name) == "" {
 		needed["log-analytics"] = true
 	}
 	var blocking []string
@@ -159,7 +159,7 @@ var doctorCmd = &cobra.Command{
 
 		// 2. Configured Backends Check
 		var backends []reporter.BackendStatus
-		if rt.Profile.Target.InsightsName != "" {
+		if rt.Profile.Target.Insights.Name != "" {
 			backends = append(backends, reporter.BackendStatus{
 				Name:      "Application Insights",
 				Available: true,

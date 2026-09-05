@@ -5,7 +5,7 @@
 # 1. SHARED TARGET:
 #    Declare ONCE in 'shared:' everything that does not vary across environments.
 #    Profiles inherit shared settings and override only what differs
-#    (typically insights_name and logs.workspace_id).
+#    (typically insights.name and logs.workspace_id).
 #
 # 2. MULTI-TENANCY & SERVICE ISOLATION:
 #    - Multi-tenancy requires 'shared.logs.database' and an active service.
@@ -70,17 +70,17 @@ shared:
 profiles:
   prod:
     name: "Production Microservices"
-    target:
-      insights_name: "app-shared-prod"
-      logs:
-        workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
+    insights:
+      name: "app-shared-prod"
+    logs:
+      workspace_id: "33333333-hhhh-iiii-jjjj-333333333333"
 
   staging:
     name: "Staging Environment"
-    target:
-      insights_name: "app-shared-staging"
-      logs:
-        workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
+    insights:
+      name: "app-shared-staging"
+    logs:
+      workspace_id: "44444444-aaaa-bbbb-cccc-444444444444"
     defaults:
       window: "30m"
       since: "15m"
@@ -93,7 +93,7 @@ profiles:
 
   dev:
     name: "Development Environment"
-    target:
-      insights_name: "app-shared-dev"
-      logs:
-        workspace_id: "55555555-eeee-ffff-dddd-555555555555"
+    insights:
+      name: "app-shared-dev"
+    logs:
+      workspace_id: "55555555-eeee-ffff-dddd-555555555555"

@@ -9,7 +9,7 @@ func TestProfileValidation(t *testing.T) {
 	prof := Profile{
 		Name: "Test",
 		Target: TargetConfig{
-			InsightsName:  "",
+			Insights:      InsightsConfig{Name: ""},
 			Logs:          LogsConfig{Database: ""},
 			Service:       "",
 			RoleName:      "",
@@ -33,7 +33,7 @@ func TestProfileValidation(t *testing.T) {
 	hasThresholdErr := false
 
 	for _, iss := range issues {
-		if iss.Field == "target.insights_name" && iss.Severity == SeverityError {
+		if iss.Field == "insights.name" && iss.Severity == SeverityError {
 			hasAppErr = true
 		}
 		if iss.Field == "shared.logs.database" && iss.Severity == SeverityError {
